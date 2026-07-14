@@ -36,7 +36,8 @@ import javax.imageio.stream.ImageInputStream;
 final class TextureBatchBuilder {
     private static final Set<String> IMAGE_EXTENSIONS = Set.of(
             "png", "jpg", "jpeg", "bmp", "gif", "wbmp", "webp", "tga");
-    private static final long ESTIMATED_BYTES_PER_PIXEL = 8L;
+    private static final long ESTIMATED_BUILD_BYTES_PER_PIXEL = 24L;
+    private static final long ESTIMATED_BLOB_READ_MULTIPLIER = 3L;
 
     private TextureBatchBuilder() {
     }
@@ -66,6 +67,7 @@ final class TextureBatchBuilder {
             }
 
             Map<BlobKey, BlobResult> blobs = new HashMap<>();
+            long unexpectedFailures = 0;
             for (int i = 0; i < groups.size(); i++) {
                 try {
                     BlobResult result = completion.take().get();
@@ -74,6 +76,7 @@ final class TextureBatchBuilder {
                         diagnostics.add(result.diagnostic());
                     }
                 } catch (ExecutionException error) {
+                    unexpectedFailures++;
                     Throwable cause = error.getCause() == null ? error : error.getCause();
                     diagnostics.add("Unexpected texture worker failure: " + cause.getMessage());
                 }
@@ -82,7 +85,7 @@ final class TextureBatchBuilder {
             TreeMap<String, TextureManifest.Entry> manifestEntries = new TreeMap<>();
             long cacheHitBlobs = 0;
             long builtBlobs = 0;
-            long failedBlobs = 0;
+            long failedBlobs = unexpectedFailures;
             long quarantinedBlobs = 0;
             long pixelBytes = 0;
             long blobBytes = 0;
@@ -91,7 +94,7 @@ final class TextureBatchBuilder {
                     cacheHitBlobs += result.cacheHit() ? 1 : 0;
                     builtBlobs += result.cacheHit() ? 0 : 1;
                     quarantinedBlobs += result.quarantined() ? 1 : 0;
-                    pixelBytes += result.texture().pixelBytes();
+                    pixelBytes += result.metadata().pixelBytes();
                     blobBytes += result.blobBytes();
                 } else {
                     failedBlobs++;
@@ -107,15 +110,15 @@ final class TextureBatchBuilder {
                 if (result == null || !result.success()) {
                     continue;
                 }
-                PreparedTexture texture = result.texture();
+                TextureMetadata metadata = result.metadata();
                 manifestEntries.put(candidate.logicalPath(), new TextureManifest.Entry(
-                        texture.sourceSha256(),
-                        texture.transformation(),
+                        metadata.sourceSha256(),
+                        metadata.transformation(),
                         result.blobRelativePath(),
-                        texture.uploadWidth(),
-                        texture.uploadHeight(),
-                        texture.channels(),
-                        texture.pixelBytes()));
+                        metadata.width(),
+                        metadata.height(),
+                        metadata.channels(),
+                        metadata.pixelBytes()));
             }
 
             TextureManifest manifest = new TextureManifest(index.profileFingerprint(), manifestEntries);
@@ -196,6 +199,8 @@ final class TextureBatchBuilder {
 
             boolean quarantined = false;
             if (Files.isRegularFile(blob)) {
+                long blobSize = Files.size(blob);
+                long reservation = budget.acquire(saturatedMultiply(blobSize, ESTIMATED_BLOB_READ_MULTIPLIER));
                 try {
                     PreparedTexture existing = PreparedTextureIO.read(blob);
                     if (existing.sourceSha256().equals(key.sourceSha256())
@@ -203,14 +208,16 @@ final class TextureBatchBuilder {
                         return BlobResult.success(
                                 key,
                                 relative,
-                                existing,
+                                metadata(existing),
                                 true,
                                 false,
-                                Files.size(blob));
+                                blobSize);
                     }
                     quarantined = quarantine(cacheRoot, blob, "identity-mismatch");
                 } catch (IOException error) {
                     quarantined = quarantine(cacheRoot, blob, "corrupt");
+                } finally {
+                    budget.release(reservation);
                 }
             }
 
@@ -219,7 +226,7 @@ final class TextureBatchBuilder {
                 Dimensions dimensions = probe(representative.source());
                 estimatedBytes = Math.multiplyExact(
                         Math.multiplyExact((long) dimensions.width(), dimensions.height()),
-                        ESTIMATED_BYTES_PER_PIXEL);
+                        ESTIMATED_BUILD_BYTES_PER_PIXEL);
             } catch (Exception error) {
                 return BlobResult.failure(
                         key,
@@ -244,7 +251,7 @@ final class TextureBatchBuilder {
                 return BlobResult.success(
                         key,
                         relative,
-                        texture,
+                        metadata(texture),
                         false,
                         quarantined,
                         Files.size(blob));
@@ -258,6 +265,16 @@ final class TextureBatchBuilder {
                 budget.release(reservation);
             }
         };
+    }
+
+    private static TextureMetadata metadata(PreparedTexture texture) {
+        return new TextureMetadata(
+                texture.sourceSha256(),
+                texture.transformation(),
+                texture.uploadWidth(),
+                texture.uploadHeight(),
+                texture.channels(),
+                texture.pixelBytes());
     }
 
     private static Dimensions probe(Path source) throws IOException {
@@ -299,6 +316,16 @@ final class TextureBatchBuilder {
                 return false;
             }
         }
+    }
+
+    private static long saturatedMultiply(long value, long multiplier) {
+        if (value <= 0) {
+            return 1;
+        }
+        if (value > Long.MAX_VALUE / multiplier) {
+            return Long.MAX_VALUE;
+        }
+        return value * multiplier;
     }
 
     private static String blobRelativePath(BlobKey key) {
@@ -373,10 +400,19 @@ final class TextureBatchBuilder {
     private record Dimensions(int width, int height) {
     }
 
+    private record TextureMetadata(
+            String sourceSha256,
+            PreparedTexture.Transformation transformation,
+            int width,
+            int height,
+            int channels,
+            int pixelBytes) {
+    }
+
     private record BlobResult(
             BlobKey key,
             String blobRelativePath,
-            PreparedTexture texture,
+            TextureMetadata metadata,
             boolean success,
             boolean cacheHit,
             boolean quarantined,
@@ -385,11 +421,11 @@ final class TextureBatchBuilder {
         static BlobResult success(
                 BlobKey key,
                 String relative,
-                PreparedTexture texture,
+                TextureMetadata metadata,
                 boolean cacheHit,
                 boolean quarantined,
                 long blobBytes) {
-            return new BlobResult(key, relative, texture, true, cacheHit, quarantined, blobBytes, null);
+            return new BlobResult(key, relative, metadata, true, cacheHit, quarantined, blobBytes, null);
         }
 
         static BlobResult failure(BlobKey key, String relative, boolean quarantined, String diagnostic) {
@@ -407,7 +443,7 @@ final class TextureBatchBuilder {
 
         synchronized long acquire(long requested) throws InterruptedException {
             long reservation = Math.max(1, Math.min(maximum, requested));
-            while (used + reservation > maximum) {
+            while (reservation > maximum - used) {
                 wait();
             }
             used += reservation;
