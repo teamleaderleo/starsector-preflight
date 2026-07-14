@@ -33,4 +33,33 @@ class ResourceIndexTest {
         assertThrows(IllegalArgumentException.class, () -> ResourceIndex.normalizeLogicalPath("/absolute"));
         assertThrows(IllegalArgumentException.class, () -> ResourceIndex.normalizeLogicalPath("C:\\absolute"));
     }
+
+    @Test
+    void rejectsProvidersOutsideResolutionOrder() {
+        List<ResourceIndex.Root> roots = List.of(
+                new ResourceIndex.Root("core", Path.of("core"), true),
+                new ResourceIndex.Root("alpha", Path.of("alpha"), false));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ResourceIndex(
+                        "fingerprint",
+                        roots,
+                        Map.of("data/example.json", List.of(
+                                new ResourceIndex.Provider(1, "data/example.json", 1, 1),
+                                new ResourceIndex.Provider(0, "data/example.json", 1, 1)))));
+    }
+
+    @Test
+    void rejectsUnknownProviderDuringDirectResolution() {
+        ResourceIndex index = new ResourceIndex(
+                "fingerprint",
+                List.of(new ResourceIndex.Root("core", Path.of("core"), true)),
+                Map.of("data/example.json", List.of(
+                        new ResourceIndex.Provider(0, "data/example.json", 1, 1))));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> index.resolve(new ResourceIndex.Provider(8, "data/example.json", 1, 1)));
+    }
 }
