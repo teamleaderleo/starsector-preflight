@@ -47,10 +47,15 @@ public final class ResourceIndex {
             if (value.isEmpty()) {
                 throw new IllegalArgumentException("Resource entry has no providers: " + key);
             }
+            int previousRoot = -1;
             for (Provider provider : value) {
                 if (provider.rootIndex() < 0 || provider.rootIndex() >= this.roots.size()) {
                     throw new IllegalArgumentException("Provider root index is out of range for " + key);
                 }
+                if (provider.rootIndex() < previousRoot) {
+                    throw new IllegalArgumentException("Provider roots are out of resolution order for " + key);
+                }
+                previousRoot = provider.rootIndex();
                 normalizeRelativePath(provider.relativePath());
             }
             List<Provider> prior = copy.put(key, value);
@@ -98,6 +103,9 @@ public final class ResourceIndex {
     }
 
     public Path resolve(Provider provider) {
+        if (provider.rootIndex() < 0 || provider.rootIndex() >= roots.size()) {
+            throw new IllegalArgumentException("Provider root index is out of range: " + provider.rootIndex());
+        }
         Root root = roots.get(provider.rootIndex());
         Path rootPath = root.path().toAbsolutePath().normalize();
         Path resolved = rootPath.resolve(provider.relativePath()).normalize();
@@ -108,14 +116,14 @@ public final class ResourceIndex {
     }
 
     public static String normalizeLogicalPath(String raw) {
-        return normalize(raw, true).toLowerCase(Locale.ROOT);
+        return normalize(raw).toLowerCase(Locale.ROOT);
     }
 
     public static String normalizeRelativePath(String raw) {
-        return normalize(raw, false);
+        return normalize(raw);
     }
 
-    private static String normalize(String raw, boolean lowercaseKey) {
+    private static String normalize(String raw) {
         if (raw == null || raw.isBlank()) {
             throw new IllegalArgumentException("Resource path is required");
         }
@@ -137,8 +145,7 @@ public final class ResourceIndex {
         if (segments.isEmpty()) {
             throw new IllegalArgumentException("Resource path is empty after normalization: " + raw);
         }
-        String normalized = String.join("/", new ArrayList<>(segments));
-        return lowercaseKey ? normalized.toLowerCase(Locale.ROOT) : normalized;
+        return String.join("/", new ArrayList<>(segments));
     }
 
     public record Root(String id, Path path, boolean core) {
