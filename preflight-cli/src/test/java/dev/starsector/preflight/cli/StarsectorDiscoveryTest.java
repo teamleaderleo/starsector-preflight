@@ -1,0 +1,73 @@
+package dev.starsector.preflight.cli;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class StarsectorDiscoveryTest {
+    @TempDir
+    Path temporaryDirectory;
+
+    @Test
+    void discoversMacApplicationBundle() throws Exception {
+        Path app = temporaryDirectory.resolve("Starsector.app");
+        Path executable = app.resolve("Contents/MacOS/JavaApplicationStub");
+        Files.createDirectories(executable.getParent());
+        Files.writeString(executable, "stub");
+        executable.toFile().setExecutable(true);
+
+        DiscoveryResult result = StarsectorDiscovery.discover(
+                Platform.MAC,
+                temporaryDirectory,
+                temporaryDirectory.resolve("elsewhere"),
+                Map.of(),
+                app,
+                null);
+
+        assertNotNull(result.selected());
+        assertEquals(executable.toAbsolutePath().normalize(), result.selected().launcher());
+    }
+
+    @Test
+    void prefersFastRenderingLauncher() throws Exception {
+        Path game = temporaryDirectory.resolve("game");
+        Files.createDirectories(game);
+        Path vanilla = Files.writeString(game.resolve("starsector.sh"), "#!/bin/sh\n");
+        Path fastRendering = Files.writeString(game.resolve("fr.sh"), "#!/bin/sh\n");
+        vanilla.toFile().setExecutable(true);
+        fastRendering.toFile().setExecutable(true);
+
+        DiscoveryResult result = StarsectorDiscovery.discover(
+                Platform.LINUX,
+                temporaryDirectory,
+                temporaryDirectory.resolve("elsewhere"),
+                Map.of(),
+                game,
+                null);
+
+        assertEquals(fastRendering.toAbsolutePath().normalize(), result.selected().launcher());
+        assertTrue(result.selected().score() > result.candidates().get(1).score());
+    }
+
+    @Test
+    void explicitWindowsBatchLauncherUsesCmd() throws Exception {
+        Path launcher = Files.writeString(temporaryDirectory.resolve("starsector.bat"), "@echo off\r\n");
+
+        DiscoveryResult result = StarsectorDiscovery.discover(
+                Platform.WINDOWS,
+                temporaryDirectory,
+                temporaryDirectory.resolve("elsewhere"),
+                Map.of(),
+                temporaryDirectory,
+                launcher);
+
+        assertEquals("cmd.exe", result.selected().command().get(0));
+        assertEquals(launcher.toAbsolutePath().normalize(), result.selected().launcher());
+    }
+}

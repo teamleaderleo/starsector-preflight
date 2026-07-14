@@ -29,19 +29,39 @@ public final class PreflightCli {
     }
 
     static int run(String[] args) throws Exception {
-        if (args.length < 2) {
+        if (args.length == 0
+                || "help".equals(args[0])
+                || "--help".equals(args[0])
+                || "-h".equals(args[0])) {
             usage();
-            return 2;
+            return args.length == 0 ? 2 : 0;
         }
 
         return switch (args[0]) {
-            case "fingerprint" -> fingerprint(Path.of(args[1]));
-            case "summarize" -> summarize(Path.of(args[1]), outputPath(args));
+            case "run" -> RunCommand.execute(CommandLine.parse(args, 1));
+            case "doctor" -> RunCommand.doctor(CommandLine.parse(args, 1));
+            case "install" -> InstallCommand.execute(CommandLine.parse(args, 1));
+            case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
+            case "summarize" -> summarizeCommand(args);
             default -> {
                 usage();
                 yield 2;
             }
         };
+    }
+
+    private static int requirePathCommand(String[] args, String name, PathCommand command) throws Exception {
+        if (args.length != 2) {
+            throw new IllegalArgumentException("Expected: " + name + " <path>");
+        }
+        return command.run(Path.of(args[1]));
+    }
+
+    private static int summarizeCommand(String[] args) throws IOException {
+        if (args.length < 2) {
+            throw new IllegalArgumentException("Expected: summarize <recording.jfr> [--json <report.json>]");
+        }
+        return summarize(Path.of(args[1]), outputPath(args));
     }
 
     private static int fingerprint(Path path) throws IOException {
@@ -59,7 +79,7 @@ public final class PreflightCli {
         throw new IllegalArgumentException("Expected: summarize <recording.jfr> [--json <report.json>]");
     }
 
-    private static int summarize(Path recording, Path output) throws IOException {
+    static int summarize(Path recording, Path output) throws IOException {
         TraceAccumulator trace = new TraceAccumulator();
         try (RecordingFile file = new RecordingFile(recording)) {
             while (file.hasMoreEvents()) {
@@ -84,8 +104,16 @@ public final class PreflightCli {
 
     private static void usage() {
         System.err.println("Usage:");
+        System.err.println("  preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [-- <launcher args>]");
+        System.err.println("  preflight doctor [--game <path>] [--launcher <path>]");
+        System.err.println("  preflight install [--game <path>] [--launcher <path>]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
+    }
+
+    @FunctionalInterface
+    private interface PathCommand {
+        int run(Path path) throws Exception;
     }
 
     private static final class TraceAccumulator {

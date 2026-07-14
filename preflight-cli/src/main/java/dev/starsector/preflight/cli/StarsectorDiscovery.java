@@ -1,0 +1,265 @@
+package dev.starsector.preflight.cli;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+
+final class StarsectorDiscovery {
+    private static final Set<String> EXACT_LAUNCHER_NAMES = Set.of(
+            "fr.sh", "fr.command", "fr.bat", "fr.cmd", "fr.exe",
+            "fast-rendering.sh", "fast-rendering.command", "fast-rendering.bat", "fast-rendering.cmd",
+            "starsector-fr.sh", "starsector-fr.command", "starsector-fr.bat", "starsector-fr.cmd",
+            "starsector.sh", "starsector.command", "starsector.bat", "starsector.cmd", "starsector.exe", "starsector");
+
+    private StarsectorDiscovery() {
+    }
+
+    static DiscoveryResult discover(
+            Platform platform,
+            Path home,
+            Path currentDirectory,
+            Map<String, String> environment,
+            Path explicitGame,
+            Path explicitLauncher) throws IOException {
+        List<String> diagnostics = new ArrayList<>();
+        Map<Path, LaunchTarget> targets = new LinkedHashMap<>();
+
+        if (explicitLauncher != null) {
+            Path launcher = explicitLauncher.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(launcher)) {
+                throw new IOException("Explicit launcher does not exist or is not a file: " + launcher);
+            }
+            Path root = explicitGame == null ? launcher.getParent() : explicitGame.toAbsolutePath().normalize();
+            LaunchTarget target = targetForLauncher(platform, root, launcher, 10_000, "--launcher");
+            targets.put(target.launcher(), target);
+        }
+
+        LinkedHashSet<Path> roots = new LinkedHashSet<>();
+        addRoot(roots, explicitGame);
+        addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_HOME"));
+        addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_DIR"));
+        addRoot(roots, currentDirectory);
+        addStandardRoots(roots, platform, home, environment);
+
+        for (Path root : roots) {
+            inspectRoot(platform, root, targets, diagnostics);
+        }
+
+        List<LaunchTarget> candidates = targets.values().stream()
+                .sorted(Comparator.comparingInt(LaunchTarget::score).reversed()
+                        .thenComparing(target -> target.launcher().toString()))
+                .toList();
+        LaunchTarget selected = candidates.isEmpty() ? null : candidates.get(0);
+        if (selected == null) {
+            diagnostics.add("No launcher found. Set STARSECTOR_HOME or use --game/--launcher.");
+        } else if (candidates.size() > 1 && candidates.get(1).score() == selected.score()) {
+            diagnostics.add("Multiple launchers received the same score; selected the lexicographically first path. Use --launcher to override.");
+        }
+        return new DiscoveryResult(selected, candidates, List.copyOf(diagnostics));
+    }
+
+    private static void inspectRoot(
+            Platform platform,
+            Path candidate,
+            Map<Path, LaunchTarget> targets,
+            List<String> diagnostics) {
+        Path root = candidate.toAbsolutePath().normalize();
+        if (!Files.exists(root)) {
+            return;
+        }
+        try {
+            if (Files.isRegularFile(root)) {
+                addTarget(targets, targetForLauncher(platform, root.getParent(), root, 500, "candidate file"));
+                return;
+            }
+            if (isAppBundle(root)) {
+                inspectAppBundle(platform, root, targets);
+            }
+            try (Stream<Path> paths = Files.walk(root, 3)) {
+                paths.filter(Files::isRegularFile)
+                        .filter(StarsectorDiscovery::looksLikeLauncher)
+                        .forEach(path -> addTarget(
+                                targets,
+                                targetForLauncher(platform, root, path, 0, "discovered under " + root)));
+            }
+            try (Stream<Path> children = Files.list(root)) {
+                children.filter(Files::isDirectory)
+                        .filter(StarsectorDiscovery::isAppBundle)
+                        .forEach(app -> inspectAppBundle(platform, app, targets));
+            }
+        } catch (IOException error) {
+            diagnostics.add("Could not inspect " + root + ": " + error.getMessage());
+        }
+    }
+
+    private static void inspectAppBundle(Platform platform, Path app, Map<Path, LaunchTarget> targets) {
+        Path macos = app.resolve("Contents").resolve("MacOS");
+        if (!Files.isDirectory(macos)) {
+            return;
+        }
+        try (Stream<Path> entries = Files.list(macos)) {
+            entries.filter(Files::isRegularFile).forEach(path -> {
+                int bonus = app.getFileName().toString().toLowerCase(Locale.ROOT).contains("fast") ? 70 : 40;
+                addTarget(targets, targetForLauncher(platform, app, path, bonus, "macOS app bundle"));
+            });
+        } catch (IOException ignored) {
+            // A later explicit override remains available.
+        }
+    }
+
+    private static LaunchTarget targetForLauncher(
+            Platform platform,
+            Path root,
+            Path launcher,
+            int baseScore,
+            String source) {
+        Path normalized = launcher.toAbsolutePath().normalize();
+        String name = normalized.getFileName().toString().toLowerCase(Locale.ROOT);
+        int score = baseScore;
+        if (name.equals("fr.sh") || name.equals("fr.command") || name.equals("fr.bat")
+                || name.equals("fr.cmd") || name.equals("fr.exe")) {
+            score += 130;
+        }
+        if (name.contains("fast") || name.contains("render")) {
+            score += 100;
+        }
+        if (name.contains("starsector")) {
+            score += 80;
+        }
+        if (Files.isExecutable(normalized)) {
+            score += 10;
+        }
+        if (platform == Platform.MAC && (name.endsWith(".command") || isInsideAppBundle(normalized))) {
+            score += 20;
+        }
+        if (platform == Platform.LINUX && (name.endsWith(".sh") || name.equals("starsector"))) {
+            score += 20;
+        }
+        if (platform == Platform.WINDOWS
+                && (name.endsWith(".exe") || name.endsWith(".bat") || name.endsWith(".cmd"))) {
+            score += 20;
+        }
+
+        List<String> command;
+        if (name.endsWith(".bat") || name.endsWith(".cmd")) {
+            command = List.of("cmd.exe", "/d", "/s", "/c", normalized.toString());
+        } else if ((name.endsWith(".sh") || name.endsWith(".command")) && !Files.isExecutable(normalized)) {
+            command = List.of("/bin/sh", normalized.toString());
+        } else {
+            command = List.of(normalized.toString());
+        }
+        Path workingDirectory = normalized.getParent();
+        return new LaunchTarget(
+                root.toAbsolutePath().normalize(),
+                normalized,
+                workingDirectory,
+                command,
+                launcherKind(name),
+                score,
+                source);
+    }
+
+    private static boolean looksLikeLauncher(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (EXACT_LAUNCHER_NAMES.contains(name)) {
+            return true;
+        }
+        if (!(name.endsWith(".sh") || name.endsWith(".command") || name.endsWith(".bat")
+                || name.endsWith(".cmd") || name.endsWith(".exe"))) {
+            return false;
+        }
+        return name.contains("starsector") || name.contains("fast") || name.startsWith("fr.")
+                || name.contains("render");
+    }
+
+    private static String launcherKind(String name) {
+        if (name.endsWith(".bat") || name.endsWith(".cmd")) {
+            return "windows-script";
+        }
+        if (name.endsWith(".sh") || name.endsWith(".command")) {
+            return "shell-script";
+        }
+        if (name.endsWith(".exe")) {
+            return "windows-executable";
+        }
+        return "executable";
+    }
+
+    private static boolean isAppBundle(Path path) {
+        return Files.isDirectory(path)
+                && path.getFileName() != null
+                && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".app");
+    }
+
+    private static boolean isInsideAppBundle(Path path) {
+        for (Path part : path) {
+            if (part.toString().toLowerCase(Locale.ROOT).endsWith(".app")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void addTarget(Map<Path, LaunchTarget> targets, LaunchTarget target) {
+        targets.merge(target.launcher(), target, (left, right) -> left.score() >= right.score() ? left : right);
+    }
+
+    private static void addStandardRoots(
+            Set<Path> roots,
+            Platform platform,
+            Path home,
+            Map<String, String> environment) {
+        if (home == null) {
+            return;
+        }
+        switch (platform) {
+            case MAC -> {
+                roots.add(Path.of("/Applications/Starsector.app"));
+                roots.add(Path.of("/Applications/starsector.app"));
+                roots.add(home.resolve("Applications/Starsector.app"));
+                roots.add(home.resolve("Applications/starsector.app"));
+                roots.add(home.resolve("Games/Starsector.app"));
+            }
+            case LINUX -> {
+                roots.add(home.resolve("starsector"));
+                roots.add(home.resolve("Starsector"));
+                roots.add(home.resolve("Games/starsector"));
+                roots.add(home.resolve("Games/Starsector"));
+                roots.add(home.resolve(".local/share/starsector"));
+                roots.add(Path.of("/opt/starsector"));
+            }
+            case WINDOWS -> {
+                addRoot(roots, child(environment.get("ProgramFiles"), "Starsector"));
+                addRoot(roots, child(environment.get("ProgramFiles(x86)"), "Starsector"));
+                addRoot(roots, child(environment.get("LOCALAPPDATA"), "Starsector"));
+                roots.add(home.resolve("Games/Starsector"));
+            }
+            case OTHER -> {
+            }
+        }
+    }
+
+    private static Path child(String parent, String child) {
+        return parent == null || parent.isBlank() ? null : Path.of(parent).resolve(child);
+    }
+
+    private static Path pathFromEnvironment(Map<String, String> environment, String name) {
+        String value = environment.get(name);
+        return value == null || value.isBlank() ? null : Path.of(value);
+    }
+
+    private static void addRoot(Set<Path> roots, Path path) {
+        if (path != null) {
+            roots.add(path);
+        }
+    }
+}

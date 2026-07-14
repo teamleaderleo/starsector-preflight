@@ -71,12 +71,20 @@ public final class PreflightAgent {
             if (recording.getState() == RecordingState.RUNNING) {
                 AgentStopping stopping = new AgentStopping();
                 stopping.commit();
-                recording.stop();
+                try {
+                    recording.stop();
+                } catch (IllegalStateException ignored) {
+                    // The JVM may stop the destination-backed recording concurrently during shutdown.
+                }
             }
             if (recording.getState() != RecordingState.CLOSED) {
                 recording.close();
             }
-            log("Wrote startup recording to " + destination);
+            if (Files.isRegularFile(destination)) {
+                log("Wrote startup recording to " + destination);
+            } else {
+                log("Recording ended without creating " + destination);
+            }
         } catch (Throwable error) {
             log("Failed to finish recording: " + error.getMessage());
         }
