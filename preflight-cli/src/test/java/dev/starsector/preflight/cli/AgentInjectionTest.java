@@ -12,8 +12,8 @@ class AgentInjectionTest {
     void preservesExistingOptionsAndAppendsOneAgent() {
         String value = AgentInjection.append(
                 "-Xmx4g -Dexample=true",
-                Path.of("/tmp/preflight.jar"),
-                Path.of("/tmp/startup.jfr"));
+                Path.of("preflight.jar"),
+                Path.of("startup.jfr"));
 
         assertTrue(value.startsWith("-Xmx4g -Dexample=true "));
         assertEquals(1, occurrences(value, "-javaagent:"));
@@ -22,12 +22,13 @@ class AgentInjectionTest {
 
     @Test
     void quotesAgentPathsContainingSpaces() {
+        Path agent = Path.of("preflight build", "preflight.jar").toAbsolutePath().normalize();
         String value = AgentInjection.append(
                 "",
-                Path.of("/tmp/preflight build/preflight.jar"),
-                Path.of("/tmp/startup trace.jfr"));
+                agent,
+                Path.of("startup trace.jfr"));
 
-        assertTrue(value.startsWith("-javaagent:\"/tmp/preflight build/preflight.jar\"="));
+        assertTrue(value.startsWith("-javaagent:\"" + agent + "\"="));
     }
 
     @Test
@@ -35,9 +36,9 @@ class AgentInjectionTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> AgentInjection.append(
-                        "-javaagent:/tmp/preflight.jar",
-                        Path.of("/tmp/preflight.jar"),
-                        Path.of("/tmp/startup.jfr")));
+                        "-javaagent:preflight.jar",
+                        Path.of("preflight.jar"),
+                        Path.of("startup.jfr")));
     }
 
     private static int occurrences(String text, String token) {
