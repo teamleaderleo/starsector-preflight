@@ -6,11 +6,12 @@ Preflight is designed to run without editing Starsector or Fast Rendering files.
 
 ```bash
 java -jar preflight.jar doctor
+java -jar preflight.jar scan
 java -jar preflight.jar run
 java -jar preflight.jar install
 ```
 
-`doctor` performs discovery and prints every candidate. `run` launches the selected candidate with trace capture. `install` copies the runnable JAR into the user's Preflight directory and creates a convenient platform launcher.
+`doctor` performs discovery and prints every candidate. `scan` writes a workload census for the enabled mod profile. `run` performs the same census, then launches the selected candidate with trace capture. `install` copies the runnable JAR into the user's Preflight directory and creates a convenient platform launcher.
 
 ## Discovery order
 
@@ -33,6 +34,30 @@ Use an explicit launcher whenever an unusual port or custom wrapper receives the
 java -jar preflight.jar run --launcher "/absolute/path/to/custom-launcher"
 ```
 
+## Enabled mod profile
+
+Preflight locates `mods/enabled_mods.json`, resolves each enabled ID through the installed mods' `mod_info.json`, and scans enabled directories in profile order.
+
+The resulting `profile.json` reports:
+
+- Enabled and missing mod IDs
+- Total files and compressed bytes
+- Images, sounds, JARs, loose Java source, and data-file totals
+- Per-extension and per-mod totals
+- Largest mods and assets
+- Duplicate logical paths and probable enabled-order winners
+- A profile fingerprint for comparing benchmark runs
+
+The duplicate-path result is an early census. The persistent resource index will later reproduce the complete Starsector lookup and merge rules.
+
+Run only the scan with:
+
+```bash
+java -jar preflight.jar scan --game "/path/to/game" --json profile.json
+```
+
+Normal launches scan automatically. `run --no-scan` disables it for one launch. Scan failures are reported and the game launch continues.
+
 ## Injection model
 
 Preflight passes one additional value to the child process through `JAVA_TOOL_OPTIONS`:
@@ -49,7 +74,8 @@ This environment change exists only for the launched child process. Preflight le
 
 Each run receives a directory containing:
 
-- `run.json` — selected launcher, command, Java version, timestamps, and exit code
+- `run.json` — selected launcher, command, Java version, timestamps, exit code, and profile report path
+- `profile.json` — enabled-mod workload census
 - `startup.jfr` — raw Java Flight Recorder data
 - `summary.json` — aggregate startup metrics
 

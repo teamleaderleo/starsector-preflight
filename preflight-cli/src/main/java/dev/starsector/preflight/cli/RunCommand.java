@@ -41,6 +41,7 @@ final class RunCommand {
         Path recording = runDirectory.resolve("startup.jfr");
         Path report = runDirectory.resolve("summary.json");
         Path metadata = runDirectory.resolve("run.json");
+        Path profile = runDirectory.resolve("profile.json");
         Path agentJar = SelfJar.locate();
         String javaToolOptions = AgentInjection.append(System.getenv("JAVA_TOOL_OPTIONS"), agentJar, recording);
 
@@ -52,8 +53,20 @@ final class RunCommand {
         }
 
         Files.createDirectories(runDirectory);
+        if (options.scan()) {
+            try {
+                System.out.println("Preflight is scanning the enabled mod profile...");
+                ProfileCensus.Result census = ProfileCensus.scan(target.installRoot());
+                Files.writeString(profile, census.toJson() + System.lineSeparator());
+                System.out.println("Preflight profile: " + profile);
+            } catch (Exception error) {
+                System.err.println("Preflight profile scan skipped: " + error.getMessage());
+            }
+        }
+
+        Path recordedProfile = Files.isRegularFile(profile) ? profile : null;
         Instant started = Instant.now();
-        writeMetadata(metadata, target, command, started, null, null);
+        writeMetadata(metadata, target, command, started, null, null, recordedProfile);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(target.workingDirectory().toFile());
@@ -63,7 +76,7 @@ final class RunCommand {
 
         int exitCode = builder.start().waitFor();
         Instant ended = Instant.now();
-        writeMetadata(metadata, target, command, started, ended, exitCode);
+        writeMetadata(metadata, target, command, started, ended, exitCode, recordedProfile);
 
         if (options.summarize() && Files.isRegularFile(recording)) {
             PreflightCli.summarize(recording, report);
@@ -143,7 +156,8 @@ final class RunCommand {
             List<String> command,
             Instant started,
             Instant ended,
-            Integer exitCode) throws IOException {
+            Integer exitCode,
+            Path profile) throws IOException {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("started", started);
         values.put("ended", ended);
@@ -154,6 +168,7 @@ final class RunCommand {
         values.put("launcher", target.launcher());
         values.put("launcherKind", target.kind());
         values.put("command", renderCommand(command));
+        values.put("profile", profile);
         Files.writeString(path, Json.object(values) + System.lineSeparator());
     }
 }
