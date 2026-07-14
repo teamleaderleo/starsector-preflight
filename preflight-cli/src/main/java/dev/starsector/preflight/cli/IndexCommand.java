@@ -3,6 +3,7 @@ package dev.starsector.preflight.cli;
 import dev.starsector.preflight.core.Json;
 import dev.starsector.preflight.core.ResourceIndex;
 import dev.starsector.preflight.core.ResourceIndexIO;
+import dev.starsector.preflight.core.ResourceIndexValidator;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,12 +18,13 @@ final class IndexCommand {
 
     static int execute(String[] args, int offset) throws Exception {
         if (offset >= args.length) {
-            throw new IllegalArgumentException("Expected: index <build|inspect|query> ...");
+            throw new IllegalArgumentException("Expected: index <build|inspect|query|validate> ...");
         }
         return switch (args[offset]) {
             case "build" -> build(parseBuild(args, offset + 1));
             case "inspect" -> inspect(requirePath(args, offset + 1, "index inspect <index.spfi>"));
             case "query" -> query(parseQuery(args, offset + 1));
+            case "validate" -> validate(requirePath(args, offset + 1, "index validate <index.spfi>"));
             default -> throw new IllegalArgumentException("Unknown index command: " + args[offset]);
         };
     }
@@ -100,6 +102,30 @@ final class IndexCommand {
         output.put("providers", outputProviders);
         System.out.println(Json.object(output));
         return 0;
+    }
+
+    private static int validate(Path indexFile) throws IOException {
+        ResourceIndex index = ResourceIndexIO.read(indexFile);
+        ResourceIndexValidator.Result result = ResourceIndexValidator.validate(index);
+        List<Map<String, Object>> problems = result.problems().stream().map(problem -> {
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("kind", problem.kind());
+            value.put("rootId", problem.rootId());
+            value.put("logicalPath", problem.logicalPath());
+            value.put("relativePath", problem.relativePath());
+            value.put("expected", problem.expected());
+            value.put("actual", problem.actual());
+            return value;
+        }).toList();
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("file", indexFile.toAbsolutePath().normalize());
+        output.put("valid", result.valid());
+        output.put("checkedProviders", result.checkedProviders());
+        output.put("invalidProviders", result.invalidProviders());
+        output.put("truncated", result.truncated());
+        output.put("problems", problems);
+        System.out.println(Json.object(output));
+        return result.valid() ? 0 : 5;
     }
 
     private static Map<String, Object> summary(ResourceIndex index, Path file) throws IOException {
