@@ -61,6 +61,27 @@ java -jar preflight.jar scan --game "/path/to/Starsector" --json profile.json
 
 Use `run --no-scan` to skip this step for a single launch.
 
+## Resource provider index
+
+Build a checksummed binary index of core and enabled-mod resource providers:
+
+```bash
+java -jar preflight.jar index build --game "/path/to/Starsector"
+```
+
+Inspect, query, or validate it without launching the game:
+
+```bash
+java -jar preflight.jar index inspect ~/.starsector-preflight/indexes/PROFILE.spfi
+java -jar preflight.jar index query ~/.starsector-preflight/indexes/PROFILE.spfi graphics/ships/example.png
+java -jar preflight.jar index query ~/.starsector-preflight/indexes/PROFILE.spfi graphics/ships/example.png --all
+java -jar preflight.jar index validate ~/.starsector-preflight/indexes/PROFILE.spfi
+```
+
+The index stores ordered providers, a direct winning provider, and complete negative lookup results. It uses atomic replacement and validates its version, bounds, path rules, provider ordering, and SHA-256 payload checksum when read. The validation command checks that roots and provider file metadata still match disk.
+
+See [resource provider index](docs/resource-index.md) for the format and current resolution semantics.
+
 ## Overrides
 
 Automatic discovery checks explicit arguments, `STARSECTOR_HOME`, `STARSECTOR_DIR`, the current directory, and common platform install locations.
@@ -133,6 +154,7 @@ Agent options are comma-separated. `dest64` is used internally for paths contain
 - [Architecture](docs/architecture.md)
 - [Benchmarking](docs/benchmarking.md)
 - [Automatic launch and discovery](docs/automatic-launch.md)
+- [Resource provider index](docs/resource-index.md)
 - [ADR 0001: measurement first](docs/adr/0001-measurement-first.md)
 
 ## Status
