@@ -43,6 +43,7 @@ public final class PreflightCli {
             case "install" -> InstallCommand.execute(CommandLine.parse(args, 1));
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
             case "index" -> IndexCommand.execute(args, 1);
+            case "texture" -> TextureCommand.execute(args, 1);
             case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
             case "summarize" -> summarizeCommand(args);
             default -> {
@@ -114,6 +115,10 @@ public final class PreflightCli {
         System.err.println("  preflight index inspect <index.spfi>");
         System.err.println("  preflight index query <index.spfi> <logical-path> [--all]");
         System.err.println("  preflight index validate <index.spfi>");
+        System.err.println("  preflight texture prepare <image> [--output <texture.spft>]");
+        System.err.println("  preflight texture inspect <texture.spft>");
+        System.err.println("  preflight texture verify <image> <texture.spft>");
+        System.err.println("  preflight texture benchmark <image> <texture.spft> [--runs <count>]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
