@@ -10,16 +10,16 @@ record CommandLine(
         Path traceDirectory,
         boolean dryRun,
         boolean summarize,
+        boolean scan,
         List<String> forwardedArgs) {
-
     static CommandLine parse(String[] args, int offset) {
         Path game = null;
         Path launcher = null;
         Path traceDirectory = null;
         boolean dryRun = false;
         boolean summarize = true;
+        boolean scan = true;
         List<String> forwarded = new ArrayList<>();
-
         for (int i = offset; i < args.length; i++) {
             String arg = args[i];
             switch (arg) {
@@ -28,6 +28,7 @@ record CommandLine(
                 case "--trace-dir" -> traceDirectory = Path.of(requireValue(args, ++i, arg));
                 case "--dry-run" -> dryRun = true;
                 case "--no-summary" -> summarize = false;
+                case "--no-scan" -> scan = false;
                 case "--" -> {
                     for (int j = i + 1; j < args.length; j++) {
                         forwarded.add(args[j]);
@@ -37,8 +38,7 @@ record CommandLine(
                 default -> throw new IllegalArgumentException("Unknown option: " + arg);
             }
         }
-
-        return new CommandLine(game, launcher, traceDirectory, dryRun, summarize, List.copyOf(forwarded));
+        return new CommandLine(game, launcher, traceDirectory, dryRun, summarize, scan, List.copyOf(forwarded));
     }
 
     private static String requireValue(String[] args, int index, String option) {
