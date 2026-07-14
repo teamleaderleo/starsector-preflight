@@ -42,6 +42,7 @@ public final class PreflightCli {
             case "doctor" -> RunCommand.doctor(CommandLine.parse(args, 1));
             case "install" -> InstallCommand.execute(CommandLine.parse(args, 1));
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
+            case "index" -> IndexCommand.execute(args, 1);
             case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
             case "summarize" -> summarizeCommand(args);
             default -> {
@@ -109,6 +110,9 @@ public final class PreflightCli {
         System.err.println("  preflight doctor [--game <path>] [--launcher <path>]");
         System.err.println("  preflight install [--game <path>] [--launcher <path>]");
         System.err.println("  preflight scan [--game <path>] [--launcher <path>] [--json <profile.json>]");
+        System.err.println("  preflight index build [--game <path>] [--launcher <path>] [--output <index.spfi>]");
+        System.err.println("  preflight index inspect <index.spfi>");
+        System.err.println("  preflight index query <index.spfi> <logical-path> [--all]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
