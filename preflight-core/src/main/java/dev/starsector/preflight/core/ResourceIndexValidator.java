@@ -2,7 +2,7 @@ package dev.starsector.preflight.core;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -68,10 +68,17 @@ public final class ResourceIndexValidator {
 
                 BasicFileAttributes attributes;
                 try {
-                    attributes = Files.readAttributes(
-                            file,
-                            BasicFileAttributes.class,
-                            LinkOption.NOFOLLOW_LINKS);
+                    attributes = Files.readAttributes(file, BasicFileAttributes.class);
+                } catch (NoSuchFileException error) {
+                    invalidProviders++;
+                    add(problems, problemLimit, new Problem(
+                            Kind.FILE_MISSING,
+                            root.id(),
+                            entry.getKey(),
+                            provider.relativePath(),
+                            "regular file",
+                            "missing"));
+                    continue;
                 } catch (IOException error) {
                     invalidProviders++;
                     add(problems, problemLimit, new Problem(
