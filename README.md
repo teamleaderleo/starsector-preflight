@@ -22,10 +22,11 @@ java -jar preflight.jar run
 Preflight will:
 
 1. Discover a Starsector or Fast Rendering launcher.
-2. Inject the same JAR as a launch-time Java agent through the child process environment.
-3. Start Starsector without editing the game, mods, saves, or VM parameter files.
-4. Capture a timestamped JFR startup recording.
-5. Write a JSON summary after the game process exits.
+2. Read the enabled mod profile and inventory its startup workload.
+3. Inject the same JAR as a launch-time Java agent through the child process environment.
+4. Start Starsector without editing the game, mods, saves, or VM parameter files.
+5. Capture a timestamped JFR startup recording.
+6. Write workload and startup summaries after the game process exits.
 
 Run discovery without launching anything:
 
@@ -40,6 +41,25 @@ java -jar preflight.jar install
 ```
 
 On macOS this creates `~/Applications/Starsector Preflight.app`. Linux receives a command and desktop entry. Windows receives a local command launcher.
+
+## Workload census
+
+Every normal run writes `profile.json` before starting the game. It includes:
+
+- Ordered enabled mod IDs and missing-mod diagnostics
+- Counts and compressed bytes for images, sounds, JARs, loose Java source, and data files
+- Per-extension and per-mod totals
+- Largest mods and individual assets
+- Duplicate logical paths with probable enabled-order winners
+- A repeatable profile fingerprint based on mod order, paths, sizes, and modification times
+
+Run the census by itself:
+
+```bash
+java -jar preflight.jar scan --game "/path/to/Starsector" --json profile.json
+```
+
+Use `run --no-scan` to skip this step for a single launch.
 
 ## Overrides
 
@@ -62,6 +82,7 @@ Run data defaults to:
 ```text
 ~/.starsector-preflight/runs/YYYYMMDD-HHMMSS/
   run.json
+  profile.json
   startup.jfr
   summary.json
 ```
