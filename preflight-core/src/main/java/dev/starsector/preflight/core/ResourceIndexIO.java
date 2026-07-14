@@ -31,6 +31,7 @@ public final class ResourceIndexIO {
     private static final int MAX_ROOTS = 100_000;
     private static final int MAX_ENTRIES = 10_000_000;
     private static final int MAX_PROVIDERS_PER_ENTRY = 100_000;
+    private static final int MAX_EAGER_COLLECTION_CAPACITY = 65_536;
 
     private ResourceIndexIO() {
     }
@@ -168,20 +169,20 @@ public final class ResourceIndexIO {
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
             String fingerprint = readString(input);
             int rootCount = readCount(input, "root", MAX_ROOTS);
-            List<ResourceIndex.Root> roots = new ArrayList<>(rootCount);
+            List<ResourceIndex.Root> roots = new ArrayList<>(initialCapacity(rootCount));
             for (int i = 0; i < rootCount; i++) {
                 roots.add(new ResourceIndex.Root(readString(input), Path.of(readString(input)), input.readBoolean()));
             }
 
             int entryCount = readCount(input, "entry", MAX_ENTRIES);
-            Map<String, List<ResourceIndex.Provider>> entries = new LinkedHashMap<>(Math.max(16, entryCount));
+            Map<String, List<ResourceIndex.Provider>> entries = new LinkedHashMap<>(initialCapacity(entryCount));
             for (int i = 0; i < entryCount; i++) {
                 String path = readString(input);
                 int providerCount = readCount(input, "provider", MAX_PROVIDERS_PER_ENTRY);
                 if (providerCount == 0) {
                     throw new IOException("Resource entry has no providers: " + path);
                 }
-                List<ResourceIndex.Provider> providers = new ArrayList<>(providerCount);
+                List<ResourceIndex.Provider> providers = new ArrayList<>(initialCapacity(providerCount));
                 for (int j = 0; j < providerCount; j++) {
                     providers.add(new ResourceIndex.Provider(
                             input.readInt(),
@@ -198,6 +199,10 @@ public final class ResourceIndexIO {
             }
             return new ResourceIndex(fingerprint, roots, entries);
         }
+    }
+
+    private static int initialCapacity(int expectedSize) {
+        return Math.max(16, Math.min(expectedSize, MAX_EAGER_COLLECTION_CAPACITY));
     }
 
     private static int readCount(DataInputStream input, String kind, int maximum) throws IOException {
