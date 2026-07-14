@@ -1,8 +1,10 @@
 package dev.starsector.preflight.agent;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,7 +26,11 @@ record AgentOptions(Path destination, String settings) {
         }
 
         String timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now()).replace(':', '-');
-        Path destination = Path.of(values.getOrDefault("dest", "preflight-startup-" + timestamp + ".jfr"));
+        String encodedDestination = values.get("dest64");
+        String destinationValue = encodedDestination == null
+                ? values.getOrDefault("dest", "preflight-startup-" + timestamp + ".jfr")
+                : new String(Base64.getUrlDecoder().decode(encodedDestination), StandardCharsets.UTF_8);
+        Path destination = Path.of(destinationValue);
         String settings = values.getOrDefault("settings", "profile");
         return new AgentOptions(destination, settings);
     }
