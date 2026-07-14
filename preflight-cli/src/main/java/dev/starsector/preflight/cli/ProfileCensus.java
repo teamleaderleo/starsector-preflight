@@ -163,7 +163,6 @@ final class ProfileCensus {
                         .thenComparing(Asset::modId)
                         .thenComparing(Asset::logicalPath));
         private final MessageDigest profileDigest = sha256();
-        private final Set<Path> visitedDirectories = new LinkedHashSet<>();
         private long totalFiles;
         private long totalBytes;
         private long imageFiles;
@@ -193,10 +192,14 @@ final class ProfileCensus {
             updateDigest("mod");
             updateDigest(mod.id());
             updateDigest(Integer.toString(mod.order()));
-            scanDirectory(mod, stats, mod.directory());
+            scanDirectory(mod, stats, mod.directory(), new LinkedHashSet<>());
         }
 
-        private void scanDirectory(ResolvedMod mod, ModStats stats, Path directory) throws IOException {
+        private void scanDirectory(
+                ResolvedMod mod,
+                ModStats stats,
+                Path directory,
+                Set<Path> visitedDirectories) throws IOException {
             Path realDirectory;
             try {
                 realDirectory = directory.toRealPath();
@@ -220,7 +223,7 @@ final class ProfileCensus {
             for (Path entry : entries) {
                 try {
                     if (Files.isDirectory(entry)) {
-                        scanDirectory(mod, stats, entry);
+                        scanDirectory(mod, stats, entry, visitedDirectories);
                     } else if (Files.isRegularFile(entry)) {
                         BasicFileAttributes attributes = Files.readAttributes(entry, BasicFileAttributes.class);
                         recordFile(mod, stats, entry, attributes);
