@@ -1,5 +1,6 @@
 package dev.starsector.preflight.core;
 
+import java.lang.reflect.Array;
 import java.util.Iterator;
 import java.util.Map;
 
@@ -28,12 +29,42 @@ public final class Json {
         if (value instanceof Number || value instanceof Boolean) {
             return value.toString();
         }
+        if (value instanceof CharSequence || value instanceof java.nio.file.Path
+                || value instanceof java.time.temporal.TemporalAccessor || value instanceof Enum<?>) {
+            return quote(value.toString());
+        }
         if (value instanceof Map<?, ?> map) {
             @SuppressWarnings("unchecked")
             Map<String, ?> stringMap = (Map<String, ?>) map;
             return object(stringMap);
         }
+        if (value instanceof Iterable<?> iterable) {
+            return iterable(iterable);
+        }
+        if (value.getClass().isArray()) {
+            StringBuilder output = new StringBuilder("[");
+            int length = Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                if (i > 0) {
+                    output.append(',');
+                }
+                output.append(value(Array.get(value, i)));
+            }
+            return output.append(']').toString();
+        }
         return quote(value.toString());
+    }
+
+    private static String iterable(Iterable<?> values) {
+        StringBuilder output = new StringBuilder("[");
+        Iterator<?> iterator = values.iterator();
+        while (iterator.hasNext()) {
+            output.append(value(iterator.next()));
+            if (iterator.hasNext()) {
+                output.append(',');
+            }
+        }
+        return output.append(']').toString();
     }
 
     public static String quote(String text) {
