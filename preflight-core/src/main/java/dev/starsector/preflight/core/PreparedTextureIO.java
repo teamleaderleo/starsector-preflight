@@ -22,6 +22,7 @@ public final class PreparedTextureIO {
     private static final int CHECKSUM_BYTES = 32;
     private static final int SHA256_BYTES = 32;
     private static final int CODEC_RAW = 0;
+    private static final int PAYLOAD_FIXED_BYTES = SHA256_BYTES + Integer.BYTES * 11;
     private static final int MAX_FILE_BYTES = 512 * 1024 * 1024;
 
     private PreparedTextureIO() {
@@ -77,11 +78,12 @@ public final class PreparedTextureIO {
     }
 
     public static byte[] toBytes(PreparedTexture texture) throws IOException {
-        byte[] payload = encodePayload(texture);
-        long total = minimumFileBytes() + payload.length;
+        long payloadSize = PAYLOAD_FIXED_BYTES + (long) texture.pixelBytes();
+        long total = minimumFileBytes() + payloadSize;
         if (total > MAX_FILE_BYTES) {
             throw new IOException("Prepared texture blob exceeds the " + MAX_FILE_BYTES + " byte safety limit");
         }
+        byte[] payload = encodePayload(texture, (int) payloadSize);
         byte[] checksum = Hashes.sha256Bytes(payload);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) total);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
@@ -112,7 +114,7 @@ public final class PreparedTextureIO {
             }
             int payloadLength = input.readInt();
             long expectedLength = minimumFileBytes() + (long) payloadLength;
-            if (payloadLength < 0 || expectedLength != bytes.length) {
+            if (payloadLength < PAYLOAD_FIXED_BYTES || expectedLength != bytes.length) {
                 throw new IOException("Prepared texture payload length is invalid");
             }
             byte[] payload = input.readNBytes(payloadLength);
@@ -129,8 +131,8 @@ public final class PreparedTextureIO {
         }
     }
 
-    private static byte[] encodePayload(PreparedTexture texture) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(texture.pixelBytes() + 128);
+    private static byte[] encodePayload(PreparedTexture texture, int payloadSize) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(payloadSize);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
             output.write(Hashes.decodeSha256(texture.sourceSha256()));
             output.writeInt(texture.transformation().id());
@@ -169,8 +171,15 @@ public final class PreparedTextureIO {
                 throw new IOException("Unsupported prepared texture codec: " + codec);
             }
             int pixelLength = input.readInt();
-            if (pixelLength < 0 || pixelLength > MAX_FILE_BYTES) {
-                throw new IOException("Prepared texture pixel length is invalid: " + pixelLength);
+            if (uploadWidth <= 0 || uploadHeight <= 0 || (channels != 3 && channels != 4)) {
+                throw new IOException("Prepared texture dimensions or channel count are invalid");
+            }
+            long expectedPixels = Math.multiplyExact(
+                    Math.multiplyExact((long) uploadWidth, uploadHeight),
+                    channels);
+            if (pixelLength < 0 || expectedPixels != pixelLength || pixelLength > MAX_FILE_BYTES) {
+                throw new IOException(
+                        "Prepared texture pixel length is " + pixelLength + "; expected " + expectedPixels);
             }
             byte[] pixels = input.readNBytes(pixelLength);
             if (pixels.length != pixelLength) {
