@@ -1,0 +1,9 @@
+target/
+*.jfr
+*.log
+.DS_Store
+.idea/
+*.iml
+.vscode/
+preflight-cache/
+benchmark-results/
