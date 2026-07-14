@@ -76,7 +76,7 @@ public final class ResourceIndexIO {
 
     public static ResourceIndex read(Path source) throws IOException {
         long size = Files.size(source);
-        if (size < MAGIC.length + Integer.BYTES * 2L + CHECKSUM_BYTES) {
+        if (size < minimumFileBytes()) {
             throw new IOException("Resource index is too small: " + source);
         }
         if (size > MAX_FILE_BYTES) {
@@ -87,9 +87,12 @@ public final class ResourceIndexIO {
 
     public static byte[] toBytes(ResourceIndex index) throws IOException {
         byte[] payload = encodePayload(index);
+        long outputSize = minimumFileBytes() + payload.length;
+        if (outputSize > MAX_FILE_BYTES) {
+            throw new IOException("Resource index exceeds the " + MAX_FILE_BYTES + " byte safety limit");
+        }
         byte[] checksum = sha256(payload);
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(
-                MAGIC.length + Integer.BYTES * 2 + payload.length + checksum.length);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) outputSize);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
             output.write(MAGIC);
             output.writeInt(ResourceIndex.FORMAT_VERSION);
@@ -101,6 +104,12 @@ public final class ResourceIndexIO {
     }
 
     public static ResourceIndex fromBytes(byte[] bytes) throws IOException {
+        if (bytes.length < minimumFileBytes()) {
+            throw new IOException("Resource index is too small");
+        }
+        if (bytes.length > MAX_FILE_BYTES) {
+            throw new IOException("Resource index exceeds the " + MAX_FILE_BYTES + " byte safety limit");
+        }
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes))) {
             byte[] magic = input.readNBytes(MAGIC.length);
             if (!Arrays.equals(MAGIC, magic)) {
@@ -111,7 +120,7 @@ public final class ResourceIndexIO {
                 throw new IOException("Unsupported resource index version: " + version);
             }
             int payloadLength = input.readInt();
-            int expectedLength = MAGIC.length + Integer.BYTES * 2 + payloadLength + CHECKSUM_BYTES;
+            long expectedLength = minimumFileBytes() + (long) payloadLength;
             if (payloadLength < 0 || expectedLength != bytes.length) {
                 throw new IOException("Resource index payload length is invalid");
             }
@@ -218,6 +227,10 @@ public final class ResourceIndexIO {
             throw new EOFException("Resource index ended inside a string");
         }
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private static long minimumFileBytes() {
+        return MAGIC.length + Integer.BYTES * 2L + CHECKSUM_BYTES;
     }
 
     private static byte[] sha256(byte[] bytes) {
