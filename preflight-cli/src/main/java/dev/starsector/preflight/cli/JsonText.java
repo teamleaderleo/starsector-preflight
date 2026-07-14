@@ -1,0 +1,224 @@
+package dev.starsector.preflight.cli;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+
+/** Small, dependency-free reader for the string fields used by Starsector metadata files. */
+final class JsonText {
+    private JsonText() {
+    }
+
+    static String string(String json, String key) {
+        int value = findValue(json, key);
+        if (value < 0) {
+            return null;
+        }
+        Cursor cursor = new Cursor(json, value);
+        cursor.skipWhitespaceAndComments();
+        return cursor.peek() == '"' ? cursor.readString() : null;
+    }
+
+    static List<String> stringArray(String json, String key) {
+        int value = findValue(json, key);
+        if (value < 0) {
+            return List.of();
+        }
+        Cursor cursor = new Cursor(json, value);
+        cursor.skipWhitespaceAndComments();
+        if (!cursor.consume('[')) {
+            return List.of();
+        }
+
+        List<String> values = new ArrayList<>();
+        while (true) {
+            cursor.skipWhitespaceAndComments();
+            if (cursor.consume(']')) {
+                return List.copyOf(values);
+            }
+            if (cursor.peek() != '"') {
+                throw new IllegalArgumentException("Expected a string in array for key " + key);
+            }
+            values.add(cursor.readString());
+            cursor.skipWhitespaceAndComments();
+            if (cursor.consume(']')) {
+                return List.copyOf(values);
+            }
+            if (!cursor.consume(',')) {
+                throw new IllegalArgumentException("Expected ',' or ']' in array for key " + key);
+            }
+            cursor.skipWhitespaceAndComments();
+            if (cursor.consume(']')) {
+                return List.copyOf(values);
+            }
+        }
+    }
+
+    private static int findValue(String json, String key) {
+        Cursor cursor = new Cursor(json, 0);
+        while (!cursor.finished()) {
+            cursor.skipWhitespaceAndComments();
+            if (cursor.finished()) {
+                return -1;
+            }
+            if (cursor.peek() == '"') {
+                String candidate = cursor.readString();
+                cursor.skipWhitespaceAndComments();
+                if (cursor.consume(':')) {
+                    cursor.skipWhitespaceAndComments();
+                    if (candidate.equals(key)) {
+                        return cursor.position();
+                    }
+                    cursor.skipValue();
+                }
+            } else {
+                cursor.advance();
+            }
+        }
+        return -1;
+    }
+
+    private static final class Cursor {
+        private final String text;
+        private int offset;
+
+        Cursor(String text, int offset) {
+            this.text = text;
+            this.offset = offset;
+        }
+
+        int position() {
+            return offset;
+        }
+
+        boolean finished() {
+            return offset >= text.length();
+        }
+
+        char peek() {
+            return finished() ? '\0' : text.charAt(offset);
+        }
+
+        void advance() {
+            if (!finished()) {
+                offset++;
+            }
+        }
+
+        boolean consume(char expected) {
+            if (peek() == expected) {
+                offset++;
+                return true;
+            }
+            return false;
+        }
+
+        void skipWhitespace() {
+            while (!finished() && Character.isWhitespace(peek())) {
+                offset++;
+            }
+        }
+
+        void skipWhitespaceAndComments() {
+            while (true) {
+                skipWhitespace();
+                if (offset + 1 >= text.length() || text.charAt(offset) != '/') {
+                    return;
+                }
+                char next = text.charAt(offset + 1);
+                if (next == '/') {
+                    offset += 2;
+                    while (!finished() && peek() != '\n' && peek() != '\r') {
+                        offset++;
+                    }
+                } else if (next == '*') {
+                    offset += 2;
+                    while (offset + 1 < text.length()
+                            && !(text.charAt(offset) == '*' && text.charAt(offset + 1) == '/')) {
+                        offset++;
+                    }
+                    offset = Math.min(text.length(), offset + 2);
+                } else {
+                    return;
+                }
+            }
+        }
+
+        String readString() {
+            if (!consume('"')) {
+                throw new IllegalArgumentException("Expected JSON string at offset " + offset);
+            }
+            StringBuilder value = new StringBuilder();
+            while (!finished()) {
+                char c = text.charAt(offset++);
+                if (c == '"') {
+                    return value.toString();
+                }
+                if (c != '\\') {
+                    value.append(c);
+                    continue;
+                }
+                if (finished()) {
+                    break;
+                }
+                char escaped = text.charAt(offset++);
+                switch (escaped) {
+                    case '"', '\\', '/' -> value.append(escaped);
+                    case 'b' -> value.append('\b');
+                    case 'f' -> value.append('\f');
+                    case 'n' -> value.append('\n');
+                    case 'r' -> value.append('\r');
+                    case 't' -> value.append('\t');
+                    case 'u' -> value.append(readUnicodeEscape());
+                    default -> throw new IllegalArgumentException(
+                            "Unsupported JSON escape \\" + escaped + " at offset " + offset);
+                }
+            }
+            throw new IllegalArgumentException("Unterminated JSON string");
+        }
+
+        private char readUnicodeEscape() {
+            if (offset + 4 > text.length()) {
+                throw new IllegalArgumentException("Incomplete JSON unicode escape");
+            }
+            int codePoint = Integer.parseInt(text.substring(offset, offset + 4), 16);
+            offset += 4;
+            return (char) codePoint;
+        }
+
+        void skipValue() {
+            skipWhitespaceAndComments();
+            char start = peek();
+            if (start == '"') {
+                readString();
+                return;
+            }
+            if (start == '{' || start == '[') {
+                Deque<Character> closes = new ArrayDeque<>();
+                closes.push(start == '{' ? '}' : ']');
+                offset++;
+                while (!finished() && !closes.isEmpty()) {
+                    skipWhitespaceAndComments();
+                    char c = peek();
+                    if (c == '"') {
+                        readString();
+                    } else {
+                        offset++;
+                        if (c == '{') {
+                            closes.push('}');
+                        } else if (c == '[') {
+                            closes.push(']');
+                        } else if (c == closes.peek()) {
+                            closes.pop();
+                        }
+                    }
+                }
+                return;
+            }
+            while (!finished() && ",}]".indexOf(peek()) < 0) {
+                offset++;
+            }
+        }
+    }
+}
