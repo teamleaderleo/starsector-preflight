@@ -113,6 +113,7 @@ public final class PreflightCli {
         System.err.println("  preflight index build [--game <path>] [--launcher <path>] [--output <index.spfi>]");
         System.err.println("  preflight index inspect <index.spfi>");
         System.err.println("  preflight index query <index.spfi> <logical-path> [--all]");
+        System.err.println("  preflight index validate <index.spfi>");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
