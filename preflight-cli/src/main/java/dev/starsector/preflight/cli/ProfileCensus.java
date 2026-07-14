@@ -256,26 +256,27 @@ final class ProfileCensus {
         }
 
         Result finish(List<ResolvedMod> mods, List<String> missing, long scanNanos) {
+            List<Map.Entry<String, List<Provider>>> duplicateEntries = providersByLogicalPath.entrySet().stream()
+                    .filter(entry -> entry.getValue().size() > 1)
+                    .sorted(Map.Entry.comparingByKey())
+                    .toList();
+            long duplicateLogicalPaths = duplicateEntries.size();
+            long duplicateProviderEntries = duplicateEntries.stream()
+                    .mapToLong(entry -> entry.getValue().size() - 1L)
+                    .sum();
             List<Map<String, Object>> duplicateSamples = new ArrayList<>();
-            long duplicateLogicalPaths = 0;
-            long duplicateProviderEntries = 0;
-            for (Map.Entry<String, List<Provider>> entry : providersByLogicalPath.entrySet()) {
-                List<Provider> providers = entry.getValue();
-                if (providers.size() <= 1) {
-                    continue;
-                }
-                duplicateLogicalPaths++;
-                duplicateProviderEntries += providers.size() - 1L;
-                if (duplicateSamples.size() < DUPLICATE_SAMPLE_LIMIT) {
-                    List<Provider> sorted = providers.stream().sorted(Comparator.comparingInt(Provider::order)).toList();
-                    Map<String, Object> sample = new LinkedHashMap<>();
-                    sample.put("path", entry.getKey());
-                    sample.put("providers", sorted.stream().map(Provider::modId).toList());
-                    sample.put("probableWinner", sorted.get(sorted.size() - 1).modId());
-                    duplicateSamples.add(sample);
-                }
+            for (Map.Entry<String, List<Provider>> entry : duplicateEntries.stream()
+                    .limit(DUPLICATE_SAMPLE_LIMIT)
+                    .toList()) {
+                List<Provider> sorted = entry.getValue().stream()
+                        .sorted(Comparator.comparingInt(Provider::order))
+                        .toList();
+                Map<String, Object> sample = new LinkedHashMap<>();
+                sample.put("path", entry.getKey());
+                sample.put("providers", sorted.stream().map(Provider::modId).toList());
+                sample.put("probableWinner", sorted.get(sorted.size() - 1).modId());
+                duplicateSamples.add(sample);
             }
-            duplicateSamples.sort(Comparator.comparing(value -> value.get("path").toString()));
 
             List<Map<String, Object>> modsByOrder = modStats.stream().map(ModStats::toMap).toList();
             List<Map<String, Object>> largestMods = modStats.stream()
