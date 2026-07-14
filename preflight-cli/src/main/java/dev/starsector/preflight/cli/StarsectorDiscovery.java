@@ -47,7 +47,7 @@ final class StarsectorDiscovery {
         addRoot(roots, explicitGame);
         addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_HOME"));
         addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_DIR"));
-        addCurrentAndParents(roots, currentDirectory, 4);
+        addRoot(roots, currentDirectory);
         addStandardRoots(roots, platform, home, environment);
 
         for (Path root : roots) {
@@ -211,14 +211,6 @@ final class StarsectorDiscovery {
 
     private static void addTarget(Map<Path, LaunchTarget> targets, LaunchTarget target) {
         targets.merge(target.launcher(), target, (left, right) -> left.score() >= right.score() ? left : right);
-    }
-
-    private static void addCurrentAndParents(Set<Path> roots, Path current, int count) {
-        Path value = current == null ? null : current.toAbsolutePath().normalize();
-        for (int i = 0; value != null && i < count; i++) {
-            roots.add(value);
-            value = value.getParent();
-        }
     }
 
     private static void addStandardRoots(
