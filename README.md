@@ -82,6 +82,26 @@ The index stores ordered providers, a direct winning provider, and complete nega
 
 See [resource provider index](docs/resource-index.md) for the format and current resolution semantics.
 
+## Prepared textures
+
+Prepare one encoded image into upload-ready pixels and derived loader colors:
+
+```bash
+java -jar preflight.jar texture prepare graphics/ships/example.png
+```
+
+Inspect, verify, or benchmark the resulting blob:
+
+```bash
+java -jar preflight.jar texture inspect example.spft
+java -jar preflight.jar texture verify example.png example.spft
+java -jar preflight.jar texture benchmark example.png example.spft --runs 10
+```
+
+Version 1 stores raw bottom-up RGB/RGBA bytes, original and upload dimensions, three loader-derived colors, transformation metadata, and the source SHA-256. The checksummed blob is a correctness baseline for future compression, pack-file, memory-mapping, and bulk-raster experiments.
+
+See [prepared texture blobs](docs/prepared-textures.md) for the conversion semantics and binary format.
+
 ## Overrides
 
 Automatic discovery checks explicit arguments, `STARSECTOR_HOME`, `STARSECTOR_DIR`, the current directory, and common platform install locations.
@@ -155,6 +175,7 @@ Agent options are comma-separated. `dest64` is used internally for paths contain
 - [Benchmarking](docs/benchmarking.md)
 - [Automatic launch and discovery](docs/automatic-launch.md)
 - [Resource provider index](docs/resource-index.md)
+- [Prepared texture blobs](docs/prepared-textures.md)
 - [ADR 0001: measurement first](docs/adr/0001-measurement-first.md)
 
 ## Status
