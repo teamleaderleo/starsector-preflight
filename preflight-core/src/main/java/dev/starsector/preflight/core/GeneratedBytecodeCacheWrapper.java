@@ -101,13 +101,13 @@ public final class GeneratedBytecodeCacheWrapper {
             String detail) {
         public Result {
             source = Objects.requireNonNull(source, "source");
-            classes = Objects.requireNonNull(classes, "classes");
             lookupStatus = Objects.requireNonNull(lookupStatus, "lookupStatus");
             detail = detail == null ? "" : detail;
-            if (source == Source.CACHE_HIT && lookupStatus != GeneratedBytecodeCache.Status.HIT) {
-                throw new IllegalArgumentException("A cache-hit result requires a HIT lookup");
-            }
-            if (source != Source.CACHE_HIT && lookupStatus == GeneratedBytecodeCache.Status.HIT) {
+            if (source == Source.CACHE_HIT) {
+                if (lookupStatus != GeneratedBytecodeCache.Status.HIT || classes == null) {
+                    throw new IllegalArgumentException("A cache-hit result requires a HIT lookup and class map");
+                }
+            } else if (lookupStatus == GeneratedBytecodeCache.Status.HIT) {
                 throw new IllegalArgumentException("An original result may not follow a HIT lookup");
             }
         }
