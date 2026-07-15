@@ -67,6 +67,37 @@ class CodeLoaderSignatureReportTest {
     }
 
     @Test
+    void distinctIdentityFieldsCannotCollideThroughDelimiters() throws Exception {
+        byte[] bytes = classBytes(org.codehaus.janino.JavaSourceClassLoader.class);
+        ClassSignature signature = ClassSignature.parse(bytes);
+        Path output = temporaryDirectory.resolve("distinct.json");
+        CodeLoaderSignatureReport report = new CodeLoaderSignatureReport(output);
+
+        report.observed(signature, new AdapterSourceIdentity(
+                "file:/a@b",
+                "/a@b",
+                "OTHER",
+                "",
+                "",
+                "c",
+                "d"));
+        report.observed(signature, new AdapterSourceIdentity(
+                "file:/a",
+                "/a",
+                "OTHER",
+                "",
+                "",
+                "b@c",
+                "d"));
+        report.write();
+
+        String json = Files.readString(output);
+        assertTrue(json.contains("\"retainedIdentities\":2"), json);
+        assertTrue(json.contains("\"normalizedSource\":\"/a@b\""), json);
+        assertTrue(json.contains("\"loaderClass\":\"b@c\""), json);
+    }
+
+    @Test
     void retainedIdentitiesAreBoundedAndIndependentOfObservationOrder() throws Exception {
         byte[] bytes = classBytes(org.codehaus.janino.JavaSourceClassLoader.class);
         ClassSignature signature = ClassSignature.parse(bytes);
