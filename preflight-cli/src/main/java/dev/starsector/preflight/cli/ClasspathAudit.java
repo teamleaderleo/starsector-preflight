@@ -33,15 +33,15 @@ final class ClasspathAudit {
     static Result scan(Path installRoot) throws IOException {
         GameLayout layout = GameLayout.locate(installRoot);
         List<String> enabledIds = JsonText.stringArray(
-                Files.readString(layout.enabledModsFile(), StandardCharsets.UTF_8),
-                "enabledMods");
+                Files.readString(layout.enabledModsFile(), StandardCharsets.UTF_8), "enabledMods");
         List<String> diagnostics = new ArrayList<>();
         Map<String, Path> installed = discoverMods(layout.modsDirectory(), diagnostics);
         Map<String, Integer> enabledOrder = order(enabledIds);
         List<ModRecord> mods = new ArrayList<>();
         List<JarRecord> jars = new ArrayList<>();
 
-        for (int modOrder = 0; modOrder < enabledIds.size(); modOrder++) {
+        for (int modIndex = 0; modIndex < enabledIds.size(); modIndex++) {
+            final int modOrder = modIndex;
             String id = enabledIds.get(modOrder);
             Path directory = installed.get(id);
             if (directory == null) {
@@ -82,25 +82,11 @@ final class ClasspathAudit {
             classpathOrder.addAll(undeclared);
             for (int jarOrder = 0; jarOrder < classpathOrder.size(); jarOrder++) {
                 String relative = classpathOrder.get(jarOrder);
-                jars.add(auditJar(
-                        id,
-                        modOrder,
-                        jarOrder,
-                        directory,
-                        relative,
-                        declaredSet.contains(relative)));
+                jars.add(auditJar(id, modOrder, jarOrder, directory, relative, declaredSet.contains(relative)));
             }
-
             mods.add(new ModRecord(
-                    id,
-                    modOrder,
-                    directory,
-                    dependencies,
-                    declared,
-                    missingDeclared,
-                    undeclared,
-                    missingDependencies,
-                    dependencyOrderProblems));
+                    id, modOrder, directory, dependencies, declared, missingDeclared, undeclared,
+                    missingDependencies, dependencyOrderProblems));
         }
 
         Map<String, List<String>> classProviders = classProviders(jars, diagnostics);
@@ -172,9 +158,7 @@ final class ClasspathAudit {
     }
 
     private static List<String> normalizeDeclaredJars(
-            List<String> paths,
-            String modId,
-            List<String> diagnostics) {
+            List<String> paths, String modId, List<String> diagnostics) {
         LinkedHashSet<String> result = new LinkedHashSet<>();
         for (String path : paths) {
             try {
@@ -203,12 +187,7 @@ final class ClasspathAudit {
     }
 
     private static JarRecord auditJar(
-            String modId,
-            int modOrder,
-            int jarOrder,
-            Path directory,
-            String relative,
-            boolean declared) {
+            String modId, int modOrder, int jarOrder, Path directory, String relative, boolean declared) {
         Path file = directory.resolve(relative).normalize();
         String hash;
         long fileBytes;
@@ -239,42 +218,17 @@ final class ClasspathAudit {
                 }
             }
             return new JarRecord(
-                    modId,
-                    modOrder,
-                    jarOrder,
-                    relative,
-                    declared,
-                    true,
-                    hash,
-                    fileBytes,
-                    classes.size(),
-                    resources,
-                    uncompressed,
-                    compressed,
-                    List.copyOf(classes),
-                    null);
+                    modId, modOrder, jarOrder, relative, declared, true, hash, fileBytes,
+                    classes.size(), resources, uncompressed, compressed, List.copyOf(classes), null);
         } catch (IOException error) {
             return new JarRecord(
-                    modId,
-                    modOrder,
-                    jarOrder,
-                    relative,
-                    declared,
-                    false,
-                    hash,
-                    fileBytes,
-                    0,
-                    0,
-                    0,
-                    0,
-                    List.of(),
-                    error.getMessage());
+                    modId, modOrder, jarOrder, relative, declared, false, hash, fileBytes,
+                    0, 0, 0, 0, List.of(), error.getMessage());
         }
     }
 
     private static Map<String, List<String>> classProviders(
-            List<JarRecord> jars,
-            List<String> diagnostics) {
+            List<JarRecord> jars, List<String> diagnostics) {
         Map<String, List<String>> result = new TreeMap<>();
         for (JarRecord jar : jars) {
             if (!jar.valid()) {
@@ -299,10 +253,7 @@ final class ClasspathAudit {
     }
 
     private static Map<String, Object> totals(
-            List<String> enabledIds,
-            List<ModRecord> mods,
-            List<JarRecord> jars,
-            long duplicateClasses) {
+            List<String> enabledIds, List<ModRecord> mods, List<JarRecord> jars, long duplicateClasses) {
         Map<String, Object> totals = new LinkedHashMap<>();
         totals.put("enabledMods", enabledIds.size());
         totals.put("resolvedMods", mods.stream().filter(mod -> mod.directory() != null).count());
@@ -410,27 +361,10 @@ final class ClasspathAudit {
             List<String> classes,
             String error) {
         static JarRecord failure(
-                String modId,
-                int modOrder,
-                int jarOrder,
-                String relativePath,
-                boolean declared,
-                String error) {
+                String modId, int modOrder, int jarOrder, String relativePath, boolean declared, String error) {
             return new JarRecord(
-                    modId,
-                    modOrder,
-                    jarOrder,
-                    relativePath,
-                    declared,
-                    false,
-                    null,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    List.of(),
-                    error);
+                    modId, modOrder, jarOrder, relativePath, declared, false, null,
+                    0, 0, 0, 0, 0, List.of(), error);
         }
 
         Map<String, Object> toMap() {
