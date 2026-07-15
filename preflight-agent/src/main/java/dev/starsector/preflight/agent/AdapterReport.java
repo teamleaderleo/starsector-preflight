@@ -151,7 +151,7 @@ final class AdapterReport {
     synchronized void eligible(AdapterTarget target) {
         transformationEligible++;
         diagnostic("Exact source-bound target " + target.id() + " matched, but plan " + target.planId()
-                + " is not registered in this build; original bytes retained");
+                + " is not available for this session; original bytes retained");
     }
 
     synchronized void transformed(AdapterTarget target) {
@@ -210,7 +210,8 @@ final class AdapterReport {
                 .sorted(CANDIDATE_RANKING)
                 .limit(RANKED_CANDIDATE_LIMIT)
                 .toList();
-        StringBuilder output = new StringBuilder(20_000).append('{');
+        PreparedImageBridge.Snapshot cache = PreparedImageBridge.snapshot();
+        StringBuilder output = new StringBuilder(22_000).append('{');
         field(output, "generatedAt", Instant.now().toString());
         field(output, "startedAt", startedAt.toString());
         field(output, "mode", mode.name());
@@ -230,10 +231,22 @@ final class AdapterReport {
         numberField(output, "transformationEligible", transformationEligible);
         numberField(output, "transformationsApplied", transformationsApplied);
         numberField(output, "containedFailures", containedFailures);
-        booleanField(output, "liveTransformationPlansRegistered", false);
+        booleanField(output, "liveTransformationPlansRegistered", AdapterTransformationRegistry.hasLivePlans());
         booleanField(output, "candidateTruncated", candidateTruncated);
         booleanField(output, "diagnosticsTruncated", diagnosticsTruncated);
         booleanField(output, "evaluationsTruncated", evaluationsTruncated);
+
+        key(output, "preparedImageCache").append('{');
+        booleanField(output, "enabled", cache.enabled());
+        field(output, "detail", cache.detail());
+        nullableField(output, "cacheRoot", cache.cacheRoot() == null ? null : cache.cacheRoot().toString());
+        nullableField(output, "manifest", cache.manifestPath() == null ? null : cache.manifestPath().toString());
+        nullableField(output, "resourceIndex", cache.indexPath() == null ? null : cache.indexPath().toString());
+        numberField(output, "hits", cache.hits());
+        numberField(output, "fallbacks", cache.fallbacks());
+        numberField(output, "internalErrors", cache.internalErrors());
+        longMapField(output, "statuses", cache.statuses());
+        trimComma(output).append("},");
 
         key(output, "rankedCandidates").append('[');
         for (int i = 0; i < rankedCandidates.size(); i++) {
@@ -349,6 +362,13 @@ final class AdapterReport {
             output.append(quote(values.get(i)));
         }
         output.append("],");
+    }
+
+    private static void longMapField(StringBuilder output, String name, Map<String, Long> values) {
+        key(output, name).append('{');
+        values.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry ->
+                numberField(output, entry.getKey(), entry.getValue()));
+        trimComma(output).append("},");
     }
 
     private static StringBuilder trimComma(StringBuilder output) {
