@@ -161,7 +161,7 @@ final class ClasspathIndexCommand {
         return value;
     }
 
-    private static LaunchTarget discover(Path game, Path launcher) {
+    private static LaunchTarget discover(Path game, Path launcher) throws IOException {
         DiscoveryResult discovery = StarsectorDiscovery.discover(
                 Platform.current(),
                 Path.of(System.getProperty("user.home")),
