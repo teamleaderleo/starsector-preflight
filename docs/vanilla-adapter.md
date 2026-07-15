@@ -18,9 +18,9 @@ The runtime adapter has three modes:
 
 - `OFF` — default. JFR profiling may run, but no adapter transformer is installed and no `adapter.json` file is written.
 - `PROBE` — observes candidate game classes and writes their class, source, loader, and method identities. It always retains the original class bytes.
-- `ENABLED` — permits an exact allowlisted target to reach a registered transformation plan. Unknown builds, partial matches, missing source bindings, missing plans, malformed classes, and all transformer errors retain the original bytes.
+- `ENABLED` — permits an exact allowlisted target to reach an available transformation plan. Unknown builds, partial matches, missing source bindings, unavailable plans, malformed classes, and all transformer errors retain the original bytes.
 
-This build ships with zero live transformation plans. `ENABLED` therefore remains observational until a reviewed target-specific plan is added.
+This build contains one reviewed opt-in vanilla compatibility plan. It remains unavailable unless the wrapper supplies a validated prepared-texture cache root, texture manifest, and resource index for the same profile fingerprint.
 
 ## Wrapper commands
 
@@ -50,13 +50,53 @@ java -jar preflight.jar run --game "/path/to/Starsector.app" --adapter-probe
 java -jar preflight.jar run --launcher "/path/to/starsector" --adapter-probe
 ```
 
-`--adapter` selects `ENABLED` mode. Until a supported transformation plan is present, exact target matches are reported and the original bytes remain active.
-
 A custom allowlist file may be supplied with:
 
 ```bash
 java -jar preflight.jar run --adapter --adapter-targets targets.txt
 ```
+
+## Prepared-image compatibility pilot
+
+The first live vanilla plan wraps one exact private `TextureLoader` image-decoder method identified by a reviewed real probe. It activates only when all of these match:
+
+- exact internal class name
+- exact classfile SHA-256
+- exact method name and JVM descriptor
+- Starsector-core source kind and portable source suffix
+- app classloader class and name
+- a validated cache root, `.spfm` texture manifest, and `.spfi` resource index with the same profile fingerprint
+
+Launch the pilot with explicit artifacts:
+
+```bash
+java -jar preflight.jar run \
+  --adapter \
+  --adapter-cache-dir "/path/to/cache" \
+  --adapter-texture-manifest "/path/to/cache/manifests/<fingerprint>.spfm" \
+  --adapter-resource-index "/path/to/indexes/<fingerprint>.spfi"
+```
+
+All three cache arguments are required together and are accepted only with `--adapter`. Preflight does not choose a newest or similarly named manifest automatically.
+
+The compatibility wrapper behaves as follows:
+
+1. Resolve the loader argument as either a logical resource name or the physical winning provider recorded by the resource index.
+2. Verify the current winning source still has the indexed size and modification time.
+3. Read and validate the manifest-selected prepared blob, including its checksum and metadata.
+4. On a supported identity blob, reconstruct a top-down ARGB `BufferedImage` without ImageIO and return it.
+5. On every miss, stale or corrupt artifact, unsupported shape, disabled state, or internal bridge error, execute the renamed untouched original decoder.
+
+After eight unexpected internal bridge failures, the cache bridge disables itself for the rest of the process. The original decoder remains available.
+
+`adapter.json` records:
+
+- whether the live plan was available for the session
+- exact target evaluations and transformations applied
+- cache root, manifest, and resource-index paths
+- prepared-image hits, fallbacks, internal errors, and status counts
+
+This pilot skips encoded source-file reads and ImageIO decoding on verified hits. It does **not** yet bypass Starsector's later raster conversion, row reversal, derived-color analysis, texture allocation, OpenGL upload, or mipmap work. A lower-level upload-ready pixel plan is the intended high-payoff follow-up.
 
 ## Ranked candidates
 
@@ -94,7 +134,7 @@ Ranking narrows the review set. It never generates or activates an allowlist aut
 
 The behavioral join uses exact internal class names because JFR stack frames do not always expose source and loader identity. When one class name maps to multiple retained source/loader identities, the report preserves every variant and lists the class under `ambiguousBehavioralClassNames`. Human review must choose the correct identity.
 
-The report explicitly records:
+The probe-analysis report explicitly records:
 
 ```text
 automaticAllowlistGenerated: false
@@ -129,7 +169,7 @@ Every target includes class identity:
 - required method names and JVM descriptors
 - a transformation plan ID
 
-A target is eligible for a future live plan only when it also includes all required source bindings:
+A target is eligible for a live plan only when it also includes all required source bindings:
 
 - `source-kind`
 - a portable `source-suffix`
@@ -144,8 +184,9 @@ The source suffix is installation-prefix independent. For example:
 
 ```text
 source-kind STARSECTOR_CORE
-source-suffix starsector-core/starfarer_obf.jar
+source-suffix contents/resources/java/fs.common_obf.jar
 loader-class jdk/internal/loader/ClassLoaders$AppClassLoader
+loader-name app
 ```
 
 Archive hashing is performed only when a target declares `source-sha256`. A missing, unreadable, non-file, oversized, or changed source archive fails closed. The hash result is cached by real path, size, and modification time within the process.
@@ -156,9 +197,10 @@ See `docs/adapter-targets.example.txt` for the complete line-oriented format.
 
 ## When a real Starsector installation is required
 
-Synthetic fixtures can verify parsing, matching, source binding, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
+Synthetic fixtures verify parsing, matching, source binding, ranking, report generation, cache reconstruction, bytecode verification, fallback behavior, and packaged-agent operation. A real installation is still required to:
 
-1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, code sources, classloaders, and the combined candidate report automatically.
-2. Validate a target-specific rewrite against that build and a representative mod profile before enabling it by default.
+1. Collect a read-only probe against the exact Starsector build.
+2. Validate the target-specific rewrite against that build and a representative mod profile.
+3. Measure repeatable adapter-OFF versus adapter-ENABLED launch outcomes before making any acceleration claim.
 
-You do not need to provide or point Preflight at the installation before step 1. The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, source-bound, and covered by a global kill switch.
+The probe step is read-only. The first live rewrite remains opt-in, exact-version-gated, source-bound, and covered by a global kill switch.
