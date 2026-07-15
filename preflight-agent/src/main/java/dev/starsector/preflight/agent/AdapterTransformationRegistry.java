@@ -6,17 +6,17 @@ final class AdapterTransformationRegistry {
     }
 
     static byte[] transform(AdapterTarget target, ClassSignature signature, byte[] originalBytes) {
-        if (PreparedImageTransformation.PLAN_ID.equals(target.planId())) {
+        if (hasPlan(target.planId())) {
             return PreparedImageTransformation.transform(target, signature, originalBytes);
         }
         return null;
     }
 
     static boolean hasPlan(String planId) {
-        return PreparedImageTransformation.PLAN_ID.equals(planId);
+        return PreparedImageTransformation.PLAN_ID.equals(planId) && PreparedImageBridge.ready();
     }
 
     static boolean hasLivePlans() {
-        return true;
+        return PreparedImageBridge.ready();
     }
 }
