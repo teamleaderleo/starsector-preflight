@@ -11,16 +11,27 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
     private final AdapterTargetRegistry registry;
     private final List<String> candidatePrefixes;
     private final AdapterReport report;
+    private final BytecodeShapeReport bytecodeShapeReport;
 
     AdapterProbeTransformer(
             AdapterMode mode,
             AdapterTargetRegistry registry,
             List<String> candidatePrefixes,
             AdapterReport report) {
+        this(mode, registry, candidatePrefixes, report, null);
+    }
+
+    AdapterProbeTransformer(
+            AdapterMode mode,
+            AdapterTargetRegistry registry,
+            List<String> candidatePrefixes,
+            AdapterReport report,
+            BytecodeShapeReport bytecodeShapeReport) {
         this.mode = Objects.requireNonNull(mode, "mode");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.candidatePrefixes = List.copyOf(candidatePrefixes);
         this.report = Objects.requireNonNull(report, "report");
+        this.bytecodeShapeReport = bytecodeShapeReport;
     }
 
     @Override
@@ -39,6 +50,9 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             boolean hashSource = targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
             AdapterSourceIdentity source = AdapterSourceIdentity.capture(loader, protectionDomain, hashSource);
             report.observed(signature, source);
+            if (bytecodeShapeReport != null) {
+                bytecodeShapeReport.observed(signature, source, classfileBuffer);
+            }
             for (AdapterTarget target : targets) {
                 AdapterTarget.Match match = target.match(signature, source);
                 report.evaluation(target, match);
@@ -59,6 +73,8 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
                     return transformed;
                 }
             }
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
         } catch (Throwable error) {
             report.malformed(className, error);
         }
