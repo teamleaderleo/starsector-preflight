@@ -1,6 +1,7 @@
 package dev.starsector.preflight.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.starsector.preflight.core.Json;
@@ -42,13 +43,11 @@ class StartupCodeAttributionTest {
                 "data.scripts.GeneratedOne",
                 "org.codehaus.janino.JavaSourceClassLoader",
                 "janino-loader",
-                "C:\\Starsector\\mods\\Example\\data\\scripts\\GeneratedOne.java",
                 frames);
         attribution.recordClassDefine(
                 "data.scripts.GeneratedTwo",
                 "org/codehaus/janino/JavaSourceClassLoader",
                 "janino-loader",
-                "C:/Starsector/mods/Example/data/scripts/GeneratedTwo.java",
                 frames);
 
         attribution.recordCompilation(
@@ -64,13 +63,13 @@ class StartupCodeAttributionTest {
         assertTrue(json.contains("\"janinoEvents\":2"), json);
         assertTrue(json.contains("\"janinoUniqueClasses\":2"), json);
         assertTrue(json.contains("data/scripts/GeneratedOne"), json);
-        assertTrue(json.contains("C:/Starsector/mods/Example/data/scripts/GeneratedOne.java"), json);
         assertTrue(json.contains("org/codehaus/janino/JavaSourceClassLoader"), json);
         assertTrue(json.contains("generateBytecodes"), json);
         assertTrue(json.contains("\"JANINO\":{\"events\":2,\"durationMs\":11.0}"), json);
         assertTrue(json.contains("\"STARSECTOR\":{\"events\":1,\"durationMs\":2.0}"), json);
         assertTrue(json.contains("\"MOD_OR_LIBRARY\":{\"events\":1,\"durationMs\":1.0}"), json);
         assertTrue(json.indexOf("UnitCompiler") < json.indexOf("Parser"), json);
+        assertFalse(json.contains("janinoSourceSamples"), json);
     }
 
     @Test
@@ -104,6 +103,7 @@ class StartupCodeAttributionTest {
         assertTrue(json.contains("dev/starsector/preflight/cli/SyntheticGeneratedClass"), json);
         assertTrue(json.contains("\"janinoEvents\":1"), json);
         assertTrue(json.contains("\"metadataFailures\":0"), json);
+        assertFalse(json.contains("janinoSourceSamples"), json);
     }
 
     private static byte[] classBytes(Class<?> type) throws IOException {
