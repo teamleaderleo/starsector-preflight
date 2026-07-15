@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.starsector.preflight.agent.AdapterMode;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
@@ -18,6 +19,23 @@ class AgentInjectionTest {
         assertTrue(value.startsWith("-Xmx4g -Dexample=true "));
         assertEquals(1, occurrences(value, "-javaagent:"));
         assertTrue(value.contains("dest64="));
+        assertTrue(value.contains("adapter=off"));
+    }
+
+    @Test
+    void includesProbeReportAndTargetPaths() {
+        String value = AgentInjection.append(
+                "",
+                Path.of("preflight.jar"),
+                Path.of("startup.jfr"),
+                AdapterMode.PROBE,
+                Path.of("adapter reports", "probe.json"),
+                Path.of("adapter targets", "vanilla.txt"));
+
+        assertTrue(value.contains("adapter=probe"));
+        assertTrue(value.contains("adapterReport64="));
+        assertTrue(value.contains("targets64="));
+        assertEquals(1, occurrences(value, "-javaagent:"));
     }
 
     @Test
