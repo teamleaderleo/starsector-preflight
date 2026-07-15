@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -24,9 +23,8 @@ final class AdapterRuntime {
                 options.adapterReport(),
                 options.adapterTargets(),
                 options.candidatePrefixes());
-        Session session = new Session(report);
+        Session session = new Session(report, options.adapterMode() != AdapterMode.OFF);
         if (options.adapterMode() == AdapterMode.OFF) {
-            report.diagnostic("Adapter mode is OFF; no transformer installed");
             return session;
         }
         if (killSwitch(System.getenv(), System.getProperties())) {
@@ -86,15 +84,17 @@ final class AdapterRuntime {
 
     static final class Session implements AutoCloseable {
         private final AdapterReport report;
+        private final boolean writeReport;
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private Session(AdapterReport report) {
+        private Session(AdapterReport report, boolean writeReport) {
             this.report = report;
+            this.writeReport = writeReport;
         }
 
         @Override
         public void close() {
-            if (!closed.compareAndSet(false, true)) {
+            if (!closed.compareAndSet(false, true) || !writeReport) {
                 return;
             }
             try {
