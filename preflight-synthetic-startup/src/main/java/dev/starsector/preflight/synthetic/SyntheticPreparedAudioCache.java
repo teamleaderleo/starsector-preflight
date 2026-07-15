@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -54,15 +55,26 @@ final class SyntheticPreparedAudioCache {
         ERROR
     }
 
-    record PreparedAudio(int sampleRate, int channels, int sampleSizeBits, long frameCount, boolean bigEndian, byte[] pcm) {
+    record PreparedAudio(
+            int sampleRate,
+            int channels,
+            int sampleSizeBits,
+            long frameCount,
+            boolean bigEndian,
+            byte[] pcm) {
         PreparedAudio {
-            if (sampleRate < 1 || sampleRate > 384_000 || channels < 1 || channels > 8
-                    || sampleSizeBits != 16 || frameCount < 0 || bigEndian) {
+            if (sampleRate < 1 || sampleRate > 384_000
+                    || channels < 1 || channels > 8
+                    || sampleSizeBits != 16
+                    || frameCount < 0
+                    || bigEndian) {
                 throw new IllegalArgumentException("Invalid prepared synthetic audio metadata");
             }
             Objects.requireNonNull(pcm, "pcm");
             int frameSize = channels * (sampleSizeBits / 8);
-            if (pcm.length < 1 || pcm.length > MAX_PCM_BYTES || pcm.length % frameSize != 0
+            if (pcm.length < 1
+                    || pcm.length > MAX_PCM_BYTES
+                    || pcm.length % frameSize != 0
                     || frameCount != pcm.length / frameSize) {
                 throw new IllegalArgumentException("Invalid prepared synthetic PCM payload");
             }
@@ -97,7 +109,11 @@ final class SyntheticPreparedAudioCache {
         }
     }
 
-    static Path cachePath(Path cacheRoot, String sourceSha256, Policy policy, String decoderIdentity) {
+    static Path cachePath(
+            Path cacheRoot,
+            String sourceSha256,
+            Policy policy,
+            String decoderIdentity) {
         String source = canonicalHash(sourceSha256);
         if (policy != Policy.FULLY_DECODED_EFFECT) {
             throw new IllegalArgumentException("Only fully decoded effects are cacheable");
@@ -110,28 +126,69 @@ final class SyntheticPreparedAudioCache {
                 .resolve(key.substring(0, 2))
                 .resolve(key + ".spxa")
                 .normalize();
-        if (!target.startsWith(root)) throw new IllegalArgumentException("Synthetic audio path escaped cache root");
+        if (!target.startsWith(root)) {
+            throw new IllegalArgumentException("Synthetic audio path escaped cache root");
+        }
         return target;
     }
 
-    static Lookup lookup(Path cacheRoot, String sourceSha256, Policy policy, String decoderIdentity) {
+    static Lookup lookup(
+            Path cacheRoot,
+            String sourceSha256,
+            Policy policy,
+            String decoderIdentity) {
         final Path target;
         try {
             target = cachePath(cacheRoot, sourceSha256, policy, decoderIdentity);
         } catch (RuntimeException error) {
             return Lookup.failure(Status.ERROR, null, message(error));
         }
-        if (!Files.exists(target)) return Lookup.failure(Status.MISS, target, "No prepared synthetic audio exists");
-        if (Files.isSymbolicLink(target) || !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
-            return Lookup.failure(Status.ERROR, target, "Synthetic audio cache path is not a regular file");
+
+        if (!Files.exists(target)) {
+            return Lookup.failure(Status.MISS, target, "No prepared synthetic audio exists");
         }
+        if (Files.isSymbolicLink(target)
+                || !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+            return Lookup.failure(
+                    Status.ERROR,
+                    target,
+                    "Synthetic audio cache path is not a regular file");
+        }
+
+        final byte[] encoded;
         try {
             long size = Files.size(target);
             if (size < minimumFileBytes() || size > MAX_FILE_BYTES) {
-                return Lookup.failure(Status.CORRUPT, target, "Synthetic audio cache file size is invalid");
+                return Lookup.failure(
+                        Status.CORRUPT,
+                        target,
+                        "Synthetic audio cache file size is invalid");
             }
-            return Lookup.hit(target, decode(readBounded(target, MAX_FILE_BYTES), sourceSha256, policy, decoderIdentity));
-        } catch (IOException | IllegalArgumentException | ArithmeticException error) {
+            encoded = readBounded(target, MAX_FILE_BYTES);
+            if (encoded.length > MAX_FILE_BYTES) {
+                return Lookup.failure(
+                        Status.CORRUPT,
+                        target,
+                        "Synthetic audio cache file exceeds its safety limit");
+            }
+        } catch (NoSuchFileException error) {
+            return Lookup.failure(
+                    Status.MISS,
+                    target,
+                    "Synthetic audio cache file disappeared during lookup");
+        } catch (IOException error) {
+            return Lookup.failure(Status.ERROR, target, message(error));
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
+        } catch (Throwable error) {
+            return Lookup.failure(Status.ERROR, target, message(error));
+        }
+
+        try {
+            return Lookup.hit(
+                    target,
+                    decode(encoded, sourceSha256, policy, decoderIdentity));
+        } catch (IOException | RuntimeException error) {
             return Lookup.failure(Status.CORRUPT, target, message(error));
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
@@ -145,7 +202,8 @@ final class SyntheticPreparedAudioCache {
         if (source.length < 1 || source.length > MAX_SOURCE_BYTES) {
             throw new IOException("Synthetic audio source size is invalid");
         }
-        try (AudioInputStream original = AudioSystem.getAudioInputStream(new ByteArrayInputStream(source))) {
+        try (AudioInputStream original = AudioSystem.getAudioInputStream(
+                new ByteArrayInputStream(source))) {
             AudioFormat input = original.getFormat();
             AudioFormat target = new AudioFormat(
                     AudioFormat.Encoding.PCM_SIGNED,
@@ -155,17 +213,24 @@ final class SyntheticPreparedAudioCache {
                     input.getChannels() * 2,
                     input.getSampleRate(),
                     false);
-            if (!AudioSystem.isConversionSupported(target, input) && !target.matches(input)) {
-                throw new IOException("Synthetic audio conversion is unsupported: " + input);
+            if (!AudioSystem.isConversionSupported(target, input)
+                    && !target.matches(input)) {
+                throw new IOException(
+                        "Synthetic audio conversion is unsupported: " + input);
             }
             try (AudioInputStream pcm = target.matches(input)
                     ? original
                     : AudioSystem.getAudioInputStream(target, original)) {
                 byte[] payload = pcm.readNBytes(MAX_PCM_BYTES + 1);
-                if (payload.length > MAX_PCM_BYTES) throw new IOException("Synthetic decoded PCM exceeds limit");
+                if (payload.length > MAX_PCM_BYTES) {
+                    throw new IOException("Synthetic decoded PCM exceeds limit");
+                }
                 int frameSize = target.getFrameSize();
-                if (payload.length < 1 || frameSize < 1 || payload.length % frameSize != 0) {
-                    throw new IOException("Synthetic decoded PCM has an incomplete frame");
+                if (payload.length < 1
+                        || frameSize < 1
+                        || payload.length % frameSize != 0) {
+                    throw new IOException(
+                            "Synthetic decoded PCM has an incomplete frame");
                 }
                 return new PreparedAudio(
                         Math.round(target.getSampleRate()),
@@ -189,9 +254,15 @@ final class SyntheticPreparedAudioCache {
         Path target = cachePath(cacheRoot, sourceSha256, policy, decoderIdentity);
         byte[] encoded = encode(sourceSha256, policy, decoderIdentity, audio);
         Path parent = target.getParent();
-        if (parent != null) Files.createDirectories(parent);
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
         Path temporary = target.resolveSibling(
-                target.getFileName() + ".tmp-" + ProcessHandle.current().pid() + "-" + System.nanoTime());
+                target.getFileName()
+                        + ".tmp-"
+                        + ProcessHandle.current().pid()
+                        + "-"
+                        + System.nanoTime());
         boolean moved = false;
         try {
             try (FileChannel channel = FileChannel.open(
@@ -199,17 +270,28 @@ final class SyntheticPreparedAudioCache {
                     StandardOpenOption.CREATE_NEW,
                     StandardOpenOption.WRITE)) {
                 ByteBuffer buffer = ByteBuffer.wrap(encoded);
-                while (buffer.hasRemaining()) channel.write(buffer);
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
                 channel.force(true);
             }
             try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                Files.move(
+                        temporary,
+                        target,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException ignored) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+                Files.move(
+                        temporary,
+                        target,
+                        StandardCopyOption.REPLACE_EXISTING);
             }
             moved = true;
         } finally {
-            if (!moved) Files.deleteIfExists(temporary);
+            if (!moved) {
+                Files.deleteIfExists(temporary);
+            }
         }
     }
 
@@ -226,7 +308,9 @@ final class SyntheticPreparedAudioCache {
         MessageDigest checksum = integrityDigest(source, policy, identity);
         updateMetadata(checksum, audio);
         checksum.update(pcm);
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(minimumFileBytes() + identity.length + pcm.length);
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(
+                minimumFileBytes() + identity.length + pcm.length);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
             output.write(MAGIC);
             output.writeInt(VERSION);
@@ -243,7 +327,9 @@ final class SyntheticPreparedAudioCache {
             output.write(pcm);
             output.write(checksum.digest());
         }
-        if (bytes.size() > MAX_FILE_BYTES) throw new IOException("Synthetic audio cache file exceeds limit");
+        if (bytes.size() > MAX_FILE_BYTES) {
+            throw new IOException("Synthetic audio cache file exceeds limit");
+        }
         return bytes.toByteArray();
     }
 
@@ -252,23 +338,35 @@ final class SyntheticPreparedAudioCache {
             String expectedSourceSha256,
             Policy expectedPolicy,
             String expectedDecoderIdentity) throws IOException {
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(encoded))) {
-            if (!Arrays.equals(MAGIC, input.readNBytes(MAGIC.length))) throw new IOException("Synthetic audio magic mismatch");
-            if (input.readInt() != VERSION) throw new IOException("Synthetic audio version mismatch");
+        try (DataInputStream input = new DataInputStream(
+                new ByteArrayInputStream(encoded))) {
+            if (!Arrays.equals(MAGIC, input.readNBytes(MAGIC.length))) {
+                throw new IOException("Synthetic audio magic mismatch");
+            }
+            if (input.readInt() != VERSION) {
+                throw new IOException("Synthetic audio version mismatch");
+            }
             byte[] sourceHash = input.readNBytes(HASH_BYTES);
             if (sourceHash.length != HASH_BYTES
-                    || !MessageDigest.isEqual(sourceHash, HexFormat.of().parseHex(canonicalHash(expectedSourceSha256)))) {
+                    || !MessageDigest.isEqual(
+                            sourceHash,
+                            HexFormat.of().parseHex(
+                                    canonicalHash(expectedSourceSha256)))) {
                 throw new IOException("Synthetic audio source identity mismatch");
             }
             int policyOrdinal = input.readUnsignedByte();
-            if (policyOrdinal >= Policy.values().length || Policy.values()[policyOrdinal] != expectedPolicy) {
+            if (policyOrdinal >= Policy.values().length
+                    || Policy.values()[policyOrdinal] != expectedPolicy) {
                 throw new IOException("Synthetic audio policy mismatch");
             }
             int identityLength = input.readInt();
-            if (identityLength < 1 || identityLength > MAX_IDENTITY_BYTES) throw new IOException("Synthetic audio identity length");
+            if (identityLength < 1 || identityLength > MAX_IDENTITY_BYTES) {
+                throw new IOException("Synthetic audio identity length");
+            }
             byte[] identity = input.readNBytes(identityLength);
             byte[] expectedIdentity = identityBytes(expectedDecoderIdentity);
-            if (identity.length != identityLength || !MessageDigest.isEqual(identity, expectedIdentity)) {
+            if (identity.length != identityLength
+                    || !MessageDigest.isEqual(identity, expectedIdentity)) {
                 throw new IOException("Synthetic audio decoder identity mismatch");
             }
             int sampleRate = input.readInt();
@@ -277,30 +375,55 @@ final class SyntheticPreparedAudioCache {
             long frames = input.readLong();
             boolean bigEndian = input.readBoolean();
             int length = input.readInt();
-            if (length < 1 || length > MAX_PCM_BYTES) throw new IOException("Synthetic audio payload length");
+            if (length < 1 || length > MAX_PCM_BYTES) {
+                throw new IOException("Synthetic audio payload length");
+            }
             byte[] pcm = input.readNBytes(length);
             byte[] checksum = input.readNBytes(HASH_BYTES);
-            if (pcm.length != length || checksum.length != HASH_BYTES || input.available() != 0) throw new EOFException();
-            PreparedAudio audio = new PreparedAudio(sampleRate, channels, bits, frames, bigEndian, pcm);
-            MessageDigest actual = integrityDigest(expectedSourceSha256, expectedPolicy, expectedIdentity);
+            if (pcm.length != length
+                    || checksum.length != HASH_BYTES
+                    || input.available() != 0) {
+                throw new EOFException();
+            }
+            PreparedAudio audio = new PreparedAudio(
+                    sampleRate,
+                    channels,
+                    bits,
+                    frames,
+                    bigEndian,
+                    pcm);
+            MessageDigest actual = integrityDigest(
+                    expectedSourceSha256,
+                    expectedPolicy,
+                    expectedIdentity);
             updateMetadata(actual, audio);
             actual.update(pcm);
-            if (!MessageDigest.isEqual(checksum, actual.digest())) throw new IOException("Synthetic audio checksum mismatch");
+            if (!MessageDigest.isEqual(checksum, actual.digest())) {
+                throw new IOException("Synthetic audio checksum mismatch");
+            }
             return audio;
         }
     }
 
-    private static MessageDigest integrityDigest(String sourceSha256, Policy policy, byte[] identity) {
+    private static MessageDigest integrityDigest(
+            String sourceSha256,
+            Policy policy,
+            byte[] identity) {
         MessageDigest digest = sha256();
         digest.update(HexFormat.of().parseHex(canonicalHash(sourceSha256)));
         digest.update((byte) policy.ordinal());
-        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(identity.length).array());
+        digest.update(ByteBuffer.allocate(Integer.BYTES)
+                .putInt(identity.length)
+                .array());
         digest.update(identity);
         return digest;
     }
 
-    private static void updateMetadata(MessageDigest digest, PreparedAudio audio) {
-        digest.update(ByteBuffer.allocate(Integer.BYTES * 3 + Long.BYTES + 1 + Integer.BYTES)
+    private static void updateMetadata(
+            MessageDigest digest,
+            PreparedAudio audio) {
+        digest.update(ByteBuffer.allocate(
+                        Integer.BYTES * 3 + Long.BYTES + 1 + Integer.BYTES)
                 .putInt(audio.sampleRate())
                 .putInt(audio.channels())
                 .putInt(audio.sampleSizeBits())
@@ -314,28 +437,37 @@ final class SyntheticPreparedAudioCache {
         Objects.requireNonNull(value, "decoderIdentity");
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 1 || bytes.length > MAX_IDENTITY_BYTES) {
-            throw new IllegalArgumentException("Synthetic decoder identity length is invalid");
+            throw new IllegalArgumentException(
+                    "Synthetic decoder identity length is invalid");
         }
         return bytes;
     }
 
     private static byte[] readBounded(Path file, int maximum) throws IOException {
         try (InputStream input = Files.newInputStream(file)) {
-            byte[] bytes = input.readNBytes(maximum + 1);
-            if (bytes.length > maximum) throw new IOException("Synthetic audio cache file exceeds limit");
-            return bytes;
+            return input.readNBytes(maximum + 1);
         }
     }
 
     private static int minimumFileBytes() {
-        return MAGIC.length + Integer.BYTES + HASH_BYTES + 1 + Integer.BYTES
-                + Integer.BYTES * 3 + Long.BYTES + 1 + Integer.BYTES + HASH_BYTES;
+        return MAGIC.length
+                + Integer.BYTES
+                + HASH_BYTES
+                + 1
+                + Integer.BYTES
+                + Integer.BYTES * 3
+                + Long.BYTES
+                + 1
+                + Integer.BYTES
+                + HASH_BYTES;
     }
 
     private static String canonicalHash(String value) {
         Objects.requireNonNull(value, "sourceSha256");
         String hash = value.toLowerCase(Locale.ROOT);
-        if (!hash.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Expected SHA-256");
+        if (!hash.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("Expected SHA-256");
+        }
         return hash;
     }
 
@@ -352,6 +484,8 @@ final class SyntheticPreparedAudioCache {
     }
 
     private static String message(Throwable error) {
-        return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        return error.getMessage() == null
+                ? error.getClass().getSimpleName()
+                : error.getMessage();
     }
 }
