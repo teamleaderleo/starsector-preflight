@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLongArray;
  */
 public final class PreparedImageBridge {
     private static final int INTERNAL_ERROR_LIMIT = 8;
+    private static final int MAX_COMPATIBILITY_PIXEL_BYTES = 32 * 1024 * 1024;
     private static final AtomicLong HITS = new AtomicLong();
     private static final AtomicLong FALLBACKS = new AtomicLong();
     private static final AtomicLong INTERNAL_ERRORS = new AtomicLong();
@@ -62,7 +63,7 @@ public final class PreparedImageBridge {
         }
 
         ManifestTextureCacheLookup lookup = new ManifestTextureCacheLookup(absoluteCache, manifest);
-        state = State.enabled(
+        State configured = State.enabled(
                 absoluteCache,
                 absoluteManifest,
                 absoluteIndex,
@@ -70,6 +71,7 @@ public final class PreparedImageBridge {
                 lookup,
                 physicalWinners(index));
         resetCounters();
+        state = configured;
     }
 
     static synchronized void disable(String detail) {
@@ -85,36 +87,44 @@ public final class PreparedImageBridge {
     /** Returns a verified prepared image or {@code null} to execute the original decoder. */
     public static BufferedImage lookup(String requestedPath) {
         State active = state;
-        if (!active.enabled || requestedPath == null || requestedPath.isBlank()) {
-            FALLBACKS.incrementAndGet();
-            STATUSES.incrementAndGet(TextureCacheLookup.Status.DISABLED.ordinal());
+        if (!active.enabled) {
+            fallback(TextureCacheLookup.Status.DISABLED);
+            return null;
+        }
+        if (requestedPath == null || requestedPath.isBlank()) {
+            fallback(TextureCacheLookup.Status.MISS);
             return null;
         }
 
         try {
             String logicalPath = resolveLogicalPath(active, requestedPath);
-            if (logicalPath == null || !sourceMetadataMatches(active.index, logicalPath)) {
+            if (logicalPath == null) {
+                fallback(TextureCacheLookup.Status.MISS);
+                return null;
+            }
+            if (!sourceMetadataMatches(active.index, logicalPath)) {
                 fallback(TextureCacheLookup.Status.STALE);
                 return null;
             }
 
             TextureCacheLookup.Lookup result = active.lookup.lookup(logicalPath);
-            STATUSES.incrementAndGet(result.status().ordinal());
             if (result.status() != TextureCacheLookup.Status.HIT) {
-                FALLBACKS.incrementAndGet();
+                fallback(result.status());
                 return null;
             }
 
             PreparedTexture texture = result.texture();
             if (texture.transformation() != PreparedTexture.Transformation.IDENTITY
                     || texture.originalWidth() != texture.uploadWidth()
-                    || texture.originalHeight() != texture.uploadHeight()) {
+                    || texture.originalHeight() != texture.uploadHeight()
+                    || texture.pixelBytes() > MAX_COMPATIBILITY_PIXEL_BYTES) {
                 fallback(TextureCacheLookup.Status.UNSUPPORTED);
                 return null;
             }
 
             BufferedImage image = toBufferedImage(texture);
             HITS.incrementAndGet();
+            STATUSES.incrementAndGet(TextureCacheLookup.Status.HIT.ordinal());
             return image;
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
