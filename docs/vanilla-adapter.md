@@ -55,6 +55,25 @@ A custom allowlist file may be supplied with:
 java -jar preflight.jar run --adapter --adapter-targets targets.txt
 ```
 
+## Ranked candidates
+
+`adapter.json` contains two candidate views:
+
+- `candidates` — a compact alphabetical list of the best retained classes.
+- `rankedCandidates` — up to 50 likely image or texture integration points ordered by a deterministic relevance score.
+
+Ranking currently uses class names, method names, JVM descriptors, and code-source ownership. Signals include texture/image/sprite terminology, image decoding, pixel-buffer and OpenGL types, upload/mipmap methods, and whether the class came from Starsector core, Fast Rendering, or a mod.
+
+Each ranked candidate includes:
+
+- exact class SHA-256
+- source classification and code-source path
+- score evidence
+- the highest-scoring method names and exact JVM descriptors
+- whether additional relevant methods were truncated
+
+Ranking narrows the review set. It never generates or activates an allowlist automatically, and it does not prove a method is safe to rewrite.
+
 ## Kill switch
 
 Either setting disables adapter transformer installation:
@@ -79,9 +98,9 @@ Class name alone is insufficient. A changed game build or modified class hash fa
 
 ## When a real Starsector installation is required
 
-Synthetic fixtures can verify parsing, matching, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
+Synthetic fixtures can verify parsing, matching, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
 
-1. Run `--adapter-probe` against the exact Starsector build to collect candidate class hashes and method signatures.
+1. Run `--adapter-probe` against the exact Starsector build to collect and rank candidate class hashes and method signatures.
 2. Validate a target-specific rewrite against that build and a representative mod profile before enabling it by default.
 
 The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, and covered by a global kill switch.
