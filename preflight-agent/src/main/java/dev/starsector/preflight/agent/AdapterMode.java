@@ -20,7 +20,7 @@ public enum AdapterMode {
         };
     }
 
-    String optionValue() {
+    public String optionValue() {
         return name().toLowerCase(Locale.ROOT);
     }
 }
