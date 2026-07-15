@@ -5,7 +5,7 @@ import java.security.ProtectionDomain;
 import java.util.List;
 import java.util.Objects;
 
-/** Observes candidate classes and only delegates exact allowlisted targets to a registered plan. */
+/** Observes candidate classes and only delegates exact source-bound targets to a registered plan. */
 final class AdapterProbeTransformer implements ClassFileTransformer {
     private final AdapterMode mode;
     private final AdapterTargetRegistry registry;
@@ -35,11 +35,18 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
         }
         try {
             ClassSignature signature = ClassSignature.parse(classfileBuffer);
-            report.observed(signature, protectionDomain);
-            for (AdapterTarget target : registry.forClass(signature.internalName())) {
-                AdapterTarget.Match match = target.match(signature);
+            List<AdapterTarget> targets = registry.forClass(signature.internalName());
+            boolean hashSource = targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
+            AdapterSourceIdentity source = AdapterSourceIdentity.capture(loader, protectionDomain, hashSource);
+            report.observed(signature, source);
+            for (AdapterTarget target : targets) {
+                AdapterTarget.Match match = target.match(signature, source);
                 report.evaluation(target, match);
                 if (!match.exact() || mode != AdapterMode.ENABLED) {
+                    continue;
+                }
+                if (!target.hasLiveSourceBinding()) {
+                    report.unbound(target);
                     continue;
                 }
                 if (!AdapterTransformationRegistry.hasPlan(target.planId())) {
