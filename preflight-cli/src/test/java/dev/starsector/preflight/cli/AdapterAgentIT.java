@@ -1,0 +1,86 @@
+package dev.starsector.preflight.cli;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class AdapterAgentIT {
+    @TempDir
+    Path temporaryDirectory;
+
+    @Test
+    void packagedAgentProbesCandidateAndPreservesOriginalClass() throws Exception {
+        Path recording = temporaryDirectory.resolve("startup.jfr");
+        Path adapterReport = temporaryDirectory.resolve("adapter.json");
+        String agentArguments = "dest64=" + encoded(recording)
+                + ",adapter=probe,adapterReport64=" + encoded(adapterReport);
+
+        ProcessResult result = launch(agentArguments);
+
+        assertTrue(result.completed(), result.output());
+        assertEquals(0, result.exitCode(), result.output());
+        assertTrue(result.output().contains("synthetic-starsector-launcher"), result.output());
+        assertTrue(Files.isRegularFile(recording), result.output());
+        assertTrue(Files.isRegularFile(adapterReport), result.output());
+        String json = Files.readString(adapterReport);
+        assertTrue(json.contains("\"mode\":\"PROBE\""), json);
+        assertTrue(json.contains("com/fs/starfarer/SyntheticLauncher"), json);
+        assertTrue(json.contains("\"transformationsApplied\":0"), json);
+        assertTrue(json.contains("\"containedFailures\":0"), json);
+    }
+
+    @Test
+    void profilerOnlyLaunchDoesNotCreateAdapterReport() throws Exception {
+        Path recording = temporaryDirectory.resolve("profile-only.jfr");
+        Path adapterReport = temporaryDirectory.resolve("adapter.json");
+        String agentArguments = "dest64=" + encoded(recording)
+                + ",adapterReport64=" + encoded(adapterReport);
+
+        ProcessResult result = launch(agentArguments);
+
+        assertTrue(result.completed(), result.output());
+        assertEquals(0, result.exitCode(), result.output());
+        assertTrue(Files.isRegularFile(recording), result.output());
+        assertFalse(Files.exists(adapterReport), result.output());
+    }
+
+    private ProcessResult launch(String agentArguments) throws Exception {
+        Path java = Path.of(System.getProperty("java.home"), "bin", executable("java"));
+        Path agent = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
+        Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
+        Process process = new ProcessBuilder(List.of(
+                java.toString(),
+                "-javaagent:" + agent + "=" + agentArguments,
+                "-cp",
+                testClasses.toString(),
+                "com.fs.starfarer.SyntheticLauncher"))
+                .redirectErrorStream(true)
+                .start();
+        boolean completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        return new ProcessResult(completed, completed ? process.exitValue() : -1, output);
+    }
+
+    private static String encoded(Path path) {
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(path.toAbsolutePath().normalize().toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String executable(String name) {
+        return System.getProperty("os.name", "").toLowerCase().contains("win") ? name + ".exe" : name;
+    }
+
+    private record ProcessResult(boolean completed, int exitCode, String output) {
+    }
+}

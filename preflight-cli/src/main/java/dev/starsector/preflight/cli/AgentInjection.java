@@ -1,5 +1,6 @@
 package dev.starsector.preflight.cli;
 
+import dev.starsector.preflight.agent.AdapterMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
@@ -10,20 +11,43 @@ final class AgentInjection {
     }
 
     static String append(String existing, Path agentJar, Path destination) {
+        return append(existing, agentJar, destination, AdapterMode.OFF, null, null);
+    }
+
+    static String append(
+            String existing,
+            Path agentJar,
+            Path destination,
+            AdapterMode adapterMode,
+            Path adapterReport,
+            Path adapterTargets) {
         String current = existing == null ? "" : existing.trim();
         String lower = current.toLowerCase(Locale.ROOT);
         if (lower.contains("-javaagent:") && lower.contains("preflight")) {
             throw new IllegalArgumentException("JAVA_TOOL_OPTIONS already contains a Preflight javaagent");
         }
 
-        String encodedDestination = Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(destination.toAbsolutePath().normalize().toString().getBytes(StandardCharsets.UTF_8));
+        StringBuilder arguments = new StringBuilder("dest64=")
+                .append(encodedPath(destination))
+                .append(",adapter=")
+                .append(adapterMode.optionValue());
+        if (adapterReport != null) {
+            arguments.append(",adapterReport64=").append(encodedPath(adapterReport));
+        }
+        if (adapterTargets != null) {
+            arguments.append(",targets64=").append(encodedPath(adapterTargets));
+        }
         String option = "-javaagent:"
                 + quoteJvmOptionValue(agentJar.toAbsolutePath().normalize().toString())
-                + "=dest64="
-                + encodedDestination;
+                + "="
+                + arguments;
         return current.isEmpty() ? option : current + " " + option;
+    }
+
+    private static String encodedPath(Path value) {
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(value.toAbsolutePath().normalize().toString().getBytes(StandardCharsets.UTF_8));
     }
 
     static String quoteJvmOptionValue(String value) {

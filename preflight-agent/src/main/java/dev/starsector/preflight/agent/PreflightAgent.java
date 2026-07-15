@@ -12,22 +12,46 @@ import jdk.jfr.Name;
 import jdk.jfr.Recording;
 import jdk.jfr.RecordingState;
 
-/** Launch-time JFR agent for Starsector Preflight. */
+/** Launch-time JFR and optional fail-closed adapter agent for Starsector Preflight. */
 public final class PreflightAgent {
     private PreflightAgent() {
     }
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
-        start(agentArgs);
+        start(agentArgs, instrumentation);
     }
 
     public static void agentmain(String agentArgs, Instrumentation instrumentation) {
-        start(agentArgs);
+        start(agentArgs, instrumentation);
     }
 
-    private static void start(String agentArgs) {
+    private static void start(String agentArgs, Instrumentation instrumentation) {
+        AgentOptions options;
         try {
-            AgentOptions options = AgentOptions.parse(agentArgs);
+            options = AgentOptions.parse(agentArgs);
+        } catch (Throwable error) {
+            log("Agent disabled: " + error.getMessage());
+            return;
+        }
+
+        AdapterRuntime.Session adapterSession = AdapterRuntime.start(options, instrumentation);
+        Recording recording = startRecording(options);
+        try {
+            Runtime.getRuntime().addShutdownHook(new Thread(
+                    () -> {
+                        stopRecording(recording, options.destination());
+                        adapterSession.close();
+                    },
+                    "Preflight-Shutdown"));
+        } catch (Throwable error) {
+            log("Could not register shutdown hook: " + error.getMessage());
+            stopRecording(recording, options.destination());
+            adapterSession.close();
+        }
+    }
+
+    private static Recording startRecording(AgentOptions options) {
+        try {
             Path destination = options.destination().toAbsolutePath().normalize();
             Path parent = destination.getParent();
             if (parent != null) {
@@ -45,12 +69,17 @@ public final class PreflightAgent {
 
             AgentStarted started = new AgentStarted();
             started.destination = destination.toString();
+            started.adapterMode = options.adapterMode().name();
             started.commit();
-
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> stop(recording, destination), "Preflight-JFR-Stop"));
             log("Recording startup to " + destination);
+            if (options.adapterMode() != AdapterMode.OFF) {
+                log("Adapter mode " + options.adapterMode() + "; report "
+                        + options.adapterReport().toAbsolutePath().normalize());
+            }
+            return recording;
         } catch (Throwable error) {
             log("Profiler disabled: " + error.getMessage());
+            return null;
         }
     }
 
@@ -66,7 +95,10 @@ public final class PreflightAgent {
         recording.enable("jdk.ExecutionSample").withPeriod(Duration.ofMillis(10)).withStackTrace();
     }
 
-    private static void stop(Recording recording, Path destination) {
+    private static void stopRecording(Recording recording, Path destination) {
+        if (recording == null) {
+            return;
+        }
         try {
             if (recording.getState() == RecordingState.RUNNING) {
                 AgentStopping stopping = new AgentStopping();
@@ -100,6 +132,9 @@ public final class PreflightAgent {
     static final class AgentStarted extends Event {
         @Label("Destination")
         String destination;
+
+        @Label("Adapter Mode")
+        String adapterMode;
     }
 
     @Name("preflight.AgentStopping")

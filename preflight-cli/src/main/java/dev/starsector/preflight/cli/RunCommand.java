@@ -40,14 +40,21 @@ final class RunCommand {
                 : options.traceDirectory().toAbsolutePath().normalize();
         Path recording = runDirectory.resolve("startup.jfr");
         Path report = runDirectory.resolve("summary.json");
+        Path adapterReport = runDirectory.resolve("adapter.json");
         Path metadata = runDirectory.resolve("run.json");
         Path profile = runDirectory.resolve("profile.json");
         Path agentJar = SelfJar.locate();
-        String javaToolOptions = AgentInjection.append(System.getenv("JAVA_TOOL_OPTIONS"), agentJar, recording);
+        String javaToolOptions = AgentInjection.append(
+                System.getenv("JAVA_TOOL_OPTIONS"),
+                agentJar,
+                recording,
+                options.adapterMode(),
+                adapterReport,
+                options.adapterTargets());
 
         List<String> command = new ArrayList<>(target.command());
         command.addAll(options.forwardedArgs());
-        printPlan(target, runDirectory, command, javaToolOptions, discovery);
+        printPlan(target, runDirectory, adapterReport, command, javaToolOptions, discovery, options);
         if (options.dryRun()) {
             return 0;
         }
@@ -66,7 +73,7 @@ final class RunCommand {
 
         Path recordedProfile = Files.isRegularFile(profile) ? profile : null;
         Instant started = Instant.now();
-        writeMetadata(metadata, target, command, started, null, null, recordedProfile);
+        writeMetadata(metadata, target, command, started, null, null, recordedProfile, options, adapterReport);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(target.workingDirectory().toFile());
@@ -76,13 +83,18 @@ final class RunCommand {
 
         int exitCode = builder.start().waitFor();
         Instant ended = Instant.now();
-        writeMetadata(metadata, target, command, started, ended, exitCode, recordedProfile);
+        writeMetadata(metadata, target, command, started, ended, exitCode, recordedProfile, options, adapterReport);
 
         if (options.summarize() && Files.isRegularFile(recording)) {
             PreflightCli.summarize(recording, report);
             System.out.println("Preflight report: " + report);
         } else if (!Files.exists(recording)) {
             System.err.println("Preflight recording was not created. Run `doctor` and inspect the selected launcher.");
+        }
+        if (Files.isRegularFile(adapterReport)) {
+            System.out.println("Preflight adapter report: " + adapterReport);
+        } else if (options.adapterMode() != dev.starsector.preflight.agent.AdapterMode.OFF) {
+            System.err.println("Preflight adapter report was not created: " + adapterReport);
         }
         return exitCode;
     }
@@ -102,14 +114,21 @@ final class RunCommand {
     private static void printPlan(
             LaunchTarget target,
             Path runDirectory,
+            Path adapterReport,
             List<String> command,
             String javaToolOptions,
-            DiscoveryResult discovery) {
+            DiscoveryResult discovery,
+            CommandLine options) {
         System.out.println("Preflight selected:");
         System.out.println("  install:  " + target.installRoot());
         System.out.println("  launcher: " + target.launcher());
         System.out.println("  kind:     " + target.kind());
         System.out.println("  run data: " + runDirectory);
+        System.out.println("  adapter:  " + options.adapterMode());
+        System.out.println("  adapter report: " + adapterReport);
+        if (options.adapterTargets() != null) {
+            System.out.println("  adapter targets: " + options.adapterTargets().toAbsolutePath().normalize());
+        }
         System.out.println("  command:  " + renderCommand(command));
         System.out.println("  JAVA_TOOL_OPTIONS: " + javaToolOptions);
         for (String diagnostic : discovery.diagnostics()) {
@@ -157,7 +176,9 @@ final class RunCommand {
             Instant started,
             Instant ended,
             Integer exitCode,
-            Path profile) throws IOException {
+            Path profile,
+            CommandLine options,
+            Path adapterReport) throws IOException {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("started", started);
         values.put("ended", ended);
@@ -169,6 +190,11 @@ final class RunCommand {
         values.put("launcherKind", target.kind());
         values.put("command", renderCommand(command));
         values.put("profile", profile);
+        values.put("adapterMode", options.adapterMode());
+        values.put("adapterReport", adapterReport);
+        values.put("adapterTargets", options.adapterTargets());
+        values.put("adapterKillSwitchProperty", "preflight.adapter.disabled");
+        values.put("adapterKillSwitchEnvironment", "PREFLIGHT_DISABLE_ADAPTER");
         Files.writeString(path, Json.object(values) + System.lineSeparator());
     }
 }

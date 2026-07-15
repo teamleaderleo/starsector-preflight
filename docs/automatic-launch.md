@@ -7,11 +7,26 @@ Preflight is designed to run without editing Starsector or Fast Rendering files.
 ```bash
 java -jar preflight.jar doctor
 java -jar preflight.jar scan
+java -jar preflight.jar prepare
 java -jar preflight.jar run
 java -jar preflight.jar install
 ```
 
-`doctor` performs discovery and prints every candidate. `scan` writes a workload census for the enabled mod profile. `run` performs the same census, then launches the selected candidate with trace capture. `install` copies the runnable JAR into the user's Preflight directory and creates a convenient platform launcher.
+`doctor` performs discovery and prints every candidate. `scan` writes a workload census for the enabled mod profile. `prepare` builds and validates reusable caches without launching the game. `run` performs the same census, then launches the selected candidate with trace capture. `install` copies the runnable JAR into the user's Preflight directory and creates a convenient platform launcher.
+
+## Launch relationship
+
+Preflight is an additional wrapper entry point. It does not replace the Starsector launcher and does not patch that launcher on disk.
+
+```text
+Starsector Preflight
+  -> discovers or receives the existing launcher path
+  -> starts that launcher as a child process
+  -> adds one process-local JAVA_TOOL_OPTIONS value
+  -> the existing launcher starts Starsector normally
+```
+
+The child may be the vanilla launcher, a Fast Rendering launcher, or another explicitly selected compatible wrapper. Preflight's process-local environment disappears when the child exits.
 
 ## Discovery order
 
@@ -48,7 +63,7 @@ The resulting `profile.json` reports:
 - Duplicate logical paths and probable enabled-order winners
 - A profile fingerprint for comparing benchmark runs
 
-The duplicate-path result is an early census. The persistent resource index will later reproduce the complete Starsector lookup and merge rules.
+The duplicate-path result is an early census. The persistent resource index provides the complete ordered provider list and winning provider used by Preflight's current lookup model.
 
 Run only the scan with:
 
@@ -70,14 +85,30 @@ The encoded destination avoids parsing problems with spaces and commas. Existing
 
 This environment change exists only for the launched child process. Preflight leaves all original launchers and VM parameter files untouched.
 
+### Optional vanilla adapter probe
+
+The adapter is OFF by default. A normal run installs no adapter transformer and writes no `adapter.json`.
+
+```bash
+java -jar preflight.jar run --adapter-probe
+```
+
+Probe mode installs a read-only class observer. It records candidate class hashes and method signatures while retaining every original class byte. `--adapter` selects the fail-closed enabled mode, which still requires an exact allowlisted target and a registered transformation plan.
+
+See [vanilla runtime adapter](vanilla-adapter.md) for the activation gate, report format, kill switch, and the point where a real Starsector installation is required.
+
 ## Run output
 
-Each run receives a directory containing:
+Each ordinary profiling run receives a directory containing:
 
 - `run.json` — selected launcher, command, Java version, timestamps, exit code, and profile report path
 - `profile.json` — enabled-mod workload census
 - `startup.jfr` — raw Java Flight Recorder data
-- `summary.json` — aggregate startup metrics
+- `summary.json` — aggregate and attributed startup metrics
+
+Probe or enabled adapter runs additionally write:
+
+- `adapter.json` — observed candidate signatures, allowlist evaluations, transformations, and contained failures
 
 The default location is `~/.starsector-preflight/runs/`.
 
@@ -114,4 +145,4 @@ Run:
 java -jar preflight.jar doctor --game "/path/to/game"
 ```
 
-Then use `--launcher` with the exact file shown by the relevant Fast Rendering port. `--dry-run` prints the complete command, selected working directory, trace destination, and injected Java option without starting the game.
+Then use `--launcher` with the exact file shown by the relevant vanilla or Fast Rendering installation. `--dry-run` prints the complete command, selected working directory, trace destination, adapter mode, and injected Java option without starting the game.
