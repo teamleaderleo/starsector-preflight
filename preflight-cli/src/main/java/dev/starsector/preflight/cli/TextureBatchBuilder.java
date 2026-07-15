@@ -45,7 +45,12 @@ final class TextureBatchBuilder {
 
     static Result build(ResourceIndex index, Path cacheDirectory, Options options)
             throws IOException, InterruptedException {
-        return build(index, cacheDirectory, options, BulkTexturePreprocessor::readSnapshot);
+        return build(
+                index,
+                cacheDirectory,
+                options,
+                BulkTexturePreprocessor::readSnapshot,
+                Hashes::sha256);
     }
 
     static Result build(
@@ -53,25 +58,36 @@ final class TextureBatchBuilder {
             Path cacheDirectory,
             Options options,
             SnapshotReader snapshotReader) throws IOException, InterruptedException {
+        return build(index, cacheDirectory, options, snapshotReader, Hashes::sha256);
+    }
+
+    static Result build(
+            ResourceIndex index,
+            Path cacheDirectory,
+            Options options,
+            SnapshotReader snapshotReader,
+            SourceHasher sourceHasher) throws IOException, InterruptedException {
         Objects.requireNonNull(snapshotReader, "snapshotReader");
+        Objects.requireNonNull(sourceHasher, "sourceHasher");
         long started = System.nanoTime();
         Path cacheRoot = cacheDirectory.toAbsolutePath().normalize();
         Files.createDirectories(cacheRoot);
 
-        List<String> diagnostics = new ArrayList<>();
-        List<Candidate> candidates = collectCandidates(index);
-        List<HashedCandidate> hashed = hashCandidates(candidates, diagnostics);
-        Map<BlobKey, List<HashedCandidate>> groups = new LinkedHashMap<>();
-        for (HashedCandidate candidate : hashed) {
-            groups.computeIfAbsent(
-                    new BlobKey(candidate.sourceSha256(), PreparedTexture.Transformation.IDENTITY),
-                    ignored -> new ArrayList<>()).add(candidate);
-        }
-
-        MemoryBudget budget = new MemoryBudget(options.memoryBudgetBytes());
         ExecutorService executor = Executors.newFixedThreadPool(options.workers(), workerFactory());
-        ExecutorCompletionService<BlobResult> completion = new ExecutorCompletionService<>(executor);
         try {
+            List<String> diagnostics = new ArrayList<>();
+            List<Candidate> candidates = collectCandidates(index);
+            List<HashedCandidate> hashed =
+                    hashCandidates(candidates, diagnostics, executor, sourceHasher);
+            Map<BlobKey, List<HashedCandidate>> groups = new LinkedHashMap<>();
+            for (HashedCandidate candidate : hashed) {
+                groups.computeIfAbsent(
+                        new BlobKey(candidate.sourceSha256(), PreparedTexture.Transformation.IDENTITY),
+                        ignored -> new ArrayList<>()).add(candidate);
+            }
+
+            MemoryBudget budget = new MemoryBudget(options.memoryBudgetBytes());
+            ExecutorCompletionService<BlobResult> completion = new ExecutorCompletionService<>(executor);
             for (Map.Entry<BlobKey, List<HashedCandidate>> group : groups.entrySet()) {
                 completion.submit(blobTask(
                         cacheRoot,
@@ -181,23 +197,73 @@ final class TextureBatchBuilder {
         return List.copyOf(candidates);
     }
 
-    private static List<HashedCandidate> hashCandidates(List<Candidate> candidates, List<String> diagnostics) {
-        List<HashedCandidate> hashed = new ArrayList<>();
+    private static List<HashedCandidate> hashCandidates(
+            List<Candidate> candidates,
+            List<String> diagnostics,
+            ExecutorService executor,
+            SourceHasher sourceHasher) throws IOException, InterruptedException {
+        LinkedHashMap<Path, List<Candidate>> candidatesBySource = new LinkedHashMap<>();
         for (Candidate candidate : candidates) {
+            candidatesBySource
+                    .computeIfAbsent(sourceKey(candidate.source()), ignored -> new ArrayList<>())
+                    .add(candidate);
+        }
+
+        ExecutorCompletionService<HashResult> completion = new ExecutorCompletionService<>(executor);
+        for (Path source : candidatesBySource.keySet()) {
+            completion.submit(hashTask(source, sourceHasher));
+        }
+
+        Map<Path, HashResult> results = new HashMap<>();
+        for (int i = 0; i < candidatesBySource.size(); i++) {
             try {
-                String hash = Hashes.sha256(candidate.source());
-                hashed.add(new HashedCandidate(
-                        candidate.logicalPath(),
-                        candidate.source(),
-                        candidate.rootId(),
-                        candidate.sourceBytes(),
-                        hash));
-            } catch (IOException error) {
-                diagnostics.add("Could not hash " + candidate.logicalPath() + " from "
-                        + candidate.rootId() + ": " + error.getMessage());
+                HashResult result = completion.take().get();
+                results.put(result.source(), result);
+            } catch (ExecutionException error) {
+                Throwable cause = error.getCause() == null ? error : error.getCause();
+                throw new IOException("Unexpected texture hash worker failure: " + cause.getMessage(), cause);
             }
         }
+
+        List<HashedCandidate> hashed = new ArrayList<>();
+        for (Candidate candidate : candidates) {
+            HashResult result = results.get(sourceKey(candidate.source()));
+            if (result == null) {
+                throw new IOException("Texture hash worker produced no result for " + candidate.source());
+            }
+            if (result.sourceSha256() == null) {
+                diagnostics.add("Could not hash " + candidate.logicalPath() + " from "
+                        + candidate.rootId() + ": " + result.errorMessage());
+                continue;
+            }
+            hashed.add(new HashedCandidate(
+                    candidate.logicalPath(),
+                    candidate.source(),
+                    candidate.rootId(),
+                    candidate.sourceBytes(),
+                    result.sourceSha256()));
+        }
         return List.copyOf(hashed);
+    }
+
+    private static Callable<HashResult> hashTask(Path source, SourceHasher sourceHasher) {
+        return () -> {
+            try {
+                String hash = Objects.requireNonNull(sourceHasher.hash(source), "source hash");
+                Hashes.decodeSha256(hash);
+                return HashResult.success(source, hash.toLowerCase(Locale.ROOT));
+            } catch (Exception error) {
+                String message = error.getMessage();
+                if (message == null || message.isBlank()) {
+                    message = error.getClass().getSimpleName();
+                }
+                return HashResult.failure(source, message);
+            }
+        };
+    }
+
+    private static Path sourceKey(Path source) {
+        return source.toAbsolutePath().normalize();
     }
 
     private static Callable<BlobResult> blobTask(
@@ -434,6 +500,11 @@ final class TextureBatchBuilder {
         byte[] read(Path source, long expectedBytes, long maximumBytes) throws IOException;
     }
 
+    @FunctionalInterface
+    interface SourceHasher {
+        String hash(Path source) throws IOException;
+    }
+
     private record Candidate(String logicalPath, Path source, String rootId, long sourceBytes) {
     }
 
@@ -443,6 +514,16 @@ final class TextureBatchBuilder {
             String rootId,
             long sourceBytes,
             String sourceSha256) {
+    }
+
+    private record HashResult(Path source, String sourceSha256, String errorMessage) {
+        static HashResult success(Path source, String sourceSha256) {
+            return new HashResult(source, sourceSha256, null);
+        }
+
+        static HashResult failure(Path source, String errorMessage) {
+            return new HashResult(source, null, errorMessage);
+        }
     }
 
     private record BlobKey(String sourceSha256, PreparedTexture.Transformation transformation) {
