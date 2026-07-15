@@ -47,6 +47,7 @@ class PreparedImageBridgeTest {
         assertEquals(2, snapshot.hits());
         assertEquals(0, snapshot.fallbacks());
         assertEquals(2, snapshot.statuses().get("HIT"));
+        assertEquals(2, totalStatuses(snapshot));
     }
 
     @Test
@@ -61,6 +62,7 @@ class PreparedImageBridgeTest {
         assertEquals(0, snapshot.hits());
         assertEquals(1, snapshot.fallbacks());
         assertEquals(1, snapshot.statuses().get("STALE"));
+        assertEquals(1, totalStatuses(snapshot));
     }
 
     @Test
@@ -75,7 +77,24 @@ class PreparedImageBridgeTest {
         PreparedImageBridge.Snapshot snapshot = PreparedImageBridge.snapshot();
         assertEquals(2, snapshot.fallbacks());
         assertEquals(1, snapshot.statuses().get("CORRUPT"));
-        assertEquals(1, snapshot.statuses().get("STALE"));
+        assertEquals(1, snapshot.statuses().get("MISS"));
+        assertEquals(0, snapshot.statuses().get("HIT"));
+        assertEquals(2, totalStatuses(snapshot));
+    }
+
+    @Test
+    void unsupportedPreparedShapeIsNotAlsoCountedAsAHit() throws Exception {
+        Fixture fixture = unsupportedFixture("profile-a");
+        PreparedImageBridge.configure(fixture.cache(), fixture.manifest(), fixture.index());
+
+        assertNull(PreparedImageBridge.lookup(fixture.logicalPath()));
+
+        PreparedImageBridge.Snapshot snapshot = PreparedImageBridge.snapshot();
+        assertEquals(0, snapshot.hits());
+        assertEquals(1, snapshot.fallbacks());
+        assertEquals(0, snapshot.statuses().get("HIT"));
+        assertEquals(1, snapshot.statuses().get("UNSUPPORTED"));
+        assertEquals(1, totalStatuses(snapshot));
     }
 
     @Test
@@ -92,22 +111,6 @@ class PreparedImageBridgeTest {
     }
 
     private Fixture fixture(String fingerprint) throws Exception {
-        Path root = temporaryDirectory.resolve("game/core");
-        Path source = root.resolve("graphics/test.png");
-        Files.createDirectories(source.getParent());
-        Files.writeString(source, "encoded source placeholder");
-        BasicFileAttributes attributes = Files.readAttributes(source, BasicFileAttributes.class);
-        String logicalPath = "graphics/test.png";
-        ResourceIndex.Provider provider = new ResourceIndex.Provider(
-                0,
-                logicalPath,
-                attributes.size(),
-                Math.max(0, attributes.lastModifiedTime().toMillis()));
-        ResourceIndex index = new ResourceIndex(
-                fingerprint,
-                List.of(new ResourceIndex.Root("core", root, true)),
-                Map.of(logicalPath, List.of(provider)));
-
         byte[] bottomUpRgb = {
                 0, 0, (byte) 255,
                 (byte) 255, (byte) 255, (byte) 255,
@@ -126,6 +129,41 @@ class PreparedImageBridgeTest {
                 0,
                 0,
                 bottomUpRgb);
+        return fixture(fingerprint, texture);
+    }
+
+    private Fixture unsupportedFixture(String fingerprint) throws Exception {
+        PreparedTexture texture = new PreparedTexture(
+                "b".repeat(64),
+                PreparedTexture.Transformation.IDENTITY,
+                1,
+                1,
+                2,
+                2,
+                3,
+                0,
+                0,
+                0,
+                new byte[12]);
+        return fixture(fingerprint, texture);
+    }
+
+    private Fixture fixture(String fingerprint, PreparedTexture texture) throws Exception {
+        Path root = temporaryDirectory.resolve("game/core");
+        Path source = root.resolve("graphics/test.png");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "encoded source placeholder");
+        BasicFileAttributes attributes = Files.readAttributes(source, BasicFileAttributes.class);
+        String logicalPath = "graphics/test.png";
+        ResourceIndex.Provider provider = new ResourceIndex.Provider(
+                0,
+                logicalPath,
+                attributes.size(),
+                Math.max(0, attributes.lastModifiedTime().toMillis()));
+        ResourceIndex index = new ResourceIndex(
+                fingerprint,
+                List.of(new ResourceIndex.Root("core", root, true)),
+                Map.of(logicalPath, List.of(provider)));
 
         Path cache = temporaryDirectory.resolve("cache");
         Path blob = cache.resolve("blobs/test.spft");
@@ -145,6 +183,10 @@ class PreparedImageBridgeTest {
         TextureManifestIO.write(manifestPath, manifest);
         ResourceIndexIO.write(indexPath, index);
         return new Fixture(cache, manifestPath, indexPath, source, blob, logicalPath);
+    }
+
+    private static long totalStatuses(PreparedImageBridge.Snapshot snapshot) {
+        return snapshot.statuses().values().stream().mapToLong(Long::longValue).sum();
     }
 
     private static void assertPixels(BufferedImage image) {
