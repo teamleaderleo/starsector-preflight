@@ -11,16 +11,27 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
     private final AdapterTargetRegistry registry;
     private final List<String> candidatePrefixes;
     private final AdapterReport report;
+    private final CodeLoaderSignatureReport codeLoaderReport;
 
     AdapterProbeTransformer(
             AdapterMode mode,
             AdapterTargetRegistry registry,
             List<String> candidatePrefixes,
             AdapterReport report) {
+        this(mode, registry, candidatePrefixes, report, null);
+    }
+
+    AdapterProbeTransformer(
+            AdapterMode mode,
+            AdapterTargetRegistry registry,
+            List<String> candidatePrefixes,
+            AdapterReport report,
+            CodeLoaderSignatureReport codeLoaderReport) {
         this.mode = Objects.requireNonNull(mode, "mode");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.candidatePrefixes = List.copyOf(candidatePrefixes);
         this.report = Objects.requireNonNull(report, "report");
+        this.codeLoaderReport = codeLoaderReport;
     }
 
     @Override
@@ -30,15 +41,25 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             Class<?> classBeingRedefined,
             ProtectionDomain protectionDomain,
             byte[] classfileBuffer) {
-        if (mode == AdapterMode.OFF || className == null || classfileBuffer == null || !candidate(className)) {
+        boolean adapterCandidate = adapterCandidate(className);
+        boolean codeCandidate = codeLoaderReport != null && codeLoaderReport.interested(className);
+        if (mode == AdapterMode.OFF
+                || className == null
+                || classfileBuffer == null
+                || (!adapterCandidate && !codeCandidate)) {
             return null;
         }
         try {
             ClassSignature signature = ClassSignature.parse(classfileBuffer);
             List<AdapterTarget> targets = registry.forClass(signature.internalName());
-            boolean hashSource = targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
+            boolean hashSource = codeCandidate || targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
             AdapterSourceIdentity source = AdapterSourceIdentity.capture(loader, protectionDomain, hashSource);
-            report.observed(signature, source);
+            if (adapterCandidate) {
+                report.observed(signature, source);
+            }
+            if (codeCandidate) {
+                codeLoaderReport.observed(signature, source);
+            }
             for (AdapterTarget target : targets) {
                 AdapterTarget.Match match = target.match(signature, source);
                 report.evaluation(target, match);
@@ -59,13 +80,20 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
                     return transformed;
                 }
             }
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
         } catch (Throwable error) {
-            report.malformed(className, error);
+            if (adapterCandidate) {
+                report.malformed(className, error);
+            } else if (codeLoaderReport != null) {
+                codeLoaderReport.contained("Could not retain code-loader identity " + className, error);
+            }
         }
         return null;
     }
 
-    private boolean candidate(String className) {
+    private boolean adapterCandidate(String className) {
+        if (className == null) return false;
         if (!registry.forClass(className).isEmpty()) {
             return true;
         }
