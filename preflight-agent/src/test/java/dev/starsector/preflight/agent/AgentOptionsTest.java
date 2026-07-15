@@ -1,8 +1,10 @@
 package dev.starsector.preflight.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -19,6 +21,7 @@ class AgentOptionsTest {
         assertEquals(AdapterMode.OFF, options.adapterMode());
         assertEquals(Path.of("build/adapter.json"), options.adapterReport());
         assertNull(options.adapterTargets());
+        assertFalse(options.hasCompleteTextureCacheContext());
     }
 
     @Test
@@ -44,6 +47,19 @@ class AgentOptionsTest {
         assertEquals(
                 List.of("com/fs/starfarer/", "com/fs/graphics/"),
                 options.candidatePrefixes());
+    }
+
+    @Test
+    void parsesCompletePreparedTextureContext() {
+        AgentOptions options = AgentOptions.parse(
+                "adapter=enabled,textureCache64=" + encoded("build/cache")
+                        + ",textureManifest64=" + encoded("build/manifests/profile.spfm")
+                        + ",resourceIndex64=" + encoded("build/indexes/profile.spfi"));
+
+        assertEquals(Path.of("build/cache"), options.textureCacheRoot());
+        assertEquals(Path.of("build/manifests/profile.spfm"), options.textureManifest());
+        assertEquals(Path.of("build/indexes/profile.spfi"), options.resourceIndex());
+        assertTrue(options.hasCompleteTextureCacheContext());
     }
 
     @Test
