@@ -2,7 +2,9 @@ package dev.starsector.preflight.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.starsector.preflight.core.Hashes;
 import dev.starsector.preflight.core.PreparedTexture;
 import java.awt.Transparency;
 import java.awt.color.ColorSpace;
@@ -12,6 +14,8 @@ import java.awt.image.DataBuffer;
 import java.awt.image.IndexColorModel;
 import java.awt.image.Raster;
 import java.awt.image.WritableRaster;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Random;
 import javax.imageio.ImageIO;
@@ -126,6 +130,48 @@ class BulkTexturePreprocessorTest {
         assertEquals(
                 ReferenceTexturePreprocessor.prepare(jpeg, PreparedTexture.Transformation.IDENTITY),
                 BulkTexturePreprocessor.prepare(jpeg, PreparedTexture.Transformation.IDENTITY));
+    }
+
+    @Test
+    void snapshotConversionMatchesPathAndLiteralReference() throws Exception {
+        BufferedImage image = new BufferedImage(17, 11, BufferedImage.TYPE_INT_ARGB);
+        fillArgb(image, new Random(141));
+        Path png = temporaryDirectory.resolve("snapshot.png");
+        assertTrue(ImageIO.write(image, "png", png.toFile()));
+        byte[] encoded = Files.readAllBytes(png);
+        String sourceSha256 = Hashes.sha256(encoded);
+
+        PreparedTexture snapshot = BulkTexturePreprocessor.prepareSnapshot(
+                encoded,
+                sourceSha256,
+                PreparedTexture.Transformation.IDENTITY);
+
+        assertEquals(sourceSha256, snapshot.sourceSha256());
+        assertEquals(
+                BulkTexturePreprocessor.prepare(png, PreparedTexture.Transformation.IDENTITY),
+                snapshot);
+        assertEquals(
+                ReferenceTexturePreprocessor.prepare(png, PreparedTexture.Transformation.IDENTITY),
+                snapshot);
+    }
+
+    @Test
+    void rejectsSnapshotWhoseBytesDifferFromExpectedHash() throws Exception {
+        BufferedImage image = new BufferedImage(4, 3, BufferedImage.TYPE_INT_ARGB);
+        fillArgb(image, new Random(151));
+        Path png = temporaryDirectory.resolve("changed.png");
+        assertTrue(ImageIO.write(image, "png", png.toFile()));
+        byte[] encoded = Files.readAllBytes(png);
+
+        IOException error = assertThrows(
+                IOException.class,
+                () -> BulkTexturePreprocessor.prepareSnapshot(
+                        encoded,
+                        "00".repeat(32),
+                        PreparedTexture.Transformation.IDENTITY));
+
+        assertTrue(error.getMessage().contains("Source snapshot SHA-256 mismatch"));
+        assertTrue(error.getMessage().contains(Hashes.sha256(encoded)));
     }
 
     @Test
