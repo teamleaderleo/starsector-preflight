@@ -26,7 +26,7 @@ import java.util.TreeMap;
 /** One isolated synthetic startup pass. Tests launch this class in a fresh JVM for every pass. */
 public final class SyntheticStartupWorker {
     private static final int MAX_MODS = 1_000;
-    private static final long MAX_MOD_ORDER_BYTES = 1024L * 1024;
+    private static final int MAX_MOD_ORDER_BYTES = 1024 * 1024;
     private static final int MAX_MOD_NAME_CHARS = 255;
     private static final int MAX_DISCOVERED_FILES = 100_000;
     private static final int MAX_LOGICAL_PATH_CHARS = 1_024;
@@ -172,13 +172,10 @@ public final class SyntheticStartupWorker {
         if (!Files.isRegularFile(orderFile, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Synthetic profile is missing mod-order.txt: " + orderFile);
         }
-        long orderBytes = Files.size(orderFile);
-        if (orderBytes > MAX_MOD_ORDER_BYTES) {
-            throw new IOException("Synthetic mod order exceeds its byte safety limit: " + orderBytes);
-        }
+        String orderText = new String(readBounded(orderFile, MAX_MOD_ORDER_BYTES), StandardCharsets.UTF_8);
         List<String> order = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String raw : Files.readAllLines(orderFile, StandardCharsets.UTF_8)) {
+        for (String raw : orderText.lines().toList()) {
             String name = raw.trim();
             if (name.isEmpty() || name.startsWith("#")) continue;
             if (name.length() > MAX_MOD_NAME_CHARS
@@ -241,6 +238,16 @@ public final class SyntheticStartupWorker {
             }
         }
         return new HashedFile(HexFormat.of().formatHex(digest.digest()), total);
+    }
+
+    private static byte[] readBounded(Path file, int maximumBytes) throws IOException {
+        try (InputStream input = Files.newInputStream(file)) {
+            byte[] bytes = input.readNBytes(maximumBytes + 1);
+            if (bytes.length > maximumBytes) {
+                throw new IOException("Synthetic file exceeds its byte safety limit: " + file);
+            }
+            return bytes;
+        }
     }
 
     private static MessageDigest sha256Digest() {
