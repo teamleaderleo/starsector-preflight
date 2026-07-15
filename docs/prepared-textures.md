@@ -2,7 +2,7 @@
 
 Preflight Textures converts an encoded image into the exact byte layout consumed by the current texture upload path, then stores that result in a versioned cache blob.
 
-The v1 implementation is deliberately a reference implementation. It favors literal behavioral equivalence over clever pixel access. Later optimized converters must prove byte-for-byte equality against this path.
+The literal reference implementation remains the compatibility authority. Production cache generation now uses a row-bulk converter only after proving complete `PreparedTexture` equality against that reference path.
 
 ## Commands
 
@@ -31,15 +31,15 @@ java -jar preflight.jar texture inspect example.spft
 java -jar preflight.jar texture verify example.png example.spft
 ```
 
-`verify` hashes the current source, performs a fresh reference conversion, and compares the complete prepared result with the blob.
+`verify` hashes the current source, performs a fresh literal reference conversion, and compares the complete prepared result with the blob. It does not reuse the optimized preparation path.
 
-Compare repeated reference conversion with blob reads:
+Compare literal conversion, bulk-row conversion, and blob reads:
 
 ```bash
 java -jar preflight.jar texture benchmark example.png example.spft --runs 10
 ```
 
-The benchmark performs one warmup, reports every sample plus minimum, median, mean, and maximum, and keeps first-build time separate from repeated reads.
+The benchmark performs untimed validation passes, alternates literal and bulk measurement order, reports every sample plus minimum, median, mean, and maximum, and keeps blob reads separate. CI checks correctness rather than enforcing timing ratios.
 
 ## Prepared payload
 
@@ -55,9 +55,9 @@ A prepared texture contains:
 
 The raw pixel payload remains uncompressed in version 1. This creates a clean baseline for LZ4, low-level Zstandard, pack-file, and memory-mapping experiments.
 
-## Reference conversion behavior
+## Literal reference behavior
 
-The converter mirrors the current loader loop:
+The reference converter mirrors the current loader loop:
 
 - Decode through Java ImageIO
 - Read pixels through `Raster.getPixel`
@@ -65,11 +65,31 @@ The converter mirrors the current loader loop:
 - Store RGB for opaque images and RGBA for alpha images
 - Leave fully transparent output texels zeroed
 - Exclude fully transparent texels from color statistics
-- Preserve the loader's histogram and derived-color calculations exactly
+- Preserve float accumulation order, histograms, and derived-color calculations exactly
 
 Literal raster behavior is preserved for grayscale and indexed-color images. This can differ from palette-expanded RGB expectations and gives optimized implementations a precise compatibility target.
 
-`ALPHA_ADDER` is represented in the format and intentionally unsupported by the v1 reference converter until its exact transformation is captured in an equivalence fixture.
+`ALPHA_ADDER` is represented in the format and intentionally unsupported until its exact transformation is captured in an equivalence fixture.
+
+## Bulk-row conversion
+
+The optimized converter calls `Raster.getPixels()` once per source row instead of `Raster.getPixel()` once per pixel. It then executes the same ordered per-pixel arithmetic as the reference implementation.
+
+It preserves:
+
+- Source-row reversal and output byte order
+- Raw raster band indexing, including grayscale and indexed-alpha quirks
+- Persistent missing-band zero behavior
+- Transparent-texel zeroing and exclusion from statistics
+- Float sums and histogram update order
+- All three derived loader colors
+- Source SHA-256 and binary blob bytes
+
+Translated subimage rasters are accepted when their bounds contain the image's logical `0..width` and `0..height` rectangle. Unsupported or unusual raster layouts fall back to the literal reference converter.
+
+The equivalence suite covers every standard JDK `BufferedImage` type, premultiplied alpha, BGR/ABGR layouts, ushort RGB and grayscale, binary/indexed images, custom grayscale-plus-alpha and indexed-alpha models, odd dimensions, transparent pixels, translated subimages, and file-backed PNG/JPEG decoding. Deterministic randomized fixtures compare the complete immutable `PreparedTexture` value.
+
+Profile-wide cache generation and `texture prepare` use the bulk-row path. `texture verify` always uses the literal reference path.
 
 ## Blob format
 
@@ -87,6 +107,6 @@ The writer uses a sibling temporary file and atomic replacement where supported.
 
 ## Runtime boundary
 
-A future Fast Rendering adapter can read an `.spft` file, create a direct byte buffer, and proceed directly to texture upload. OpenGL object creation, upload, and mipmap generation still occur in the running process.
+A future vanilla or Fast Rendering adapter can read an `.spft` file, create a direct byte buffer, and proceed directly to texture upload. OpenGL object creation, upload, and mipmap generation still occur in the running process.
 
-The runtime path will treat any missing, stale, corrupt, or incompatible blob as a cache miss and use the original image loader.
+The runtime path treats any missing, stale, corrupt, or incompatible blob as a cache miss and uses the original image loader.

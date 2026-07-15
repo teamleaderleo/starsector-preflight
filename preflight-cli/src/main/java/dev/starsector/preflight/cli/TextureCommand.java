@@ -7,10 +7,8 @@ import dev.starsector.preflight.core.PreparedTextureValidator;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 final class TextureCommand {
@@ -35,7 +33,7 @@ final class TextureCommand {
 
     private static int prepare(PrepareOptions options) throws IOException {
         long prepareStarted = System.nanoTime();
-        PreparedTexture texture = ReferenceTexturePreprocessor.prepare(
+        PreparedTexture texture = BulkTexturePreprocessor.prepare(
                 options.source(),
                 PreparedTexture.Transformation.IDENTITY);
         long prepareNanos = System.nanoTime() - prepareStarted;
@@ -52,6 +50,8 @@ final class TextureCommand {
 
         Map<String, Object> result = summary(texture, output);
         result.put("source", options.source().toAbsolutePath().normalize());
+        result.put("preprocessor", "bulk-rows-with-reference-fallback");
+        result.put("referenceVerificationAvailable", true);
         result.put("prepareMs", nanosToMillis(prepareNanos));
         result.put("writeMs", nanosToMillis(writeNanos));
         System.out.println(Json.object(result));
@@ -76,6 +76,7 @@ final class TextureCommand {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("source", options.source().toAbsolutePath().normalize());
         result.put("blob", options.blob().toAbsolutePath().normalize());
+        result.put("verificationPreprocessor", "literal-reference");
         result.put("sourceValid", sourceValidation.valid());
         result.put("expectedSourceSha256", sourceValidation.expectedSha256());
         result.put("actualSourceSha256", sourceValidation.actualSha256());
@@ -93,27 +94,35 @@ final class TextureCommand {
             throw new IOException("Prepared texture source hash does not match " + options.source());
         }
 
-        // One untimed pass allows ImageIO and JFR-adjacent classes to initialize before measurement.
+        // Untimed passes initialize ImageIO and verify all three paths before measurement.
         PreparedTexture warmReference = ReferenceTexturePreprocessor.prepare(
                 options.source(),
                 cached.transformation());
+        PreparedTexture warmBulk = BulkTexturePreprocessor.prepare(
+                options.source(),
+                cached.transformation());
         PreparedTexture warmCached = PreparedTextureIO.read(options.blob());
+        if (!warmReference.equals(warmBulk)) {
+            throw new IOException("Bulk texture conversion differs from the literal reference conversion");
+        }
         if (!warmReference.equals(warmCached)) {
             throw new IOException("Prepared texture blob differs from the reference conversion");
         }
-        benchmarkSink ^= warmReference.pixelBytes() + warmCached.pixelBytes();
+        benchmarkSink ^= warmReference.pixelBytes() + warmBulk.pixelBytes() + warmCached.pixelBytes();
 
-        long[] prepareNanos = new long[options.runs()];
+        long[] referenceNanos = new long[options.runs()];
+        long[] bulkNanos = new long[options.runs()];
         long[] readNanos = new long[options.runs()];
         for (int i = 0; i < options.runs(); i++) {
-            long started = System.nanoTime();
-            PreparedTexture prepared = ReferenceTexturePreprocessor.prepare(
-                    options.source(),
-                    cached.transformation());
-            prepareNanos[i] = System.nanoTime() - started;
-            benchmarkSink ^= prepared.pixelBytes() + prepared.color0Rgba();
+            if ((i & 1) == 0) {
+                bulkNanos[i] = measureBulk(options, cached);
+                referenceNanos[i] = measureReference(options, cached);
+            } else {
+                referenceNanos[i] = measureReference(options, cached);
+                bulkNanos[i] = measureBulk(options, cached);
+            }
 
-            started = System.nanoTime();
+            long started = System.nanoTime();
             PreparedTexture restored = PreparedTextureIO.read(options.blob());
             readNanos[i] = System.nanoTime() - started;
             benchmarkSink ^= restored.pixelBytes() + restored.color1Rgba();
@@ -126,11 +135,41 @@ final class TextureCommand {
         result.put("sourceBytes", Files.size(options.source()));
         result.put("blobBytes", Files.size(options.blob()));
         result.put("pixelBytes", cached.pixelBytes());
-        result.put("referencePrepare", timing(prepareNanos));
+        result.put("referencePrepare", timing(referenceNanos));
+        result.put("bulkPrepare", timing(bulkNanos));
         result.put("blobRead", timing(readNanos));
-        result.put("medianSpeedup", median(prepareNanos) / (double) Math.max(1L, median(readNanos)));
+        result.put("referenceToBlobMedianSpeedup",
+                median(referenceNanos) / (double) Math.max(1L, median(readNanos)));
+        result.put("referenceToBulkMedianSpeedup",
+                median(referenceNanos) / (double) Math.max(1L, median(bulkNanos)));
+        result.put("bulkToBlobMedianSpeedup",
+                median(bulkNanos) / (double) Math.max(1L, median(readNanos)));
+        // Preserve the original field for downstream report consumers.
+        result.put("medianSpeedup",
+                median(referenceNanos) / (double) Math.max(1L, median(readNanos)));
+        result.put("timingAssertionsEnforced", false);
         System.out.println(Json.object(result));
         return 0;
+    }
+
+    private static long measureReference(BenchmarkOptions options, PreparedTexture cached) throws IOException {
+        long started = System.nanoTime();
+        PreparedTexture prepared = ReferenceTexturePreprocessor.prepare(
+                options.source(),
+                cached.transformation());
+        long elapsed = System.nanoTime() - started;
+        benchmarkSink ^= prepared.pixelBytes() + prepared.color0Rgba();
+        return elapsed;
+    }
+
+    private static long measureBulk(BenchmarkOptions options, PreparedTexture cached) throws IOException {
+        long started = System.nanoTime();
+        PreparedTexture prepared = BulkTexturePreprocessor.prepare(
+                options.source(),
+                cached.transformation());
+        long elapsed = System.nanoTime() - started;
+        benchmarkSink ^= prepared.pixelBytes() + prepared.color2Rgba();
+        return elapsed;
     }
 
     private static Map<String, Object> summary(PreparedTexture texture, Path blob) throws IOException {

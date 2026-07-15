@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.starsector.preflight.core.PreparedTexture;
+import dev.starsector.preflight.core.PreparedTextureIO;
 import dev.starsector.preflight.core.ResourceIndex;
 import dev.starsector.preflight.core.TextureManifestIO;
 import dev.starsector.preflight.core.TextureManifestValidator;
@@ -52,6 +54,14 @@ class TextureBatchBuilderTest {
         assertEquals(
                 first.manifest().entry("graphics/a.png").orElseThrow().blobRelativePath(),
                 first.manifest().entry("graphics/b.png").orElseThrow().blobRelativePath());
+
+        Path builtBlob = cache.resolve(
+                first.manifest().entry("graphics/a.png").orElseThrow().blobRelativePath());
+        PreparedTexture builtTexture = PreparedTextureIO.read(builtBlob);
+        PreparedTexture referenceTexture = ReferenceTexturePreprocessor.prepare(
+                a,
+                PreparedTexture.Transformation.IDENTITY);
+        assertEquals(referenceTexture, builtTexture);
 
         TextureBatchBuilder.Result second = TextureBatchBuilder.build(
                 index,
