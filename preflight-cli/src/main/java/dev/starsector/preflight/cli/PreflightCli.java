@@ -135,6 +135,10 @@ public final class PreflightCli {
         System.err.println("  preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]");
         System.err.println("  preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]");
         System.err.println("  preflight classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]");
+        System.err.println("  preflight classpath index build [--game <path>] [--launcher <path>] [--cache-dir <path>]");
+        System.err.println("  preflight classpath index inspect <profile.spfc>");
+        System.err.println("  preflight classpath index query <profile.spfc> <entry-name> [--all] [--cache-dir <path>]");
+        System.err.println("  preflight classpath index validate <profile.spfc> [--cache-dir <path>] [--deep]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
