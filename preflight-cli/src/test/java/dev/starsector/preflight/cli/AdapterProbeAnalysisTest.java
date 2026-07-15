@@ -16,18 +16,23 @@ class AdapterProbeAnalysisTest {
     Path temporaryDirectory;
 
     @Test
-    void joinsExactClassNamesAndPreservesHashesAndDescriptors() throws Exception {
+    void joinsExactClassNamesAcrossFullRetainedAndDetailedCandidateLists() throws Exception {
         Path adapter = temporaryDirectory.resolve("adapter.json");
         Path summary = temporaryDirectory.resolve("summary.json");
         Path output = temporaryDirectory.resolve("adapter-analysis.json");
         Files.writeString(adapter, """
-                {"mode":"PROBE","rankedCandidates":[
+                {"mode":"PROBE",
+                 "candidates":[
                   {"className":"com/fs/starfarer/A","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                   "relevanceScore":40,"sourceKind":"STARSECTOR_CORE","codeSource":"file:/game/core.jar",
-                   "evidence":["method a scored 40"]},
+                   "relevanceScore":40,"sourceKind":"STARSECTOR_CORE","codeSource":"file:/game/core.jar"},
                   {"className":"com/fs/starfarer/B","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                   "relevanceScore":100,"sourceKind":"STARSECTOR_CORE","codeSource":null,"evidence":[]}
-                ]}
+                   "relevanceScore":100,"sourceKind":"STARSECTOR_CORE","codeSource":null}
+                 ],
+                 "rankedCandidates":[
+                  {"className":"com/fs/starfarer/B","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                   "relevanceScore":100,"sourceKind":"STARSECTOR_CORE","codeSource":null,
+                   "evidence":["class name contains texture"]}
+                 ]}
                 """);
         Files.writeString(summary, """
                 {"imageReadStackAttribution":{"topMethods":[
