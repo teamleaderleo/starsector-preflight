@@ -1,0 +1,53 @@
+name: JAR index tests
+
+on:
+  pull_request:
+    paths:
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/JarArchiveIndex.java'
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/JarArchiveIndexIO.java'
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/ClasspathProfileIndex.java'
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/ClasspathProfileIndexIO.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/JarArchiveIndexIOTest.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/ClasspathProfileIndexIOTest.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/ClasspathIndexBuilder.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/ClasspathIndexCommand.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/ClasspathCommand.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/ClasspathIndexBuilderTest.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/ClasspathIndexCommandTest.java'
+      - '.github/workflows/jar-index-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Run focused tests
+        shell: bash
+        run: |
+          set +e
+          mvn -q -pl preflight-cli -am test \
+            -Dtest=JarArchiveIndexIOTest,ClasspathProfileIndexIOTest,ClasspathIndexBuilderTest,ClasspathIndexCommandTest \
+            -Dsurefire.failIfNoSpecifiedTests=false > jar-index-maven.log 2>&1
+          status=$?
+          find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> jar-index-maven.log
+          tail -n 160 jar-index-maven.log
+          exit "$status"
+      - name: Upload focused logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar-index-test-logs
+          path: |
+            jar-index-maven.log
+            **/target/surefire-reports/*
+          if-no-files-found: warn
+          retention-days: 7
