@@ -43,7 +43,7 @@ public final class PreflightCli {
             case "install" -> InstallCommand.execute(CommandLine.parse(args, 1));
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
             case "index" -> IndexCommand.execute(args, 1);
-            case "texture" -> TextureCommand.execute(args, 1);
+            case "texture" -> textureCommand(args);
             case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
             case "summarize" -> summarizeCommand(args);
             default -> {
@@ -51,6 +51,16 @@ public final class PreflightCli {
                 yield 2;
             }
         };
+    }
+
+    private static int textureCommand(String[] args) throws Exception {
+        if (args.length > 1 && "build".equals(args[1])) {
+            return TextureBatchCommand.execute(args, 2);
+        }
+        if (args.length > 1 && "manifest".equals(args[1])) {
+            return TextureManifestCommand.execute(args, 2);
+        }
+        return TextureCommand.execute(args, 1);
     }
 
     private static int requirePathCommand(String[] args, String name, PathCommand command) throws Exception {
@@ -119,6 +129,10 @@ public final class PreflightCli {
         System.err.println("  preflight texture inspect <texture.spft>");
         System.err.println("  preflight texture verify <image> <texture.spft>");
         System.err.println("  preflight texture benchmark <image> <texture.spft> [--runs <count>]");
+        System.err.println("  preflight texture build [--game <path> | --index <index.spfi>] [--cache-dir <path>] [--workers <count>] [--memory-mb <MiB>]");
+        System.err.println("  preflight texture manifest inspect <manifest.spfm>");
+        System.err.println("  preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]");
+        System.err.println("  preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
