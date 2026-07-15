@@ -3,6 +3,7 @@ package dev.starsector.preflight.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fs.starfarer.SyntheticImageReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -15,7 +16,7 @@ class IoTraceJfrIntegrationTest {
     Path temporaryDirectory;
 
     @Test
-    void summarizeIncludesKnownReadAndWritePathsFromRealJfr() throws Exception {
+    void summarizeIncludesKnownReadWritePathsAndImageStackFramesFromRealJfr() throws Exception {
         Path image = temporaryDirectory.resolve("Example Mod/graphics/test image.PNG");
         Path cache = temporaryDirectory.resolve("cache/profile.SPFM");
         Path recordingFile = temporaryDirectory.resolve("startup.jfr");
@@ -25,11 +26,11 @@ class IoTraceJfrIntegrationTest {
         Files.write(image, new byte[8 * 1024]);
 
         try (Recording recording = new Recording()) {
-            recording.enable("jdk.FileRead").withThreshold(Duration.ZERO);
-            recording.enable("jdk.FileWrite").withThreshold(Duration.ZERO);
+            recording.enable("jdk.FileRead").withThreshold(Duration.ZERO).withStackTrace();
+            recording.enable("jdk.FileWrite").withThreshold(Duration.ZERO).withStackTrace();
             recording.start();
-            Files.readAllBytes(image);
-            Files.readAllBytes(image);
+            SyntheticImageReader.loadTextureImage(image);
+            SyntheticImageReader.loadTextureImage(image);
             Files.write(cache, new byte[4 * 1024]);
             recording.stop();
             recording.dump(recordingFile);
@@ -46,5 +47,10 @@ class IoTraceJfrIntegrationTest {
         assertTrue(json.contains("\"extension\":\"spfm\""), json);
         assertTrue(json.contains("\"category\":\"image\""), json);
         assertTrue(json.contains("\"category\":\"preflight-cache\""), json);
+        assertTrue(json.contains("\"imageReadStackAttribution\""), json);
+        assertTrue(json.contains("com/fs/starfarer/SyntheticImageReader"), json);
+        assertTrue(json.contains("\"methodName\":\"decodeResource\""), json);
+        assertTrue(json.contains("\"methodName\":\"loadTextureImage\""), json);
+        assertTrue(json.contains("\"eventsWithStack\":"), json);
     }
 }

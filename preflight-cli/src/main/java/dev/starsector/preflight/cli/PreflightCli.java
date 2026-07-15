@@ -155,6 +155,7 @@ public final class PreflightCli {
     private static final class TraceAccumulator {
         private final Map<String, Long> counts = new LinkedHashMap<>();
         private final IoTraceAttribution io = new IoTraceAttribution();
+        private final ImageReadStackAttribution imageReadStacks = new ImageReadStackAttribution();
         private Instant first;
         private Instant last;
         private long fileReadNanos;
@@ -178,9 +179,11 @@ public final class PreflightCli {
             switch (name) {
                 case "jdk.FileRead" -> {
                     long bytes = longField(event, "bytesRead");
+                    String path = stringField(event, "path");
                     fileReadNanos += duration;
                     fileReadBytes += bytes;
-                    io.recordRead(stringField(event, "path"), bytes, duration);
+                    io.recordRead(path, bytes, duration);
+                    imageReadStacks.record(event, path, bytes, duration);
                 }
                 case "jdk.FileWrite" -> {
                     long bytes = longField(event, "bytesWritten");
@@ -216,6 +219,7 @@ public final class PreflightCli {
             values.put("executionSamples", counts.getOrDefault("jdk.ExecutionSample", 0L));
             values.put("preflightAgentStartedEvents", counts.getOrDefault("preflight.AgentStarted", 0L));
             values.put("ioAttribution", io.toMap());
+            values.put("imageReadStackAttribution", imageReadStacks.toMap());
             values.put("eventTypeCounts", counts);
             return Json.object(values);
         }
