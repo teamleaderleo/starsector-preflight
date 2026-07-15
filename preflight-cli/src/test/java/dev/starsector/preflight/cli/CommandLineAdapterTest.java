@@ -2,6 +2,7 @@ package dev.starsector.preflight.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.starsector.preflight.agent.AdapterMode;
 import java.nio.file.Path;
@@ -22,12 +23,42 @@ class CommandLineAdapterTest {
     }
 
     @Test
-    void rejectsConflictingModesAndTargetsWhileOff() {
+    void parsesOnlyCompleteEnabledPreparedImageContext() {
+        CommandLine enabled = CommandLine.parse(new String[] {
+                "run",
+                "--adapter",
+                "--adapter-cache-dir", "cache",
+                "--adapter-texture-manifest", "manifest.spfm",
+                "--adapter-resource-index", "index.spfi"
+        }, 1);
+
+        assertTrue(enabled.hasAdapterTextureContext());
+        assertEquals(Path.of("cache"), enabled.adapterCacheDirectory());
+        assertEquals(Path.of("manifest.spfm"), enabled.adapterTextureManifest());
+        assertEquals(Path.of("index.spfi"), enabled.adapterResourceIndex());
+    }
+
+    @Test
+    void rejectsConflictingModesTargetsWhileOffAndPartialTextureContext() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> CommandLine.parse(new String[] {"run", "--adapter", "--adapter-probe"}, 1));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> CommandLine.parse(new String[] {"run", "--adapter-targets", "targets.txt"}, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {
+                        "run", "--adapter", "--adapter-cache-dir", "cache"
+                }, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {
+                        "run",
+                        "--adapter-probe",
+                        "--adapter-cache-dir", "cache",
+                        "--adapter-texture-manifest", "manifest.spfm",
+                        "--adapter-resource-index", "index.spfi"
+                }, 1));
     }
 }
