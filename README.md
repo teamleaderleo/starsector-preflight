@@ -24,14 +24,22 @@ Preflight will:
 1. Discover a Starsector or Fast Rendering launcher.
 2. Read the enabled mod profile and inventory its startup workload.
 3. Inject the same JAR as a launch-time Java agent through the child process environment.
-4. Start Starsector without editing the game, mods, saves, or VM parameter files.
+4. Start the selected existing launcher without editing the game, mods, saves, launcher, or VM parameter files.
 5. Capture a timestamped JFR startup recording.
 6. Write workload and startup summaries after the game process exits.
+
+Preflight is an additional wrapper entry point. The selected vanilla or Fast Rendering launcher remains the child process that starts Starsector.
 
 Run discovery without launching anything:
 
 ```bash
 java -jar preflight.jar doctor
+```
+
+Build and validate every reusable profile cache without launching the game:
+
+```bash
+java -jar preflight.jar prepare
 ```
 
 Create a convenient local launcher:
@@ -41,6 +49,20 @@ java -jar preflight.jar install
 ```
 
 On macOS this creates `~/Applications/Starsector Preflight.app`. Linux receives a command and desktop entry. Windows receives a local command launcher.
+
+## Optional vanilla adapter probe
+
+The live adapter is OFF by default. Normal profiling installs no adapter transformer and writes no adapter report.
+
+Collect read-only class signatures from the selected Starsector build with:
+
+```bash
+java -jar preflight.jar run --adapter-probe
+```
+
+Probe mode writes `adapter.json` and always retains the original class bytes. `--adapter` selects the fail-closed enabled mode, which still requires an exact allowlisted class hash, required method descriptors, and a registered transformation plan. This build ships with zero live transformation plans.
+
+See [vanilla runtime adapter](docs/vanilla-adapter.md) for the kill switch, target format, safety rules, and the point where a real Starsector installation is required.
 
 ## Workload census
 
@@ -126,6 +148,7 @@ Run data defaults to:
   profile.json
   startup.jfr
   summary.json
+  adapter.json      probe/enabled runs only
 ```
 
 See [automatic launch and discovery](docs/automatic-launch.md) for the full behavior and troubleshooting path.
@@ -174,6 +197,7 @@ Agent options are comma-separated. `dest64` is used internally for paths contain
 - [Architecture](docs/architecture.md)
 - [Benchmarking](docs/benchmarking.md)
 - [Automatic launch and discovery](docs/automatic-launch.md)
+- [Vanilla runtime adapter](docs/vanilla-adapter.md)
 - [Resource provider index](docs/resource-index.md)
 - [Prepared texture blobs](docs/prepared-textures.md)
 - [ADR 0001: measurement first](docs/adr/0001-measurement-first.md)
