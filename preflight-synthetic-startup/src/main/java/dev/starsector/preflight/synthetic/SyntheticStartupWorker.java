@@ -26,7 +26,10 @@ import java.util.TreeMap;
 /** One isolated synthetic startup pass. Tests launch this class in a fresh JVM for every pass. */
 public final class SyntheticStartupWorker {
     private static final int MAX_MODS = 1_000;
+    private static final long MAX_MOD_ORDER_BYTES = 1024L * 1024;
+    private static final int MAX_MOD_NAME_CHARS = 255;
     private static final int MAX_DISCOVERED_FILES = 100_000;
+    private static final int MAX_LOGICAL_PATH_CHARS = 1_024;
     private static final long MAX_WINNING_FILE_BYTES = 64L * 1024 * 1024;
 
     private SyntheticStartupWorker() {
@@ -63,18 +66,20 @@ public final class SyntheticStartupWorker {
             if (!modRoot.startsWith(modsRoot) || !Files.isDirectory(modRoot, LinkOption.NOFOLLOW_LINKS)) {
                 throw new IOException("Synthetic mod directory is missing or escaped its root: " + modName);
             }
+            int remaining = MAX_DISCOVERED_FILES - discoveredFiles;
             List<Path> files;
             try (var stream = Files.walk(modRoot)) {
                 files = stream
                         .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                        .limit((long) remaining + 1L)
                         .sorted((left, right) -> logicalPath(modRoot, left).compareTo(logicalPath(modRoot, right)))
                         .toList();
             }
+            if (files.size() > remaining) {
+                throw new IOException("Synthetic profile exceeds " + MAX_DISCOVERED_FILES + " files");
+            }
             for (Path file : files) {
                 discoveredFiles++;
-                if (discoveredFiles > MAX_DISCOVERED_FILES) {
-                    throw new IOException("Synthetic profile exceeds " + MAX_DISCOVERED_FILES + " files");
-                }
                 String logical = logicalPath(modRoot, file);
                 Provider previous = providers.put(logical, new Provider(modName, file));
                 if (previous != null) resourceCollisions++;
@@ -97,20 +102,16 @@ public final class SyntheticStartupWorker {
         for (Map.Entry<String, Provider> entry : providers.entrySet()) {
             String logical = entry.getKey();
             Provider provider = entry.getValue();
-            long sourceBytes = Files.size(provider.path());
-            if (sourceBytes < 0 || sourceBytes > MAX_WINNING_FILE_BYTES) {
-                throw new IOException("Synthetic winning file exceeds its byte limit: " + provider.path());
-            }
-            winningSourceBytes = Math.addExact(winningSourceBytes, sourceBytes);
-            String sourceSha256 = sha256(provider.path());
+            HashedFile source = sha256(provider.path());
+            winningSourceBytes = Math.addExact(winningSourceBytes, source.bytes());
             updateLengthPrefixed(providerDigest, logical);
             updateLengthPrefixed(providerDigest, provider.modName());
-            updateLengthPrefixed(providerDigest, sourceSha256);
+            updateLengthPrefixed(providerDigest, source.sha256());
 
             if (!logical.toLowerCase(Locale.ROOT).endsWith(".png")) continue;
             imageResources++;
             SyntheticPreparedImageCache.Lookup lookup =
-                    SyntheticPreparedImageCache.lookup(cacheRoot, sourceSha256);
+                    SyntheticPreparedImageCache.lookup(cacheRoot, source.sha256());
             SyntheticPreparedImageCache.PreparedImage image;
             switch (lookup.status()) {
                 case HIT -> {
@@ -123,21 +124,21 @@ public final class SyntheticStartupWorker {
                     imageDecoderCalls++;
                     image = SyntheticPreparedImageCache.decodePng(provider.path());
                     preparedBytesWritten = Math.addExact(preparedBytesWritten, image.internalRgba().length);
-                    if (!writePrepared(cacheRoot, sourceSha256, image)) imageCacheWriteErrors++;
+                    if (!writePrepared(cacheRoot, source.sha256(), image)) imageCacheWriteErrors++;
                 }
                 case CORRUPT -> {
                     imageCacheCorruptFallbacks++;
                     imageDecoderCalls++;
                     image = SyntheticPreparedImageCache.decodePng(provider.path());
                     preparedBytesWritten = Math.addExact(preparedBytesWritten, image.internalRgba().length);
-                    if (!writePrepared(cacheRoot, sourceSha256, image)) imageCacheWriteErrors++;
+                    if (!writePrepared(cacheRoot, source.sha256(), image)) imageCacheWriteErrors++;
                 }
                 case ERROR -> {
                     imageCacheReadErrors++;
                     imageDecoderCalls++;
                     image = SyntheticPreparedImageCache.decodePng(provider.path());
                     preparedBytesWritten = Math.addExact(preparedBytesWritten, image.internalRgba().length);
-                    if (!writePrepared(cacheRoot, sourceSha256, image)) imageCacheWriteErrors++;
+                    if (!writePrepared(cacheRoot, source.sha256(), image)) imageCacheWriteErrors++;
                 }
                 default -> throw new IllegalStateException("Unknown synthetic image cache status: " + lookup.status());
             }
@@ -171,12 +172,20 @@ public final class SyntheticStartupWorker {
         if (!Files.isRegularFile(orderFile, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Synthetic profile is missing mod-order.txt: " + orderFile);
         }
+        long orderBytes = Files.size(orderFile);
+        if (orderBytes > MAX_MOD_ORDER_BYTES) {
+            throw new IOException("Synthetic mod order exceeds its byte safety limit: " + orderBytes);
+        }
         List<String> order = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (String raw : Files.readAllLines(orderFile, StandardCharsets.UTF_8)) {
             String name = raw.trim();
             if (name.isEmpty() || name.startsWith("#")) continue;
-            if (name.equals(".") || name.equals("..") || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+            if (name.length() > MAX_MOD_NAME_CHARS
+                    || name.equals(".")
+                    || name.equals("..")
+                    || name.indexOf('/') >= 0
+                    || name.indexOf('\\') >= 0) {
                 throw new IOException("Synthetic mod name is invalid: " + name);
             }
             if (!seen.add(name)) {
@@ -194,8 +203,12 @@ public final class SyntheticStartupWorker {
     private static String logicalPath(Path modRoot, Path file) {
         Path relative = modRoot.relativize(file).normalize();
         String logical = relative.toString().replace('\\', '/');
-        if (logical.isEmpty() || logical.equals("..") || logical.startsWith("../") || logical.contains("/../")) {
-            throw new IllegalArgumentException("Synthetic resource path escaped its mod root: " + file);
+        if (logical.isEmpty()
+                || logical.length() > MAX_LOGICAL_PATH_CHARS
+                || logical.equals("..")
+                || logical.startsWith("../")
+                || logical.contains("/../")) {
+            throw new IllegalArgumentException("Synthetic resource path is invalid: " + file);
         }
         return logical;
     }
@@ -212,16 +225,22 @@ public final class SyntheticStartupWorker {
         }
     }
 
-    private static String sha256(Path file) throws IOException {
+    private static HashedFile sha256(Path file) throws IOException {
         MessageDigest digest = sha256Digest();
         byte[] buffer = new byte[64 * 1024];
+        long total = 0;
         try (InputStream input = Files.newInputStream(file)) {
             int read;
             while ((read = input.read(buffer)) >= 0) {
-                if (read > 0) digest.update(buffer, 0, read);
+                if (read == 0) continue;
+                total = Math.addExact(total, read);
+                if (total > MAX_WINNING_FILE_BYTES) {
+                    throw new IOException("Synthetic winning file exceeds its byte limit: " + file);
+                }
+                digest.update(buffer, 0, read);
             }
         }
-        return HexFormat.of().formatHex(digest.digest());
+        return new HashedFile(HexFormat.of().formatHex(digest.digest()), total);
     }
 
     private static MessageDigest sha256Digest() {
@@ -268,5 +287,8 @@ public final class SyntheticStartupWorker {
     }
 
     private record Provider(String modName, Path path) {
+    }
+
+    private record HashedFile(String sha256, long bytes) {
     }
 }
