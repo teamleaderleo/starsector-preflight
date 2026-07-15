@@ -51,7 +51,10 @@ final class RunCommand {
                 recording,
                 options.adapterMode(),
                 adapterReport,
-                options.adapterTargets());
+                options.adapterTargets(),
+                options.adapterCacheDirectory(),
+                options.adapterTextureManifest(),
+                options.adapterResourceIndex());
 
         List<String> command = new ArrayList<>(target.command());
         command.addAll(options.forwardedArgs());
@@ -143,6 +146,13 @@ final class RunCommand {
         if (options.adapterTargets() != null) {
             System.out.println("  adapter targets: " + options.adapterTargets().toAbsolutePath().normalize());
         }
+        if (options.hasAdapterTextureContext()) {
+            System.out.println("  adapter cache: " + options.adapterCacheDirectory().toAbsolutePath().normalize());
+            System.out.println("  adapter texture manifest: "
+                    + options.adapterTextureManifest().toAbsolutePath().normalize());
+            System.out.println("  adapter resource index: "
+                    + options.adapterResourceIndex().toAbsolutePath().normalize());
+        }
         System.out.println("  command:  " + renderCommand(command));
         System.out.println("  JAVA_TOOL_OPTIONS: " + javaToolOptions);
         for (String diagnostic : discovery.diagnostics()) {
@@ -209,6 +219,9 @@ final class RunCommand {
         values.put("adapterReport", adapterReport);
         values.put("adapterAnalysis", Files.isRegularFile(adapterAnalysis) ? adapterAnalysis : null);
         values.put("adapterTargets", options.adapterTargets());
+        values.put("adapterCacheDirectory", options.adapterCacheDirectory());
+        values.put("adapterTextureManifest", options.adapterTextureManifest());
+        values.put("adapterResourceIndex", options.adapterResourceIndex());
         values.put("adapterKillSwitchProperty", "preflight.adapter.disabled");
         values.put("adapterKillSwitchEnvironment", "PREFLIGHT_DISABLE_ADAPTER");
         Files.writeString(path, Json.object(values) + System.lineSeparator());
