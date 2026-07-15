@@ -29,6 +29,10 @@ final class AdapterCandidateScorer {
         classScore += tokenScore(className, "render", 12, "class name contains render", evidence);
         classScore += tokenScore(className, "resource", 10, "class name contains resource", evidence);
         classScore += tokenScore(className, "icon", 8, "class name contains icon", evidence);
+        if (className.startsWith("com/fs/graphics/")) {
+            classScore += 80;
+            evidence.add("legacy Starsector graphics package");
+        }
         if (className.contains("test") || className.contains("synthetic")) {
             classScore -= 100;
             evidence.add("synthetic/test class penalty");
