@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.security.cert.Certificate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -40,6 +41,37 @@ class AdapterCandidateScorerTest {
                 method.name().equals("loadTexture")
                         && method.descriptor().contains("Ljava/nio/ByteBuffer;")));
         assertTrue(first.evidence().stream().anyMatch(value -> value.contains("loadTexture")));
+    }
+
+    @Test
+    void obfuscatedLegacyGraphicsDecoderReceivesRetentionPriority() {
+        ClassSignature.Method decoder = new ClassSignature.Method(
+                "o00000",
+                "(Ljava/lang/String;)Ljava/awt/image/BufferedImage;",
+                0);
+        ClassSignature graphics = new ClassSignature(
+                "com/fs/graphics/L",
+                "0".repeat(64),
+                61,
+                0,
+                List.of(decoder));
+        ClassSignature generic = new ClassSignature(
+                "com/fs/starfarer/L",
+                "1".repeat(64),
+                61,
+                0,
+                List.of(decoder));
+
+        AdapterCandidateScorer.Score graphicsScore = AdapterCandidateScorer.score(
+                graphics, "file:/game/starsector-core/starfarer_obf.jar");
+        AdapterCandidateScorer.Score genericScore = AdapterCandidateScorer.score(
+                generic, "file:/game/starsector-core/starfarer_obf.jar");
+
+        assertEquals(genericScore.value() + 80, graphicsScore.value());
+        assertTrue(graphicsScore.evidence().contains("legacy Starsector graphics package"));
+        assertTrue(graphicsScore.relevantMethods().stream().anyMatch(method ->
+                method.name().equals("o00000")
+                        && method.descriptor().equals("(Ljava/lang/String;)Ljava/awt/image/BufferedImage;")));
     }
 
     @Test
