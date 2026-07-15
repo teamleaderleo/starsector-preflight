@@ -11,12 +11,14 @@ import dev.starsector.preflight.core.TextureManifestIO;
 import dev.starsector.preflight.core.TextureManifestValidator;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -138,6 +140,79 @@ class TextureBatchBuilderTest {
                 new TextureBatchBuilder.Options(2, 16 * MIB));
         assertEquals(1, changed.builtBlobs());
         assertEquals(1, changed.cacheHitBlobs());
+    }
+
+    @Test
+    void rejectsSourceChangedAfterContentGrouping() throws Exception {
+        Path root = temporaryDirectory.resolve("root");
+        Path source = root.resolve("graphics/a.png");
+        writeImage(source, Color.RED);
+        ResourceIndex index = index(root, "profile", List.of("graphics/a.png"));
+        byte[] changedBytes = Files.readAllBytes(source);
+        changedBytes[changedBytes.length - 1] ^= 1;
+
+        TextureBatchBuilder.Result result = TextureBatchBuilder.build(
+                index,
+                temporaryDirectory.resolve("cache"),
+                new TextureBatchBuilder.Options(1, 16 * MIB),
+                (path, expectedBytes, maximumBytes) -> {
+                    Files.write(path, changedBytes);
+                    return BulkTexturePreprocessor.readSnapshot(path, expectedBytes, maximumBytes);
+                });
+
+        assertEquals(0, result.builtBlobs());
+        assertEquals(1, result.failedBlobs());
+        assertEquals(0, result.manifest().entryCount());
+        assertTrue(result.diagnostics().stream()
+                .anyMatch(message -> message.contains("Source snapshot SHA-256 mismatch")));
+    }
+
+    @Test
+    void cacheHitsDoNotReadEncodedSnapshots() throws Exception {
+        Path root = temporaryDirectory.resolve("root");
+        writeImage(root.resolve("graphics/a.png"), Color.RED);
+        ResourceIndex index = index(root, "profile", List.of("graphics/a.png"));
+        Path cache = temporaryDirectory.resolve("cache");
+        TextureBatchBuilder.Options options = new TextureBatchBuilder.Options(1, 16 * MIB);
+
+        TextureBatchBuilder.Result first = TextureBatchBuilder.build(index, cache, options);
+        assertEquals(1, first.builtBlobs());
+        AtomicInteger snapshotReads = new AtomicInteger();
+
+        TextureBatchBuilder.Result second = TextureBatchBuilder.build(
+                index,
+                cache,
+                options,
+                (path, expectedBytes, maximumBytes) -> {
+                    snapshotReads.incrementAndGet();
+                    throw new AssertionError("Cache hit attempted to allocate an encoded snapshot");
+                });
+
+        assertEquals(1, second.cacheHitBlobs());
+        assertEquals(0, second.builtBlobs());
+        assertEquals(0, snapshotReads.get());
+    }
+
+    @Test
+    void encodedSourceLargerThanWorkerBudgetFailsBeforeDecode() throws Exception {
+        Path root = temporaryDirectory.resolve("root");
+        Path source = root.resolve("graphics/oversized.png");
+        Files.createDirectories(source.getParent());
+        try (RandomAccessFile file = new RandomAccessFile(source.toFile(), "rw")) {
+            file.setLength(16 * MIB + 1);
+        }
+        ResourceIndex index = index(root, "profile", List.of("graphics/oversized.png"));
+
+        TextureBatchBuilder.Result result = TextureBatchBuilder.build(
+                index,
+                temporaryDirectory.resolve("cache"),
+                new TextureBatchBuilder.Options(1, 16 * MIB));
+
+        assertEquals(0, result.builtBlobs());
+        assertEquals(1, result.failedBlobs());
+        assertEquals(0, result.manifest().entryCount());
+        assertTrue(result.diagnostics().stream()
+                .anyMatch(message -> message.contains("exceeding the texture worker memory budget")));
     }
 
     private static ResourceIndex index(Path root, String fingerprint, List<String> paths) throws Exception {

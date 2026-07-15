@@ -19,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
@@ -44,6 +45,15 @@ final class TextureBatchBuilder {
 
     static Result build(ResourceIndex index, Path cacheDirectory, Options options)
             throws IOException, InterruptedException {
+        return build(index, cacheDirectory, options, BulkTexturePreprocessor::readSnapshot);
+    }
+
+    static Result build(
+            ResourceIndex index,
+            Path cacheDirectory,
+            Options options,
+            SnapshotReader snapshotReader) throws IOException, InterruptedException {
+        Objects.requireNonNull(snapshotReader, "snapshotReader");
         long started = System.nanoTime();
         Path cacheRoot = cacheDirectory.toAbsolutePath().normalize();
         Files.createDirectories(cacheRoot);
@@ -63,7 +73,12 @@ final class TextureBatchBuilder {
         ExecutorCompletionService<BlobResult> completion = new ExecutorCompletionService<>(executor);
         try {
             for (Map.Entry<BlobKey, List<HashedCandidate>> group : groups.entrySet()) {
-                completion.submit(blobTask(cacheRoot, group.getKey(), group.getValue().get(0), budget));
+                completion.submit(blobTask(
+                        cacheRoot,
+                        group.getKey(),
+                        group.getValue().get(0),
+                        budget,
+                        snapshotReader));
             }
 
             Map<BlobKey, BlobResult> blobs = new HashMap<>();
@@ -189,7 +204,8 @@ final class TextureBatchBuilder {
             Path cacheRoot,
             BlobKey key,
             HashedCandidate representative,
-            MemoryBudget budget) {
+            MemoryBudget budget,
+            SnapshotReader snapshotReader) {
         return () -> {
             String relative = blobRelativePath(key);
             Path blob = cacheRoot.resolve(relative).normalize();
@@ -221,10 +237,30 @@ final class TextureBatchBuilder {
                 }
             }
 
-            long estimatedBytes;
+            long encodedBytes;
+            try {
+                encodedBytes = Files.size(representative.source());
+            } catch (IOException error) {
+                return BlobResult.failure(
+                        key,
+                        relative,
+                        quarantined,
+                        "Could not size " + representative.logicalPath() + ": " + error.getMessage());
+            }
+            if (encodedBytes > budget.maximum()) {
+                return BlobResult.failure(
+                        key,
+                        relative,
+                        quarantined,
+                        "Encoded source " + representative.logicalPath() + " is " + encodedBytes
+                                + " bytes, exceeding the texture worker memory budget of "
+                                + budget.maximum() + " bytes");
+            }
+
+            long estimatedBuildBytes;
             try {
                 Dimensions dimensions = probe(representative.source());
-                estimatedBytes = Math.multiplyExact(
+                estimatedBuildBytes = Math.multiplyExact(
                         Math.multiplyExact((long) dimensions.width(), dimensions.height()),
                         ESTIMATED_BUILD_BYTES_PER_PIXEL);
             } catch (Exception error) {
@@ -235,18 +271,21 @@ final class TextureBatchBuilder {
                         "Could not probe " + representative.logicalPath() + ": " + error.getMessage());
             }
 
-            long reservation = budget.acquire(estimatedBytes);
+            long reservation = budget.acquire(saturatedAdd(estimatedBuildBytes, encodedBytes));
             try {
-                PreparedTexture texture = BulkTexturePreprocessor.prepare(
-                        representative.source(),
-                        key.transformation());
-                if (!texture.sourceSha256().equals(key.sourceSha256())) {
+                byte[] encoded = snapshotReader.read(
+                        representative.source(), encodedBytes, budget.maximum());
+                if (encoded.length != encodedBytes) {
                     return BlobResult.failure(
                             key,
                             relative,
                             quarantined,
-                            "Source changed while preparing " + representative.logicalPath());
+                            "Source size changed while snapshotting " + representative.logicalPath());
                 }
+                PreparedTexture texture = BulkTexturePreprocessor.prepareSnapshot(
+                        encoded,
+                        key.sourceSha256(),
+                        key.transformation());
                 PreparedTextureIO.write(blob, texture);
                 return BlobResult.success(
                         key,
@@ -318,6 +357,13 @@ final class TextureBatchBuilder {
         }
     }
 
+    private static long saturatedAdd(long left, long right) {
+        if (left > Long.MAX_VALUE - right) {
+            return Long.MAX_VALUE;
+        }
+        return left + right;
+    }
+
     private static long saturatedMultiply(long value, long multiplier) {
         if (value <= 0) {
             return 1;
@@ -383,6 +429,11 @@ final class TextureBatchBuilder {
         }
     }
 
+    @FunctionalInterface
+    interface SnapshotReader {
+        byte[] read(Path source, long expectedBytes, long maximumBytes) throws IOException;
+    }
+
     private record Candidate(String logicalPath, Path source, String rootId, long sourceBytes) {
     }
 
@@ -439,6 +490,10 @@ final class TextureBatchBuilder {
 
         MemoryBudget(long maximum) {
             this.maximum = maximum;
+        }
+
+        synchronized long maximum() {
+            return maximum;
         }
 
         synchronized long acquire(long requested) throws InterruptedException {
