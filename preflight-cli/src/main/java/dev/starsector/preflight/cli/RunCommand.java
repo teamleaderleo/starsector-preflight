@@ -41,6 +41,7 @@ final class RunCommand {
         Path recording = runDirectory.resolve("startup.jfr");
         Path report = runDirectory.resolve("summary.json");
         Path adapterReport = runDirectory.resolve("adapter.json");
+        Path adapterAnalysis = runDirectory.resolve("adapter-analysis.json");
         Path metadata = runDirectory.resolve("run.json");
         Path profile = runDirectory.resolve("profile.json");
         Path agentJar = SelfJar.locate();
@@ -73,7 +74,9 @@ final class RunCommand {
 
         Path recordedProfile = Files.isRegularFile(profile) ? profile : null;
         Instant started = Instant.now();
-        writeMetadata(metadata, target, command, started, null, null, recordedProfile, options, adapterReport);
+        writeMetadata(
+                metadata, target, command, started, null, null, recordedProfile,
+                options, adapterReport, adapterAnalysis);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(target.workingDirectory().toFile());
@@ -83,7 +86,6 @@ final class RunCommand {
 
         int exitCode = builder.start().waitFor();
         Instant ended = Instant.now();
-        writeMetadata(metadata, target, command, started, ended, exitCode, recordedProfile, options, adapterReport);
 
         if (options.summarize() && Files.isRegularFile(recording)) {
             PreflightCli.summarize(recording, report);
@@ -93,9 +95,21 @@ final class RunCommand {
         }
         if (Files.isRegularFile(adapterReport)) {
             System.out.println("Preflight adapter report: " + adapterReport);
+            if (Files.isRegularFile(report)) {
+                try {
+                    AdapterProbeAnalysis.analyze(adapterReport, report, adapterAnalysis);
+                    System.out.println("Preflight adapter analysis: " + adapterAnalysis);
+                } catch (Exception error) {
+                    System.err.println("Preflight adapter analysis skipped: " + error.getMessage());
+                }
+            }
         } else if (options.adapterMode() != dev.starsector.preflight.agent.AdapterMode.OFF) {
             System.err.println("Preflight adapter report was not created: " + adapterReport);
         }
+
+        writeMetadata(
+                metadata, target, command, started, ended, exitCode, recordedProfile,
+                options, adapterReport, adapterAnalysis);
         return exitCode;
     }
 
@@ -178,7 +192,8 @@ final class RunCommand {
             Integer exitCode,
             Path profile,
             CommandLine options,
-            Path adapterReport) throws IOException {
+            Path adapterReport,
+            Path adapterAnalysis) throws IOException {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("started", started);
         values.put("ended", ended);
@@ -192,6 +207,7 @@ final class RunCommand {
         values.put("profile", profile);
         values.put("adapterMode", options.adapterMode());
         values.put("adapterReport", adapterReport);
+        values.put("adapterAnalysis", Files.isRegularFile(adapterAnalysis) ? adapterAnalysis : null);
         values.put("adapterTargets", options.adapterTargets());
         values.put("adapterKillSwitchProperty", "preflight.adapter.disabled");
         values.put("adapterKillSwitchEnvironment", "PREFLIGHT_DISABLE_ADAPTER");
