@@ -5,13 +5,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Loads a small line-oriented allowlist of exact adapter targets. */
 final class AdapterTargetRegistry {
+    private static final long MAX_FILE_BYTES = 1L * 1024 * 1024;
+    private static final int MAX_LINE_CHARS = 4_096;
+    private static final int MAX_TARGETS = 256;
+    private static final int MAX_METHODS_PER_TARGET = 128;
+
     private final List<AdapterTarget> targets;
     private final Map<String, List<AdapterTarget>> byClass;
 
@@ -32,11 +39,22 @@ final class AdapterTargetRegistry {
 
     static AdapterTargetRegistry load(Path path) throws IOException {
         Objects.requireNonNull(path, "path");
-        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        Path absolute = path.toAbsolutePath().normalize();
+        long bytes = Files.size(absolute);
+        if (bytes > MAX_FILE_BYTES) {
+            throw new IOException("Adapter target registry exceeds " + MAX_FILE_BYTES + " bytes: " + absolute);
+        }
+
+        List<String> lines = Files.readAllLines(absolute, StandardCharsets.UTF_8);
         List<AdapterTarget> targets = new ArrayList<>();
+        Set<String> targetIds = new HashSet<>();
         Builder builder = null;
         for (int lineNumber = 1; lineNumber <= lines.size(); lineNumber++) {
-            String raw = lines.get(lineNumber - 1).trim();
+            String sourceLine = lines.get(lineNumber - 1);
+            if (sourceLine.length() > MAX_LINE_CHARS) {
+                throw syntax(absolute, lineNumber, "Line exceeds " + MAX_LINE_CHARS + " characters");
+            }
+            String raw = sourceLine.trim();
             if (raw.isEmpty() || raw.startsWith("#")) {
                 continue;
             }
@@ -46,18 +64,22 @@ final class AdapterTargetRegistry {
             switch (key) {
                 case "target" -> {
                     if (builder != null) {
-                        throw syntax(path, lineNumber, "Nested target block");
+                        throw syntax(absolute, lineNumber, "Nested target block");
                     }
                     builder = new Builder(value);
                 }
-                case "class" -> requireBuilder(path, lineNumber, builder).className = value;
-                case "sha256" -> requireBuilder(path, lineNumber, builder).sha256 = value;
-                case "plan" -> requireBuilder(path, lineNumber, builder).planId = value;
+                case "class" -> requireBuilder(absolute, lineNumber, builder).className = value;
+                case "sha256" -> requireBuilder(absolute, lineNumber, builder).sha256 = value;
+                case "plan" -> requireBuilder(absolute, lineNumber, builder).planId = value;
                 case "method" -> {
-                    Builder active = requireBuilder(path, lineNumber, builder);
+                    Builder active = requireBuilder(absolute, lineNumber, builder);
+                    if (active.methods.size() >= MAX_METHODS_PER_TARGET) {
+                        throw syntax(absolute, lineNumber,
+                                "Target exceeds " + MAX_METHODS_PER_TARGET + " required methods");
+                    }
                     int split = value.indexOf(' ');
                     if (split <= 0 || split == value.length() - 1) {
-                        throw syntax(path, lineNumber, "Expected: method <name> <descriptor>");
+                        throw syntax(absolute, lineNumber, "Expected: method <name> <descriptor>");
                     }
                     active.methods.add(new AdapterTarget.RequiredMethod(
                             value.substring(0, split).trim(),
@@ -65,17 +87,24 @@ final class AdapterTargetRegistry {
                 }
                 case "end" -> {
                     if (!value.isEmpty()) {
-                        throw syntax(path, lineNumber, "end does not accept a value");
+                        throw syntax(absolute, lineNumber, "end does not accept a value");
                     }
-                    Builder active = requireBuilder(path, lineNumber, builder);
-                    targets.add(active.build(path, lineNumber));
+                    Builder active = requireBuilder(absolute, lineNumber, builder);
+                    AdapterTarget target = active.build(absolute, lineNumber);
+                    if (!targetIds.add(target.id())) {
+                        throw syntax(absolute, lineNumber, "Duplicate target ID: " + target.id());
+                    }
+                    if (targets.size() >= MAX_TARGETS) {
+                        throw syntax(absolute, lineNumber, "Registry exceeds " + MAX_TARGETS + " targets");
+                    }
+                    targets.add(target);
                     builder = null;
                 }
-                default -> throw syntax(path, lineNumber, "Unknown directive: " + key);
+                default -> throw syntax(absolute, lineNumber, "Unknown directive: " + key);
             }
         }
         if (builder != null) {
-            throw new IOException("Unterminated target block in " + path.toAbsolutePath().normalize());
+            throw new IOException("Unterminated target block in " + absolute);
         }
         return new AdapterTargetRegistry(targets);
     }
