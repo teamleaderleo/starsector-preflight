@@ -18,8 +18,14 @@ import java.util.Map;
 /** Thread-safe bounded diagnostics for adapter probing and activation. */
 final class AdapterReport {
     private static final int CANDIDATE_LIMIT = 500;
+    private static final int RANKED_CANDIDATE_LIMIT = 50;
     private static final int DIAGNOSTIC_LIMIT = 200;
     private static final int EVALUATION_LIMIT = 200;
+    private static final Comparator<Candidate> CANDIDATE_RANKING = Comparator
+            .comparingInt(Candidate::relevanceScore)
+            .reversed()
+            .thenComparing(Candidate::className)
+            .thenComparing(Candidate::sha256);
 
     private final AdapterMode mode;
     private final Path destination;
@@ -64,25 +70,35 @@ final class AdapterReport {
         observedClasses++;
         parsedClasses++;
         String key = signature.internalName() + "@" + signature.sha256();
-        if (!candidates.containsKey(key)) {
-            if (candidates.size() >= CANDIDATE_LIMIT) {
-                candidateTruncated = true;
-            } else {
-                String source = null;
-                try {
-                    if (domain != null && domain.getCodeSource() != null && domain.getCodeSource().getLocation() != null) {
-                        source = domain.getCodeSource().getLocation().toString();
-                    }
-                } catch (RuntimeException ignored) {
-                    // Protection-domain metadata is diagnostic only.
-                }
-                candidates.put(key, new Candidate(
-                        signature.internalName(),
-                        signature.sha256(),
-                        signature.majorVersion(),
-                        signature.methods().size(),
-                        source));
-            }
+        if (candidates.containsKey(key)) {
+            return;
+        }
+
+        String source = codeSource(domain);
+        AdapterCandidateScorer.Score score = AdapterCandidateScorer.score(signature, source);
+        Candidate candidate = new Candidate(
+                signature.internalName(),
+                signature.sha256(),
+                signature.majorVersion(),
+                signature.methods().size(),
+                source,
+                score.value(),
+                score.sourceKind(),
+                score.evidence(),
+                score.relevantMethods(),
+                score.methodsTruncated());
+        if (candidates.size() < CANDIDATE_LIMIT) {
+            candidates.put(key, candidate);
+            return;
+        }
+
+        candidateTruncated = true;
+        Map.Entry<String, Candidate> worst = candidates.entrySet().stream()
+                .max((left, right) -> CANDIDATE_RANKING.compare(left.getValue(), right.getValue()))
+                .orElseThrow();
+        if (CANDIDATE_RANKING.compare(candidate, worst.getValue()) < 0) {
+            candidates.remove(worst.getKey());
+            candidates.put(key, candidate);
         }
     }
 
@@ -157,7 +173,12 @@ final class AdapterReport {
         List<Candidate> orderedCandidates = candidates.values().stream()
                 .sorted(Comparator.comparing(Candidate::className).thenComparing(Candidate::sha256))
                 .toList();
-        StringBuilder output = new StringBuilder(8_192).append('{');
+        List<Candidate> rankedCandidates = candidates.values().stream()
+                .filter(candidate -> candidate.relevanceScore() > 0)
+                .sorted(CANDIDATE_RANKING)
+                .limit(RANKED_CANDIDATE_LIMIT)
+                .toList();
+        StringBuilder output = new StringBuilder(16_384).append('{');
         field(output, "generatedAt", Instant.now().toString());
         field(output, "startedAt", startedAt.toString());
         field(output, "mode", mode.name());
@@ -169,6 +190,8 @@ final class AdapterReport {
         numberField(output, "registryTargets", registryTargets);
         numberField(output, "observedClasses", observedClasses);
         numberField(output, "parsedClasses", parsedClasses);
+        numberField(output, "retainedCandidates", orderedCandidates.size());
+        numberField(output, "rankedCandidatesCount", rankedCandidates.size());
         numberField(output, "malformedClasses", malformedClasses);
         numberField(output, "exactMatches", exactMatches);
         numberField(output, "transformationEligible", transformationEligible);
@@ -178,19 +201,21 @@ final class AdapterReport {
         booleanField(output, "candidateTruncated", candidateTruncated);
         booleanField(output, "diagnosticsTruncated", diagnosticsTruncated);
         booleanField(output, "evaluationsTruncated", evaluationsTruncated);
+
+        key(output, "rankedCandidates").append('[');
+        for (int i = 0; i < rankedCandidates.size(); i++) {
+            if (i > 0) output.append(',');
+            writeRankedCandidate(output, rankedCandidates.get(i));
+        }
+        output.append("],");
+
         key(output, "candidates").append('[');
         for (int i = 0; i < orderedCandidates.size(); i++) {
             if (i > 0) output.append(',');
-            Candidate candidate = orderedCandidates.get(i);
-            output.append('{');
-            field(output, "className", candidate.className());
-            field(output, "sha256", candidate.sha256());
-            numberField(output, "majorVersion", candidate.majorVersion());
-            numberField(output, "methodCount", candidate.methodCount());
-            nullableField(output, "codeSource", candidate.codeSource());
-            trimComma(output).append('}');
+            writeCandidateSummary(output, orderedCandidates.get(i));
         }
         output.append("],");
+
         key(output, "evaluations").append('[');
         for (int i = 0; i < evaluations.size(); i++) {
             if (i > 0) output.append(',');
@@ -206,6 +231,56 @@ final class AdapterReport {
         output.append("],");
         arrayField(output, "diagnostics", diagnostics);
         return trimComma(output).append('}').toString();
+    }
+
+    private static void writeCandidateSummary(StringBuilder output, Candidate candidate) {
+        output.append('{');
+        field(output, "className", candidate.className());
+        field(output, "sha256", candidate.sha256());
+        numberField(output, "majorVersion", candidate.majorVersion());
+        numberField(output, "methodCount", candidate.methodCount());
+        nullableField(output, "codeSource", candidate.codeSource());
+        field(output, "sourceKind", candidate.sourceKind());
+        numberField(output, "relevanceScore", candidate.relevanceScore());
+        trimComma(output).append('}');
+    }
+
+    private static void writeRankedCandidate(StringBuilder output, Candidate candidate) {
+        output.append('{');
+        field(output, "className", candidate.className());
+        field(output, "sha256", candidate.sha256());
+        numberField(output, "majorVersion", candidate.majorVersion());
+        numberField(output, "methodCount", candidate.methodCount());
+        nullableField(output, "codeSource", candidate.codeSource());
+        field(output, "sourceKind", candidate.sourceKind());
+        numberField(output, "relevanceScore", candidate.relevanceScore());
+        arrayField(output, "evidence", candidate.evidence());
+        booleanField(output, "methodsTruncated", candidate.methodsTruncated());
+        key(output, "relevantMethods").append('[');
+        for (int i = 0; i < candidate.relevantMethods().size(); i++) {
+            if (i > 0) output.append(',');
+            AdapterCandidateScorer.RelevantMethod method = candidate.relevantMethods().get(i);
+            output.append('{');
+            field(output, "name", method.name());
+            field(output, "descriptor", method.descriptor());
+            numberField(output, "access", method.access());
+            numberField(output, "score", method.score());
+            arrayField(output, "evidence", method.evidence());
+            trimComma(output).append('}');
+        }
+        output.append("],");
+        trimComma(output).append('}');
+    }
+
+    private static String codeSource(ProtectionDomain domain) {
+        try {
+            if (domain != null && domain.getCodeSource() != null && domain.getCodeSource().getLocation() != null) {
+                return domain.getCodeSource().getLocation().toString();
+            }
+        } catch (RuntimeException ignored) {
+            // Protection-domain metadata is diagnostic only.
+        }
+        return null;
     }
 
     private static StringBuilder key(StringBuilder output, String name) {
@@ -271,7 +346,21 @@ final class AdapterReport {
         return error.getClass().getSimpleName() + (text == null || text.isBlank() ? "" : ": " + text);
     }
 
-    private record Candidate(String className, String sha256, int majorVersion, int methodCount, String codeSource) {
+    private record Candidate(
+            String className,
+            String sha256,
+            int majorVersion,
+            int methodCount,
+            String codeSource,
+            int relevanceScore,
+            String sourceKind,
+            List<String> evidence,
+            List<AdapterCandidateScorer.RelevantMethod> relevantMethods,
+            boolean methodsTruncated) {
+        private Candidate {
+            evidence = List.copyOf(evidence);
+            relevantMethods = List.copyOf(relevantMethods);
+        }
     }
 
     private record Evaluation(String targetId, String className, String planId, boolean exact, List<String> problems) {

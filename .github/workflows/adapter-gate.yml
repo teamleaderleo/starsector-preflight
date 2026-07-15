@@ -22,12 +22,12 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run adapter signature and packaged-agent tests
+      - name: Run adapter signature, ranking, and packaged-agent tests
         shell: bash
         run: >-
           mvn --batch-mode --no-transfer-progress
           -pl preflight-agent,preflight-cli -am
-          -Dtest=AdapterSignatureGateTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
+          -Dtest=AdapterSignatureGateTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
           -Dit.test=AdapterAgentIT
           -Dsurefire.failIfNoSpecifiedTests=false
           verify
