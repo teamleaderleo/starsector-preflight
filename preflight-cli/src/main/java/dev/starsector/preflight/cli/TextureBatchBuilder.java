@@ -237,7 +237,7 @@ final class TextureBatchBuilder {
 
             long reservation = budget.acquire(estimatedBytes);
             try {
-                PreparedTexture texture = ReferenceTexturePreprocessor.prepare(
+                PreparedTexture texture = BulkTexturePreprocessor.prepare(
                         representative.source(),
                         key.transformation());
                 if (!texture.sourceSha256().equals(key.sourceSha256())) {
