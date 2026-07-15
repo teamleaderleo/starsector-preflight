@@ -44,6 +44,7 @@ public final class PreflightCli {
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
             case "index" -> IndexCommand.execute(args, 1);
             case "texture" -> textureCommand(args);
+            case "classpath" -> ClasspathCommand.execute(args, 1);
             case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
             case "summarize" -> summarizeCommand(args);
             default -> {
@@ -133,6 +134,7 @@ public final class PreflightCli {
         System.err.println("  preflight texture manifest inspect <manifest.spfm>");
         System.err.println("  preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]");
         System.err.println("  preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]");
+        System.err.println("  preflight classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
