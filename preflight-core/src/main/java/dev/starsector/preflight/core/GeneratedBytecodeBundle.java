@@ -107,7 +107,7 @@ public final class GeneratedBytecodeBundle {
 
     private static String validateClassName(String value) {
         Objects.requireNonNull(value, "className");
-        String name = value.trim();
+        String name = value;
         if (name.isEmpty() || name.length() > MAX_CLASS_NAME_CHARS
                 || name.startsWith(".") || name.endsWith(".") || name.contains("..")) {
             throw new IllegalArgumentException("Generated class name is not a canonical binary name: " + name);
