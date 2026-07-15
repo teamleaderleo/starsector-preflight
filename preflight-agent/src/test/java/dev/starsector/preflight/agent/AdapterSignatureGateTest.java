@@ -120,6 +120,27 @@ class AdapterSignatureGateTest {
     }
 
     @Test
+    void registryRejectsDuplicateIdsAndOversizedLines() throws Exception {
+        ClassSignature signature = ClassSignature.parse(classBytes());
+        String target = """
+                target duplicate
+                class %s
+                sha256 %s
+                method parsesDeterministicClassAndMethodSignatures ()V
+                end
+                """.formatted(signature.internalName(), signature.sha256());
+        Path duplicates = temporaryDirectory.resolve("duplicates.txt");
+        Files.writeString(duplicates, target + target);
+        IOException duplicate = assertThrows(IOException.class, () -> AdapterTargetRegistry.load(duplicates));
+        assertTrue(duplicate.getMessage().contains("Duplicate target ID"), duplicate.getMessage());
+
+        Path oversizedLine = temporaryDirectory.resolve("oversized-line.txt");
+        Files.writeString(oversizedLine, "#" + "x".repeat(4_096) + System.lineSeparator());
+        IOException oversized = assertThrows(IOException.class, () -> AdapterTargetRegistry.load(oversizedLine));
+        assertTrue(oversized.getMessage().contains("Line exceeds"), oversized.getMessage());
+    }
+
+    @Test
     void killSwitchAcceptsPropertyOrEnvironment() {
         Properties properties = new Properties();
         assertFalse(AdapterRuntime.killSwitch(Map.of(), properties));
