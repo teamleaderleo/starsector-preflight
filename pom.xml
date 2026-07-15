@@ -16,6 +16,7 @@
     <module>preflight-core</module>
     <module>preflight-agent</module>
     <module>preflight-cli</module>
+    <module>preflight-synthetic-startup</module>
   </modules>
 
   <properties>
