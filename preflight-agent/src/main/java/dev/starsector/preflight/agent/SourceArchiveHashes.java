@@ -72,7 +72,7 @@ final class SourceArchiveHashes {
     }
 
     record Result(String sha256, String problem) {
-        private Result {
+        Result {
             sha256 = sha256 == null ? "" : sha256;
             problem = problem == null ? "" : problem;
         }
