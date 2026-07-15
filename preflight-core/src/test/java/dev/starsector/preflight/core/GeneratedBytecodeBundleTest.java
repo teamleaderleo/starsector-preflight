@@ -86,6 +86,14 @@ class GeneratedBytecodeBundleTest {
                 "c".repeat(64),
                 "dev/example/SlashName",
                 Map.of("dev/example/SlashName", classBytes(Alpha.class))));
+        assertThrows(IllegalArgumentException.class, () -> new GeneratedBytecodeBundle(
+                "c".repeat(64),
+                Alpha.class.getName() + " ",
+                Map.of(Alpha.class.getName(), classBytes(Alpha.class))));
+        assertThrows(IllegalArgumentException.class, () -> new GeneratedBytecodeBundle(
+                "c".repeat(64),
+                Alpha.class.getName(),
+                Map.of(" " + Alpha.class.getName(), classBytes(Alpha.class))));
         IllegalArgumentException wrongIdentity = assertThrows(
                 IllegalArgumentException.class,
                 () -> new GeneratedBytecodeBundle(
