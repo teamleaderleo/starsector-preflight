@@ -78,6 +78,10 @@ public final class PreparedImageBridge {
                 : detail);
     }
 
+    static boolean ready() {
+        return state.enabled;
+    }
+
     /** Returns a verified prepared image or {@code null} to execute the original decoder. */
     public static BufferedImage lookup(String requestedPath) {
         State active = state;
