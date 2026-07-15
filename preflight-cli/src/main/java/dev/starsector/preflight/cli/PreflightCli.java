@@ -45,6 +45,7 @@ public final class PreflightCli {
             case "index" -> IndexCommand.execute(args, 1);
             case "texture" -> textureCommand(args);
             case "classpath" -> ClasspathCommand.execute(args, 1);
+            case "benchmark" -> BenchmarkCommand.execute(args, 1);
             case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
             case "summarize" -> summarizeCommand(args);
             default -> {
@@ -139,6 +140,7 @@ public final class PreflightCli {
         System.err.println("  preflight classpath index inspect <profile.spfc>");
         System.err.println("  preflight classpath index query <profile.spfc> <entry-name> [--all] [--cache-dir <path>]");
         System.err.println("  preflight classpath index validate <profile.spfc> [--cache-dir <path>] [--deep]");
+        System.err.println("  preflight benchmark lookups [--resource-index <index.spfi>] [--classpath-index <profile.spfc>] [--queries <count>] [--seed <long>]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
