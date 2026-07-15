@@ -7,6 +7,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -16,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Iterator;
@@ -69,7 +71,7 @@ final class SyntheticPreparedImageCache {
             if (size < minimumFileBytes() || size > MAX_FILE_BYTES) {
                 throw new IOException("Prepared synthetic image file size is invalid: " + size);
             }
-            return Lookup.hit(target, decode(Files.readAllBytes(target), sourceSha256));
+            return Lookup.hit(target, decode(readBounded(target, MAX_FILE_BYTES), sourceSha256));
         } catch (IOException | IllegalArgumentException | ArithmeticException error) {
             return Lookup.failure(Status.CORRUPT, target, message(error));
         } catch (ThreadDeath | VirtualMachineError fatal) {
@@ -162,7 +164,7 @@ final class SyntheticPreparedImageCache {
             throw new IOException("Prepared synthetic image payload length differs from its dimensions");
         }
         byte[] sourceHash = HexFormat.of().parseHex(canonicalSha256(sourceSha256));
-        byte[] checksum = sha256(integrityBytes(sourceHash, image.width(), image.height(), payload));
+        byte[] checksum = integritySha256(sourceHash, image.width(), image.height(), payload);
         int total = Math.addExact(minimumFileBytes(), payload.length);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(total);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
@@ -212,7 +214,7 @@ final class SyntheticPreparedImageCache {
             if (input.available() != 0) {
                 throw new IOException("Prepared synthetic image contains trailing data");
             }
-            byte[] actualChecksum = sha256(integrityBytes(sourceHash, width, height, payload));
+            byte[] actualChecksum = integritySha256(sourceHash, width, height, payload);
             if (!MessageDigest.isEqual(checksum, actualChecksum)) {
                 throw new IOException("Prepared synthetic image checksum mismatch");
             }
@@ -220,17 +222,26 @@ final class SyntheticPreparedImageCache {
         }
     }
 
-    private static byte[] integrityBytes(byte[] sourceHash, int width, int height, byte[] payload) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(
-                SHA256_BYTES + Integer.BYTES * 3 + payload.length);
-        try (DataOutputStream output = new DataOutputStream(bytes)) {
-            output.write(sourceHash);
-            output.writeInt(width);
-            output.writeInt(height);
-            output.writeInt(payload.length);
-            output.write(payload);
+    private static byte[] integritySha256(byte[] sourceHash, int width, int height, byte[] payload) {
+        MessageDigest digest = sha256Digest();
+        digest.update(sourceHash);
+        digest.update(ByteBuffer.allocate(Integer.BYTES * 3)
+                .putInt(width)
+                .putInt(height)
+                .putInt(payload.length)
+                .array());
+        digest.update(payload);
+        return digest.digest();
+    }
+
+    private static byte[] readBounded(Path source, int maximumBytes) throws IOException {
+        try (InputStream input = Files.newInputStream(source)) {
+            byte[] bytes = input.readNBytes(maximumBytes + 1);
+            if (bytes.length > maximumBytes) {
+                throw new IOException("Prepared synthetic image grew beyond its file safety limit");
+            }
+            return bytes;
         }
-        return bytes.toByteArray();
     }
 
     private static void validateDimensions(int width, int height) throws IOException {
@@ -265,10 +276,10 @@ final class SyntheticPreparedImageCache {
         return hash;
     }
 
-    private static byte[] sha256(byte[] bytes) {
+    private static MessageDigest sha256Digest() {
         try {
-            return MessageDigest.getInstance("SHA-256").digest(bytes);
-        } catch (java.security.NoSuchAlgorithmException error) {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException error) {
             throw new IllegalStateException("SHA-256 is unavailable", error);
         }
     }
