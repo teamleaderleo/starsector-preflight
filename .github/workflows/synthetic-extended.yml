@@ -1,0 +1,39 @@
+name: Synthetic extended startup
+
+on:
+  pull_request:
+    paths:
+      - 'preflight-synthetic-startup/**'
+      - 'preflight-core/**'
+      - '.github/workflows/synthetic-extended.yml'
+      - 'pom.xml'
+  push:
+    branches: [main]
+    paths:
+      - 'preflight-synthetic-startup/**'
+      - 'preflight-core/**'
+      - '.github/workflows/synthetic-extended.yml'
+      - 'pom.xml'
+
+permissions:
+  contents: read
+
+jobs:
+  medium-cross-process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Run medium extended cold and warm JVMs
+        run: >-
+          mvn --batch-mode --no-transfer-progress
+          -pl preflight-synthetic-startup -am
+          -Dpreflight.synthetic.medium=true
+          -Dtest=SyntheticExtendedCrossProcessTest#coldAndWarmSeparateJvmsEliminateImageAudioJarAndCompilerWork
+          -Dsurefire.failIfNoSpecifiedTests=false
+          test
