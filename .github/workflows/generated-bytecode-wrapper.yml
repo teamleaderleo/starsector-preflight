@@ -28,7 +28,7 @@ jobs:
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-core,preflight-synthetic-startup -am \
-            -Dtest=GeneratedBytecodeCacheWrapperTest,SyntheticGeneratedBytecodeCrossProcessTest \
+            -Dtest=GeneratedBytecodeCacheWrapperTest,GeneratedBytecodeCacheSafetyTest,SyntheticGeneratedBytecodeCrossProcessTest \
             -Dsurefire.failIfNoSpecifiedTests=false \
             test > generated-bytecode-wrapper-maven.log 2>&1
           status=$?
