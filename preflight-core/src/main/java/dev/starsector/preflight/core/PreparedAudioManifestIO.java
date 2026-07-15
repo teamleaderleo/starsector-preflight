@@ -31,7 +31,7 @@ public final class PreparedAudioManifestIO {
     private static final int MAX_FILE_BYTES = 64 * 1024 * 1024;
     private static final int PAYLOAD_BASE_BYTES = SHA256_BYTES * 4 + Integer.BYTES;
     private static final int ENTRY_FIXED_BYTES = SHA256_BYTES + Long.BYTES * 2 + Integer.BYTES + 2;
-    private static final int PREPARED_ENTRY_BYTES = SHA256_BYTES + Integer.BYTES * 6 + Long.BYTES * 2 + SHA256_BYTES;
+    private static final int PREPARED_METADATA_BYTES = Integer.BYTES * 6 + Long.BYTES * 2 + SHA256_BYTES;
 
     private PreparedAudioManifestIO() {
     }
@@ -184,7 +184,7 @@ public final class PreparedAudioManifestIO {
                 bytes = Math.addExact(bytes, SHA256_BYTES);
             }
             if (entry.metadata() != null) {
-                bytes = Math.addExact(bytes, PREPARED_ENTRY_BYTES);
+                bytes = Math.addExact(bytes, PREPARED_METADATA_BYTES);
             }
             if (bytes > maximum) {
                 throw new IOException("Prepared audio manifest payload exceeds its safety limit");
