@@ -191,7 +191,7 @@ class PreparedAudioCacheTest {
         assertEquals(1, decoded.preparedEntryCount());
         assertEquals(1, decoded.streamedEntryCount());
         assertEquals(1, decoded.unsupportedEntryCount());
-        assertEquals("sounds/effects/zap.ogg", decoded.entries().firstKey());
+        assertEquals("music/theme.ogg", decoded.entries().firstKey());
         assertEquals(prepared.pcmSha256(), decoded.entries().get(effect.logicalPath()).metadata().pcmSha256());
 
         PreparedAudioManifest changedBuild = manifest(
