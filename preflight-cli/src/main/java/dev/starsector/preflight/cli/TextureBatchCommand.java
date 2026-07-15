@@ -21,16 +21,12 @@ final class TextureBatchCommand {
                 ? Path.of(System.getProperty("user.home")).resolve(".starsector-preflight").resolve("cache")
                 : options.cacheDirectory().toAbsolutePath().normalize();
 
-        ResourceIndex index;
-        Path indexPath;
+        ResourceIndex sourceIndex;
+        Path sourceIndexPath;
         if (options.index() != null) {
-            indexPath = options.index().toAbsolutePath().normalize();
-            index = ResourceIndexIO.read(indexPath);
-            ResourceIndexValidator.Result validation = ResourceIndexValidator.validate(index);
-            if (!validation.valid()) {
-                throw new IOException("Resource index is stale: " + validation.invalidProviders()
-                        + " provider entries differ from disk");
-            }
+            sourceIndexPath = options.index().toAbsolutePath().normalize();
+            sourceIndex = ResourceIndexIO.read(sourceIndexPath);
+            validateIndex(sourceIndex, "Resource index is stale");
         } else {
             DiscoveryResult discovery = StarsectorDiscovery.discover(
                     Platform.current(),
@@ -45,20 +41,37 @@ final class TextureBatchCommand {
                 return 3;
             }
             ResourceIndexBuilder.BuildResult built = ResourceIndexBuilder.build(target.installRoot());
-            index = built.index();
-            indexPath = cacheDirectory.resolve("indexes").resolve(index.profileFingerprint() + ".spfi");
-            ResourceIndexIO.write(indexPath, index);
+            sourceIndex = built.index();
+            sourceIndexPath = cacheDirectory.resolve("indexes")
+                    .resolve(sourceIndex.profileFingerprint() + ".spfi");
+            ResourceIndexIO.write(sourceIndexPath, sourceIndex);
+        }
+
+        ResourceIndex activeIndex = sourceIndex;
+        Path activeIndexPath = sourceIndexPath;
+        ResourceIndexSubset.Result selection = null;
+        if (options.pathsFile() != null) {
+            selection = ResourceIndexSubset.select(sourceIndex, options.pathsFile());
+            activeIndex = selection.index();
+            activeIndexPath = cacheDirectory.resolve("resource-indexes")
+                    .resolve(activeIndex.profileFingerprint() + ".spfi")
+                    .toAbsolutePath().normalize();
+            ResourceIndexIO.write(activeIndexPath, activeIndex);
+            validateIndex(activeIndex, "Selected resource index is stale");
         }
 
         TextureBatchBuilder.Result result = TextureBatchBuilder.build(
-                index,
+                activeIndex,
                 cacheDirectory,
                 new TextureBatchBuilder.Options(options.workers(), options.memoryBudgetBytes()));
 
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("cacheDirectory", cacheDirectory);
-        report.put("index", indexPath);
-        report.put("profileFingerprint", index.profileFingerprint());
+        report.put("sourceIndex", sourceIndexPath);
+        report.put("index", activeIndexPath);
+        report.put("sourceProfileFingerprint", sourceIndex.profileFingerprint());
+        report.put("profileFingerprint", activeIndex.profileFingerprint());
+        report.put("selection", selection == null ? null : selection.toMap());
         report.put("manifest", result.manifestPath());
         report.put("manifestEntries", result.manifest().entryCount());
         report.put("candidateEntries", result.candidateEntries());
@@ -80,11 +93,20 @@ final class TextureBatchCommand {
         return result.failedBlobs() == 0 ? 0 : 6;
     }
 
+    private static void validateIndex(ResourceIndex index, String prefix) throws IOException {
+        ResourceIndexValidator.Result validation = ResourceIndexValidator.validate(index);
+        if (!validation.valid()) {
+            throw new IOException(prefix + ": " + validation.invalidProviders()
+                    + " provider entries differ from disk");
+        }
+    }
+
     private static Options parse(String[] args, int offset) {
         Path game = null;
         Path launcher = null;
         Path index = null;
         Path cacheDirectory = null;
+        Path pathsFile = null;
         int workers = defaultWorkers();
         long memoryBudgetBytes = defaultMemoryBudgetBytes();
         for (int i = offset; i < args.length; i++) {
@@ -93,6 +115,7 @@ final class TextureBatchCommand {
                 case "--launcher" -> launcher = Path.of(requireValue(args, ++i, "--launcher"));
                 case "--index" -> index = Path.of(requireValue(args, ++i, "--index"));
                 case "--cache-dir" -> cacheDirectory = Path.of(requireValue(args, ++i, "--cache-dir"));
+                case "--paths-file" -> pathsFile = Path.of(requireValue(args, ++i, "--paths-file"));
                 case "--workers" -> workers = integer(requireValue(args, ++i, "--workers"), "workers");
                 case "--memory-mb" -> {
                     long memoryMb = positiveLong(requireValue(args, ++i, "--memory-mb"), "memory-mb");
@@ -104,7 +127,7 @@ final class TextureBatchCommand {
         if (index != null && (game != null || launcher != null)) {
             throw new IllegalArgumentException("Use either --index or game discovery options, not both");
         }
-        return new Options(game, launcher, index, cacheDirectory, workers, memoryBudgetBytes);
+        return new Options(game, launcher, index, cacheDirectory, pathsFile, workers, memoryBudgetBytes);
     }
 
     private static int defaultWorkers() {
@@ -148,6 +171,7 @@ final class TextureBatchCommand {
             Path launcher,
             Path index,
             Path cacheDirectory,
+            Path pathsFile,
             int workers,
             long memoryBudgetBytes) {
     }
