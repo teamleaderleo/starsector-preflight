@@ -256,11 +256,11 @@ public final class PreparedAudioManifest {
                 throw new IllegalArgumentException("Prepared audio manifest frame/sample count is invalid");
             }
             encoding = Objects.requireNonNull(encoding, "encoding");
+            if (!PreparedAudio.supportsFormat(encoding, bitsPerSample)) {
+                throw new IllegalArgumentException("Prepared audio manifest PCM format is invalid");
+            }
             byteOrder = Objects.requireNonNull(byteOrder, "byteOrder");
             int bytesPerSample = bitsPerSample / Byte.SIZE;
-            if (bitsPerSample <= 0 || bitsPerSample % Byte.SIZE != 0 || bytesPerSample > Long.BYTES) {
-                throw new IllegalArgumentException("Prepared audio manifest bit depth is invalid");
-            }
             long expectedBytes = Math.multiplyExact(sampleCount, bytesPerSample);
             if (pcmBytes < 0 || pcmBytes > PreparedAudio.MAX_PCM_BYTES || expectedBytes != pcmBytes) {
                 throw new IllegalArgumentException("Prepared audio manifest PCM byte count is invalid");
