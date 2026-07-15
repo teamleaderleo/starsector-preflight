@@ -111,10 +111,10 @@ class ModEcosystemCompatibilityTest {
             Path core = installRoot.resolve("starsector-core");
             Path mods = installRoot.resolve("mods");
             Files.createDirectories(mods);
-            Files.writeString(installRoot.resolve("starsector.sh"), "#!/bin/sh\n");
+            writeText(installRoot.resolve("starsector.sh"), "#!/bin/sh\n");
             writeImage(core.resolve(SHARED_SHIP), Color.BLUE);
             writeImage(core.resolve("graphics/core-only.png"), Color.GRAY);
-            Files.writeString(core.resolve("data/config/settings.json"), "{\"fixture\":true}");
+            writeText(core.resolve("data/config/settings.json"), "{\"fixture\":true}");
 
             Path lazy = mods.resolve("LazyLib");
             writeMetadata(lazy, """
@@ -135,7 +135,7 @@ class ModEcosystemCompatibilityTest {
             touch(lazy, "jars/LazyLib.jar", "jars/LazyLib-Kotlin.jar",
                     "jars/internal/LazyLib-Console.jar", "jars/internal/Kotlin-Runtime.jar");
             writeImage(lazy.resolve("graphics/libraries/shared-library-logo.png"), Color.CYAN);
-            Files.writeString(lazy.resolve("data/config/lazy.csv"), "id,value\nlazy,1\n");
+            writeText(lazy.resolve("data/config/lazy.csv"), "id,value\nlazy,1\n");
 
             Path luna = mods.resolve("LunaLib");
             writeMetadata(luna, """
@@ -158,7 +158,7 @@ class ModEcosystemCompatibilityTest {
             Files.copy(
                     lazy.resolve("graphics/libraries/shared-library-logo.png"),
                     luna.resolve("graphics/libraries/luna-logo.png"));
-            Files.writeString(luna.resolve("data/config/luna-settings.json"), "{\"enabled\":true}");
+            writeText(luna.resolve("data/config/luna-settings.json"), "{\"enabled\":true}");
 
             Path magic = mods.resolve("MagicLib");
             writeMetadata(magic, """
@@ -171,12 +171,10 @@ class ModEcosystemCompatibilityTest {
                     }
                     """);
             touch(magic, "jars/MagicLib.jar", "jars/MagicLib-Kotlin.jar");
-            Files.createDirectories(magic.resolve("src/fixture/magic"));
-            Files.writeString(magic.resolve("src/fixture/magic/Plugin.java"), "class Plugin {}\n");
-            Files.writeString(magic.resolve("src/fixture/magic/Helpers.kt"), "class Helpers\n");
+            writeText(magic.resolve("src/fixture/magic/Plugin.java"), "class Plugin {}\n");
+            writeText(magic.resolve("src/fixture/magic/Helpers.kt"), "class Helpers\n");
             writeImage(magic.resolve(SHARED_SHIP), Color.GREEN);
-            Files.createDirectories(magic.resolve("data/config/paintjobs"));
-            Files.writeString(magic.resolve("data/config/paintjobs/example.paintjob"), "{\"hull\":\"fixture\"}");
+            writeText(magic.resolve("data/config/paintjobs/example.paintjob"), "{\"hull\":\"fixture\"}");
 
             Path nex = mods.resolve("Nexerelin");
             writeMetadata(nex, """
@@ -197,11 +195,10 @@ class ModEcosystemCompatibilityTest {
             Path nexShared = nex.resolve(SHARED_SHIP);
             writeImage(nexShared, Color.RED);
             writeImage(nex.resolve("graphics/campaign/sector-map.png"), Color.ORANGE);
-            Files.createDirectories(nex.resolve("data/campaign"));
-            Files.writeString(nex.resolve("data/campaign/factions.csv"), "id,name\nfixture,Fixture\n");
-            Files.writeString(nex.resolve("data/campaign/person_missions.csv"), "id,script\nmission,Fixture\n");
-            Files.writeString(nex.resolve("data/config/exerelin_config.json"), "{\"corvusMode\":false}");
-            Files.writeString(nex.resolve("graphics/campaign/unsupported.svg"), "<svg/>");
+            writeText(nex.resolve("data/campaign/factions.csv"), "id,name\nfixture,Fixture\n");
+            writeText(nex.resolve("data/campaign/person_missions.csv"), "id,script\nmission,Fixture\n");
+            writeText(nex.resolve("data/config/exerelin_config.json"), "{\"corvusMode\":false}");
+            writeText(nex.resolve("graphics/campaign/unsupported.svg"), "<svg/>");
 
             Path patch = mods.resolve("Compatibility Patch");
             writeMetadata(patch, """
@@ -214,8 +211,7 @@ class ModEcosystemCompatibilityTest {
                     """);
             Path patchShared = patch.resolve(SHARED_SHIP);
             writeImage(patchShared, Color.MAGENTA);
-            Files.createDirectories(patch.resolve("data/config"));
-            Files.writeString(patch.resolve("data/config/patch.json"), "{\"patched\":true}");
+            writeText(patch.resolve("data/config/patch.json"), "{\"patched\":true}");
 
             Ecosystem ecosystem = new Ecosystem(installRoot, mods, patchShared, nexShared);
             ecosystem.enable(DEFAULT_ORDER);
@@ -224,20 +220,22 @@ class ModEcosystemCompatibilityTest {
 
         void enable(List<String> ids) throws Exception {
             String values = ids.stream().map(id -> "\"" + id + "\"").collect(java.util.stream.Collectors.joining(","));
-            Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[" + values + "]}");
+            writeText(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[" + values + "]}");
         }
 
         private static void writeMetadata(Path mod, String metadata) throws Exception {
-            Files.createDirectories(mod);
-            Files.writeString(mod.resolve("mod_info.json"), metadata);
+            writeText(mod.resolve("mod_info.json"), metadata);
         }
 
         private static void touch(Path root, String... paths) throws Exception {
             for (String path : paths) {
-                Path file = root.resolve(path);
-                Files.createDirectories(file.getParent());
-                Files.writeString(file, "synthetic jar fixture: " + path);
+                writeText(root.resolve(path), "synthetic jar fixture: " + path);
             }
+        }
+
+        private static void writeText(Path path, String value) throws Exception {
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, value);
         }
 
         private static void writeImage(Path path, Color color) throws Exception {
