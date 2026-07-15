@@ -79,17 +79,56 @@ class SyntheticPreparedAudioCacheTest {
                         SyntheticPreparedAudioCache.DECODER_IDENTITY).status());
     }
 
+    @Test
+    void nonFileCacheTargetIsAnAccessError() throws Exception {
+        byte[] source = wave(1, 22_050, 7);
+        String sourceHash = Hashes.sha256(source);
+        Path target = SyntheticPreparedAudioCache.cachePath(
+                temporaryDirectory,
+                sourceHash,
+                SyntheticPreparedAudioCache.Policy.FULLY_DECODED_EFFECT,
+                SyntheticPreparedAudioCache.DECODER_IDENTITY);
+        Files.createDirectories(target);
+        assertEquals(SyntheticPreparedAudioCache.Status.ERROR,
+                SyntheticPreparedAudioCache.lookup(
+                        temporaryDirectory,
+                        sourceHash,
+                        SyntheticPreparedAudioCache.Policy.FULLY_DECODED_EFFECT,
+                        SyntheticPreparedAudioCache.DECODER_IDENTITY).status());
+    }
+
     private static byte[] wave(int channels, int sampleRate, int frames) throws Exception {
         int dataBytes = channels * frames * 2;
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(44 + dataBytes);
         try (DataOutputStream out = new DataOutputStream(bytes)) {
-            out.writeBytes("RIFF"); leInt(out, 36 + dataBytes); out.writeBytes("WAVEfmt "); leInt(out, 16);
-            leShort(out, 1); leShort(out, channels); leInt(out, sampleRate); leInt(out, sampleRate * channels * 2);
-            leShort(out, channels * 2); leShort(out, 16); out.writeBytes("data"); leInt(out, dataBytes);
-            for (int i = 0; i < frames * channels; i++) leShort(out, i * 131);
+            out.writeBytes("RIFF");
+            leInt(out, 36 + dataBytes);
+            out.writeBytes("WAVEfmt ");
+            leInt(out, 16);
+            leShort(out, 1);
+            leShort(out, channels);
+            leInt(out, sampleRate);
+            leInt(out, sampleRate * channels * 2);
+            leShort(out, channels * 2);
+            leShort(out, 16);
+            out.writeBytes("data");
+            leInt(out, dataBytes);
+            for (int i = 0; i < frames * channels; i++) {
+                leShort(out, i * 131);
+            }
         }
         return bytes.toByteArray();
     }
-    private static void leShort(DataOutputStream out,int v)throws Exception{out.writeByte(v&255);out.writeByte(v>>>8&255);}
-    private static void leInt(DataOutputStream out,int v)throws Exception{out.writeByte(v&255);out.writeByte(v>>>8&255);out.writeByte(v>>>16&255);out.writeByte(v>>>24&255);}
+
+    private static void leShort(DataOutputStream out, int value) throws Exception {
+        out.writeByte(value & 255);
+        out.writeByte(value >>> 8 & 255);
+    }
+
+    private static void leInt(DataOutputStream out, int value) throws Exception {
+        out.writeByte(value & 255);
+        out.writeByte(value >>> 8 & 255);
+        out.writeByte(value >>> 16 & 255);
+        out.writeByte(value >>> 24 & 255);
+    }
 }
