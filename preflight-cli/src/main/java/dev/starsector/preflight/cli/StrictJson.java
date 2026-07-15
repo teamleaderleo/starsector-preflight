@@ -76,16 +76,17 @@ final class StrictJson {
             }
             while (true) {
                 whitespace();
-                if (peek() != '"') {
+                if (finished() || peek() != '"') {
                     throw error("Expected an object key");
                 }
                 String key = string();
                 whitespace();
                 expect(':');
                 Object value = value(depth);
-                if (values.putIfAbsent(key, value) != null) {
+                if (values.containsKey(key)) {
                     throw error("Duplicate object key: " + key);
                 }
+                values.put(key, value);
                 item();
                 whitespace();
                 if (consume('}')) {
@@ -170,8 +171,13 @@ final class StrictJson {
         private Number number() {
             int start = offset;
             consume('-');
+            if (finished()) {
+                throw error("Expected a digit");
+            }
             if (consume('0')) {
-                // Leading zero is complete unless a fraction or exponent follows.
+                if (!finished() && Character.isDigit(peek())) {
+                    throw error("Leading zeros are not allowed");
+                }
             } else {
                 digits(true);
             }
@@ -182,16 +188,18 @@ final class StrictJson {
             }
             if (consume('e') || consume('E')) {
                 decimal = true;
-                consume('+');
-                consume('-');
+                if (!consume('+')) {
+                    consume('-');
+                }
                 digits(true);
-            }
-            if (start == offset) {
-                throw error("Expected a number");
             }
             String raw = text.substring(start, offset);
             try {
-                return decimal ? Double.parseDouble(raw) : Long.parseLong(raw);
+                Number value = decimal ? Double.parseDouble(raw) : Long.parseLong(raw);
+                if (value instanceof Double floating && !Double.isFinite(floating)) {
+                    throw error("Non-finite number: " + raw);
+                }
+                return value;
             } catch (NumberFormatException error) {
                 throw error("Invalid number: " + raw);
             }
