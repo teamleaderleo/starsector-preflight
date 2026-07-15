@@ -42,7 +42,8 @@ final class AdapterRuntime {
         AdapterTargetRegistry registry;
         try {
             registry = loadRegistry(options, report);
-        } catch (IOException error) {
+        } catch (Throwable error) {
+            rethrowIfFatal(error);
             report.contained("Could not load adapter target registry", error);
             return session;
         }
@@ -55,6 +56,7 @@ final class AdapterRuntime {
                 report.diagnostic("No adapter targets are allowlisted; probe-only observation remains safe");
             }
         } catch (Throwable error) {
+            rethrowIfFatal(error);
             report.contained("Could not install adapter transformer", error);
         }
         return session;
@@ -79,7 +81,8 @@ final class AdapterRuntime {
                     options.textureManifest(),
                     options.resourceIndex());
             report.diagnostic("Prepared image cache context validated for exact opt-in adapter activation");
-        } catch (IOException | RuntimeException error) {
+        } catch (Throwable error) {
+            rethrowIfFatal(error);
             PreparedImageBridge.disable("Prepared image cache configuration failed: " + message(error));
             report.contained("Prepared image plan unavailable", error);
         }
@@ -112,6 +115,15 @@ final class AdapterRuntime {
             case "1", "true", "yes", "on", "enabled" -> true;
             default -> false;
         };
+    }
+
+    private static void rethrowIfFatal(Throwable error) {
+        if (error instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
+        }
+        if (error instanceof VirtualMachineError virtualMachineError) {
+            throw virtualMachineError;
+        }
     }
 
     private static String message(Throwable error) {
