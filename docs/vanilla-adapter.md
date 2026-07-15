@@ -38,7 +38,10 @@ summary.json
 profile.json
 run.json
 adapter.json
+adapter-analysis.json
 ```
+
+`adapter-analysis.json` is generated automatically after the child process exits. It joins exact classes observed by the agent with methods that appeared on JFR stacks during image reads.
 
 Use an explicit installation or launcher when automatic discovery needs help:
 
@@ -62,7 +65,7 @@ java -jar preflight.jar run --adapter --adapter-targets targets.txt
 - `candidates` — a compact alphabetical list of the best retained classes.
 - `rankedCandidates` — up to 50 likely image or texture integration points ordered by a deterministic relevance score.
 
-Ranking currently uses class names, method names, JVM descriptors, and code-source ownership. Signals include texture/image/sprite terminology, image decoding, pixel-buffer and OpenGL types, upload/mipmap methods, and whether the class came from Starsector core, Fast Rendering, or a mod.
+Ranking uses class names, method names, JVM descriptors, and code-source ownership. Signals include texture/image/sprite terminology, image decoding, pixel-buffer and OpenGL types, upload/mipmap methods, and whether the class came from Starsector core, Fast Rendering, or a mod.
 
 Each ranked candidate includes:
 
@@ -73,6 +76,33 @@ Each ranked candidate includes:
 - whether additional relevant methods were truncated
 
 Ranking narrows the review set. It never generates or activates an allowlist automatically, and it does not prove a method is safe to rewrite.
+
+## Combined probe analysis
+
+`adapter-analysis.json` combines:
+
+- every retained agent candidate and its exact class SHA-256
+- richer static relevance evidence from `adapter.json`
+- image-read behavioral methods from `summary.json`
+- separate static, behavioral, and combined scores
+- exact method descriptors and bounded image-path samples
+- behavior-only classes that did not overlap an agent candidate
+
+The join uses exact internal class names. It performs no fuzzy matching. Rich top-50 candidate metadata is overlaid on the full retained candidate set, so a behavioral class outside the static top 50 can still receive its exact hash.
+
+The report explicitly records:
+
+```text
+automaticAllowlistGenerated: false
+liveTransformationEligible: false
+requiresHumanReview: true
+```
+
+Analyze existing reports manually with:
+
+```bash
+java -jar preflight.jar analyze probe adapter.json summary.json --json adapter-analysis.json
+```
 
 ## Kill switch
 
@@ -94,13 +124,13 @@ Every allowlisted target requires:
 - required method names and JVM descriptors
 - a transformation plan ID
 
-Class name alone is insufficient. A changed game build or modified class hash fails closed.
+Class name alone is insufficient. A changed game build or modified class hash fails closed. Code-source and classloader constraints are also required before the first live transformation plan is registered.
 
 ## When a real Starsector installation is required
 
 Synthetic fixtures can verify parsing, matching, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
 
-1. Run `--adapter-probe` against the exact Starsector build to collect and rank candidate class hashes and method signatures.
+1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, and the combined candidate report automatically.
 2. Validate a target-specific rewrite against that build and a representative mod profile before enabling it by default.
 
-The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, and covered by a global kill switch.
+You do not need to provide or point Preflight at the installation before step 1. The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, source-bound, and covered by a global kill switch.
