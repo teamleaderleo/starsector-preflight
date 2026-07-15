@@ -6,10 +6,12 @@ import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.awt.image.Raster;
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 import javax.imageio.ImageIO;
 
 /**
@@ -20,6 +22,8 @@ import javax.imageio.ImageIO;
  * and derived colors. Unsupported raster layouts fall back to {@link ReferenceTexturePreprocessor}.</p>
  */
 final class BulkTexturePreprocessor {
+    private static final long MAX_SNAPSHOT_BYTES = Integer.MAX_VALUE - 8L;
+
     private BulkTexturePreprocessor() {
     }
 
@@ -28,19 +32,92 @@ final class BulkTexturePreprocessor {
         if (!Files.isRegularFile(absolute)) {
             throw new IOException("Expected an image file: " + absolute);
         }
+        validateTransformation(transformation);
+
+        long sourceBytes = Files.size(absolute);
+        byte[] encoded = readSnapshot(absolute, sourceBytes, MAX_SNAPSHOT_BYTES);
+        String sourceSha256 = Hashes.sha256(encoded);
+        return decodeVerifiedSnapshot(encoded, sourceSha256, transformation);
+    }
+
+    static PreparedTexture prepareSnapshot(
+            byte[] encoded,
+            String expectedSha256,
+            PreparedTexture.Transformation transformation) throws IOException {
+        Objects.requireNonNull(encoded, "encoded");
+        Objects.requireNonNull(expectedSha256, "expectedSha256");
+        validateTransformation(transformation);
+        Hashes.decodeSha256(expectedSha256);
+
+        String snapshotSha256 = Hashes.sha256(encoded);
+        if (!snapshotSha256.equalsIgnoreCase(expectedSha256)) {
+            throw new IOException("Source snapshot SHA-256 mismatch: expected "
+                    + expectedSha256 + " but was " + snapshotSha256);
+        }
+        return decodeVerifiedSnapshot(encoded, snapshotSha256, transformation);
+    }
+
+    static byte[] readSnapshot(Path source, long expectedBytes, long maximumBytes) throws IOException {
+        Path absolute = source.toAbsolutePath().normalize();
+        if (!Files.isRegularFile(absolute)) {
+            throw new IOException("Expected an image file: " + absolute);
+        }
+        if (expectedBytes < 0) {
+            throw new IllegalArgumentException("Expected source size must be non-negative");
+        }
+        if (maximumBytes < 0) {
+            throw new IllegalArgumentException("Maximum snapshot size must be non-negative");
+        }
+        if (expectedBytes > maximumBytes) {
+            throw new IOException("Encoded source is " + expectedBytes
+                    + " bytes, exceeding the snapshot limit of " + maximumBytes + " bytes: " + absolute);
+        }
+        if (expectedBytes > MAX_SNAPSHOT_BYTES) {
+            throw new IOException("Encoded source is too large for one byte-array snapshot: " + absolute);
+        }
+
+        byte[] encoded = new byte[Math.toIntExact(expectedBytes)];
+        try (InputStream input = new BufferedInputStream(Files.newInputStream(absolute))) {
+            int offset = 0;
+            while (offset < encoded.length) {
+                int read = input.read(encoded, offset, encoded.length - offset);
+                if (read < 0) {
+                    throw new IOException("Encoded source shrank while snapshotting: " + absolute);
+                }
+                if (read == 0) {
+                    int value = input.read();
+                    if (value < 0) {
+                        throw new IOException("Encoded source shrank while snapshotting: " + absolute);
+                    }
+                    encoded[offset++] = (byte) value;
+                } else {
+                    offset += read;
+                }
+            }
+            if (input.read() >= 0) {
+                throw new IOException("Encoded source grew while snapshotting: " + absolute);
+            }
+        }
+        return encoded;
+    }
+
+    private static PreparedTexture decodeVerifiedSnapshot(
+            byte[] encoded,
+            String sourceSha256,
+            PreparedTexture.Transformation transformation) throws IOException {
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(encoded));
+        if (image == null) {
+            throw new IOException("ImageIO could not decode the encoded source snapshot");
+        }
+        return prepareDetailed(image, sourceSha256, transformation).texture();
+    }
+
+    private static void validateTransformation(PreparedTexture.Transformation transformation) {
+        Objects.requireNonNull(transformation, "transformation");
         if (transformation != PreparedTexture.Transformation.IDENTITY) {
             throw new UnsupportedOperationException(
                     "The bulk converter currently supports IDENTITY textures only");
         }
-
-        BufferedImage image;
-        try (InputStream input = new BufferedInputStream(Files.newInputStream(absolute))) {
-            image = ImageIO.read(input);
-        }
-        if (image == null) {
-            throw new IOException("ImageIO could not decode: " + absolute);
-        }
-        return prepareDetailed(image, Hashes.sha256(absolute), transformation).texture();
     }
 
     static PreparedTexture prepare(
@@ -54,10 +131,7 @@ final class BulkTexturePreprocessor {
             BufferedImage image,
             String sourceSha256,
             PreparedTexture.Transformation transformation) {
-        if (transformation != PreparedTexture.Transformation.IDENTITY) {
-            throw new UnsupportedOperationException(
-                    "The bulk converter currently supports IDENTITY textures only");
-        }
+        validateTransformation(transformation);
 
         Raster raster = image.getData();
         boolean hasAlpha = image.getColorModel().hasAlpha();
