@@ -34,7 +34,7 @@ final class CodeLoaderSignatureReport {
 
     private final Path destination;
     private final Instant startedAt = Instant.now();
-    private final TreeMap<String, Entry> entries = new TreeMap<>();
+    private final TreeMap<IdentityKey, Entry> entries = new TreeMap<>();
     private final List<String> diagnostics = new ArrayList<>();
     private boolean entriesTruncated;
     private boolean diagnosticsTruncated;
@@ -49,11 +49,12 @@ final class CodeLoaderSignatureReport {
 
     synchronized void observed(ClassSignature signature, AdapterSourceIdentity source) {
         if (!interested(signature.internalName())) return;
-        String key = signature.internalName()
-                + "@" + signature.sha256()
-                + "@" + source.normalizedSource()
-                + "@" + source.loaderClass()
-                + "@" + source.loaderName();
+        IdentityKey key = new IdentityKey(
+                signature.internalName(),
+                signature.sha256(),
+                source.normalizedSource(),
+                source.loaderClass(),
+                source.loaderName());
         if (entries.containsKey(key)) return;
 
         List<Method> methods = signature.methods().stream()
@@ -105,13 +106,13 @@ final class CodeLoaderSignatureReport {
         writeAtomic(destination, AgentJson.object(root) + System.lineSeparator());
     }
 
-    private void retainIdentity(String key, Entry entry) {
+    private void retainIdentity(IdentityKey key, Entry entry) {
         if (entries.size() < IDENTITY_LIMIT) {
             entries.put(key, entry);
             return;
         }
         entriesTruncated = true;
-        String largest = entries.lastKey();
+        IdentityKey largest = entries.lastKey();
         if (key.compareTo(largest) < 0) {
             entries.pollLastEntry();
             entries.put(key, entry);
@@ -155,6 +156,26 @@ final class CodeLoaderSignatureReport {
     private static String message(Throwable error) {
         String value = error.getMessage();
         return value == null || value.isBlank() ? error.getClass().getSimpleName() : value;
+    }
+
+    private record IdentityKey(
+            String className,
+            String classSha256,
+            String normalizedSource,
+            String loaderClass,
+            String loaderName) implements Comparable<IdentityKey> {
+        @Override
+        public int compareTo(IdentityKey other) {
+            int order = className.compareTo(other.className);
+            if (order != 0) return order;
+            order = classSha256.compareTo(other.classSha256);
+            if (order != 0) return order;
+            order = normalizedSource.compareTo(other.normalizedSource);
+            if (order != 0) return order;
+            order = loaderClass.compareTo(other.loaderClass);
+            if (order != 0) return order;
+            return loaderName.compareTo(other.loaderName);
+        }
     }
 
     private record Entry(
