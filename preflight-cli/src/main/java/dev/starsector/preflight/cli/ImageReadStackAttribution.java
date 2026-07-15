@@ -24,10 +24,8 @@ final class ImageReadStackAttribution {
     private static final Comparator<MethodSummary> RANKING = Comparator
             .comparingLong(MethodSummary::behavioralScore)
             .reversed()
-            .thenComparingLong(MethodSummary::events)
-            .reversed()
-            .thenComparingLong(MethodSummary::bytes)
-            .reversed()
+            .thenComparing(Comparator.comparingLong(MethodSummary::events).reversed())
+            .thenComparing(Comparator.comparingLong(MethodSummary::bytes).reversed())
             .thenComparing(MethodSummary::className)
             .thenComparing(MethodSummary::methodName)
             .thenComparing(MethodSummary::descriptor);
@@ -202,7 +200,7 @@ final class ImageReadStackAttribution {
             bytes += Math.max(0, eventBytes);
             durationNanos += Math.max(0, eventDurationNanos);
             minimumDepth = Math.min(minimumDepth, depth);
-            depthWeight += Math.max(1, 24 - Math.min(23, depth));
+            depthWeight += Math.max(1, 32 - Math.min(31, depth * 4));
             if (!paths.contains(path)) {
                 if (paths.size() >= PATH_SAMPLE_LIMIT) {
                     pathsTruncated = true;
