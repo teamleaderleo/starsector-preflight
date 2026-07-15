@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AgentOptionsTest {
@@ -31,7 +32,7 @@ class AgentOptionsTest {
     }
 
     @Test
-    void parsesProbeReportAndTargets() {
+    void parsesProbeReportTargetsAndEvidenceDrivenCandidatePrefixes() {
         String report = "build/adapter reports/probe.json";
         String targets = "build/targets/vanilla.txt";
         AgentOptions options = AgentOptions.parse(
@@ -40,7 +41,9 @@ class AgentOptionsTest {
         assertEquals(AdapterMode.PROBE, options.adapterMode());
         assertEquals(Path.of(report), options.adapterReport());
         assertEquals(Path.of(targets), options.adapterTargets());
-        assertEquals("com/fs/starfarer/", options.candidatePrefixes().get(0));
+        assertEquals(
+                List.of("com/fs/starfarer/", "com/fs/graphics/"),
+                options.candidatePrefixes());
     }
 
     @Test

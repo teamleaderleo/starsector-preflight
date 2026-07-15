@@ -16,7 +16,9 @@ record AgentOptions(
         Path adapterReport,
         Path adapterTargets,
         List<String> candidatePrefixes) {
-    private static final List<String> DEFAULT_CANDIDATE_PREFIXES = List.of("com/fs/starfarer/");
+    private static final List<String> DEFAULT_CANDIDATE_PREFIXES = List.of(
+            "com/fs/starfarer/",
+            "com/fs/graphics/");
 
     AgentOptions {
         candidatePrefixes = List.copyOf(candidatePrefixes);
