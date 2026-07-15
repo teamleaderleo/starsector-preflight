@@ -9,8 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -73,6 +79,16 @@ class PreparedAudioCacheTest {
                 2,
                 4,
                 new byte[15]));
+        assertThrows(IllegalArgumentException.class, () -> new PreparedAudioManifest.Metadata(
+                44_100,
+                2,
+                4,
+                8,
+                PreparedAudio.PcmEncoding.PCM_FLOAT,
+                16,
+                PreparedAudio.ByteOrder.LITTLE_ENDIAN,
+                16,
+                "a".repeat(64)));
     }
 
     @Test
@@ -151,6 +167,49 @@ class PreparedAudioCacheTest {
     }
 
     @Test
+    void concurrentReadersAndNonFileTargetsFailSafely() throws Exception {
+        Path cache = temporaryDirectory.resolve("concurrent-cache");
+        PreparedAudio audio = audio("a", "b", pcm(16, 4));
+        PreparedAudioCache.write(cache, audio);
+
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<PreparedAudioCache.Status>> futures = new ArrayList<>();
+            for (int i = 0; i < 64; i++) {
+                futures.add(executor.submit(() -> PreparedAudioCache.lookup(
+                        cache,
+                        audio.sourceSha256(),
+                        audio.decoderPolicyIdentitySha256(),
+                        audio.policy()).status()));
+            }
+            for (Future<PreparedAudioCache.Status> future : futures) {
+                assertEquals(PreparedAudioCache.Status.HIT, future.get(10, TimeUnit.SECONDS));
+            }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+
+        PreparedAudio directoryAudio = audio("c", "d", pcm(16, 5));
+        Path directoryTarget = PreparedAudioCache.blobPath(
+                cache,
+                directoryAudio.sourceSha256(),
+                directoryAudio.decoderPolicyIdentitySha256(),
+                directoryAudio.policy());
+        Files.createDirectories(directoryTarget);
+        PreparedAudioCache.Lookup directory = PreparedAudioCache.lookup(
+                cache,
+                directoryAudio.sourceSha256(),
+                directoryAudio.decoderPolicyIdentitySha256(),
+                directoryAudio.policy());
+        assertEquals(PreparedAudioCache.Status.ERROR, directory.status());
+
+        Path blockedRoot = temporaryDirectory.resolve("cache-root-is-a-file");
+        Files.writeString(blockedRoot, "blocked");
+        assertThrows(IOException.class, () -> PreparedAudioCache.write(blockedRoot, audio));
+    }
+
+    @Test
     void manifestIsDeterministicRoundTripsAndTracksPolicies() throws Exception {
         PreparedAudio prepared = audio("5", "6", pcm(16, 7));
         PreparedAudioManifest.Entry effect = PreparedAudioManifest.Entry.prepared(
@@ -200,6 +259,16 @@ class PreparedAudioCacheTest {
         PreparedAudioManifest changedDecoder = manifest(
                 "9", "a", "c".repeat(64), Map.of(music.logicalPath(), music));
         assertNotEquals(left.manifestSha256(), changedDecoder.manifestSha256());
+        PreparedAudioManifest.Entry changedEffect = PreparedAudioManifest.Entry.prepared(
+                effect.logicalPath(),
+                effect.sourceBytes() + 1,
+                effect.sourceModifiedMillis(),
+                prepared);
+        LinkedHashMap<String, PreparedAudioManifest.Entry> changedEntries = new LinkedHashMap<>(ordered);
+        changedEntries.put(changedEffect.logicalPath(), changedEffect);
+        PreparedAudioManifest changedSourceMetadata = manifest(
+                "9", "a", prepared.decoderPolicyIdentitySha256(), changedEntries);
+        assertNotEquals(left.manifestSha256(), changedSourceMetadata.manifestSha256());
 
         byte[] corrupt = PreparedAudioManifestIO.toBytes(left);
         corrupt[corrupt.length / 2] ^= 1;
