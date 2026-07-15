@@ -71,6 +71,11 @@ final class AdapterTargetRegistry {
                 case "class" -> requireBuilder(absolute, lineNumber, builder).className = value;
                 case "sha256" -> requireBuilder(absolute, lineNumber, builder).sha256 = value;
                 case "plan" -> requireBuilder(absolute, lineNumber, builder).planId = value;
+                case "source-kind" -> requireBuilder(absolute, lineNumber, builder).sourceKind = value;
+                case "source-suffix" -> requireBuilder(absolute, lineNumber, builder).sourceSuffix = value;
+                case "source-sha256" -> requireBuilder(absolute, lineNumber, builder).sourceSha256 = value;
+                case "loader-class" -> requireBuilder(absolute, lineNumber, builder).loaderClass = value;
+                case "loader-name" -> requireBuilder(absolute, lineNumber, builder).loaderName = value;
                 case "method" -> {
                     Builder active = requireBuilder(absolute, lineNumber, builder);
                     if (active.methods.size() >= MAX_METHODS_PER_TARGET) {
@@ -133,6 +138,11 @@ final class AdapterTargetRegistry {
         private String className;
         private String sha256;
         private String planId = "none";
+        private String sourceKind = "";
+        private String sourceSuffix = "";
+        private String sourceSha256 = "";
+        private String loaderClass = "";
+        private String loaderName = "";
         private final List<AdapterTarget.RequiredMethod> methods = new ArrayList<>();
 
         private Builder(String id) {
@@ -141,7 +151,17 @@ final class AdapterTargetRegistry {
 
         private AdapterTarget build(Path path, int lineNumber) throws IOException {
             try {
-                return new AdapterTarget(id, className, sha256, planId, methods);
+                return new AdapterTarget(
+                        id,
+                        className,
+                        sha256,
+                        planId,
+                        methods,
+                        sourceKind,
+                        sourceSuffix,
+                        sourceSha256,
+                        loaderClass,
+                        loaderName);
             } catch (RuntimeException error) {
                 throw syntax(path, lineNumber, error.getMessage());
             }
