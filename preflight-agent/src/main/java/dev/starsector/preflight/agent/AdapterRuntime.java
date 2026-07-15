@@ -24,6 +24,7 @@ final class AdapterRuntime {
                 options.adapterTargets(),
                 options.candidatePrefixes());
         Session session = new Session(report, options.adapterMode() != AdapterMode.OFF);
+        PreparedImageBridge.disable("Prepared image cache is not active for this agent session");
         if (options.adapterMode() == AdapterMode.OFF) {
             return session;
         }
@@ -32,9 +33,15 @@ final class AdapterRuntime {
             return session;
         }
 
+        if (options.adapterMode() == AdapterMode.ENABLED) {
+            configurePreparedImage(options, report);
+        } else {
+            report.diagnostic("Probe mode never configures or activates prepared image cache consumption");
+        }
+
         AdapterTargetRegistry registry;
         try {
-            registry = loadRegistry(options.adapterTargets(), report);
+            registry = loadRegistry(options, report);
         } catch (IOException error) {
             report.contained("Could not load adapter target registry", error);
             return session;
@@ -59,17 +66,42 @@ final class AdapterRuntime {
         return truthy(property) || truthy(environmentValue);
     }
 
-    private static AdapterTargetRegistry loadRegistry(Path path, AdapterReport report) throws IOException {
-        if (path == null) {
-            return AdapterTargetRegistry.empty();
+    private static void configurePreparedImage(AgentOptions options, AdapterReport report) {
+        if (!options.hasCompleteTextureCacheContext()) {
+            PreparedImageBridge.disable(
+                    "Prepared image plan requires cache root, texture manifest, and resource index");
+            report.diagnostic("Prepared image plan unavailable: explicit cache root, manifest, and index are required");
+            return;
         }
-        Path absolute = path.toAbsolutePath().normalize();
-        if (!Files.isRegularFile(absolute)) {
-            throw new IOException("Adapter target file does not exist: " + absolute);
+        try {
+            PreparedImageBridge.configure(
+                    options.textureCacheRoot(),
+                    options.textureManifest(),
+                    options.resourceIndex());
+            report.diagnostic("Prepared image cache context validated for exact opt-in adapter activation");
+        } catch (IOException | RuntimeException error) {
+            PreparedImageBridge.disable("Prepared image cache configuration failed: " + message(error));
+            report.contained("Prepared image plan unavailable", error);
         }
-        AdapterTargetRegistry registry = AdapterTargetRegistry.load(absolute);
-        report.diagnostic("Loaded " + registry.targets().size() + " adapter target(s) from " + absolute);
-        return registry;
+    }
+
+    private static AdapterTargetRegistry loadRegistry(AgentOptions options, AdapterReport report) throws IOException {
+        Path path = options.adapterTargets();
+        if (path != null) {
+            Path absolute = path.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(absolute)) {
+                throw new IOException("Adapter target file does not exist: " + absolute);
+            }
+            AdapterTargetRegistry registry = AdapterTargetRegistry.load(absolute);
+            report.diagnostic("Loaded " + registry.targets().size() + " adapter target(s) from " + absolute);
+            return registry;
+        }
+        if (options.adapterMode() == AdapterMode.ENABLED && PreparedImageBridge.ready()) {
+            AdapterTargetRegistry registry = AdapterTargetRegistry.builtInPreparedImage();
+            report.diagnostic("Loaded the reviewed built-in vanilla prepared image target");
+            return registry;
+        }
+        return AdapterTargetRegistry.empty();
     }
 
     private static boolean truthy(String value) {
@@ -80,6 +112,11 @@ final class AdapterRuntime {
             case "1", "true", "yes", "on", "enabled" -> true;
             default -> false;
         };
+    }
+
+    private static String message(Throwable error) {
+        String value = error.getMessage();
+        return value == null || value.isBlank() ? error.getClass().getSimpleName() : value;
     }
 
     static final class Session implements AutoCloseable {
