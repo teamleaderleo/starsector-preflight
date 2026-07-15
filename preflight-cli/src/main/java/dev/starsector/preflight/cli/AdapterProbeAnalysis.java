@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-/** Joins exact agent class signatures with methods observed during image-file reads. */
+/** Joins exact agent class signatures and source identities with methods observed during image reads. */
 final class AdapterProbeAnalysis {
     private static final int OUTPUT_LIMIT = 100;
     private static final int BEHAVIOR_ONLY_LIMIT = 50;
@@ -28,7 +28,10 @@ final class AdapterProbeAnalysis {
             .thenComparing(Comparator.comparingLong(CombinedCandidate::behavioralScore).reversed())
             .thenComparing(Comparator.comparingLong(CombinedCandidate::staticScore).reversed())
             .thenComparing(CombinedCandidate::className)
-            .thenComparing(CombinedCandidate::sha256);
+            .thenComparing(CombinedCandidate::sha256)
+            .thenComparing(CombinedCandidate::normalizedSource)
+            .thenComparing(CombinedCandidate::loaderClass)
+            .thenComparing(CombinedCandidate::loaderName);
 
     private AdapterProbeAnalysis() {
     }
@@ -52,6 +55,7 @@ final class AdapterProbeAnalysis {
             behaviorByClass.computeIfAbsent(className, BehaviorGroup::new).add(method);
         }
 
+        Map<String, Integer> identitiesByClass = new TreeMap<>();
         List<CombinedCandidate> combined = new ArrayList<>();
         Set<String> observedCandidateClasses = new LinkedHashSet<>();
         for (Map<String, Object> candidate : candidates) {
@@ -61,6 +65,7 @@ final class AdapterProbeAnalysis {
                 continue;
             }
             observedCandidateClasses.add(className);
+            identitiesByClass.merge(className, 1, Integer::sum);
             long staticScore = integer(candidate, "relevanceScore");
             BehaviorGroup behavior = behaviorByClass.get(className);
             long behavioralScore = behavior == null ? 0 : behavior.maximumScore();
@@ -69,6 +74,11 @@ final class AdapterProbeAnalysis {
                     sha256,
                     string(candidate, "sourceKind"),
                     nullableString(candidate.get("codeSource")),
+                    nullableString(candidate.get("normalizedSource")),
+                    nullableString(candidate.get("sourceSha256")),
+                    nullableString(candidate.get("sourceHashProblem")),
+                    nullableString(candidate.get("loaderClass")),
+                    nullableString(candidate.get("loaderName")),
                     staticScore,
                     behavioralScore,
                     saturatedAdd(staticScore, behavioralScore),
@@ -79,6 +89,10 @@ final class AdapterProbeAnalysis {
         }
         combined.sort(RANKING);
 
+        List<String> ambiguousBehavioralClassNames = identitiesByClass.entrySet().stream()
+                .filter(entry -> entry.getValue() > 1 && behaviorByClass.containsKey(entry.getKey()))
+                .map(Map.Entry::getKey)
+                .toList();
         List<BehaviorGroup> allBehaviorOnly = behaviorByClass.values().stream()
                 .filter(group -> !observedCandidateClasses.contains(group.className()))
                 .sorted(Comparator.comparingLong(BehaviorGroup::maximumScore)
@@ -90,7 +104,12 @@ final class AdapterProbeAnalysis {
                 .map(BehaviorGroup::toMap)
                 .toList();
 
-        long matchedClasses = combined.stream().filter(value -> value.behavioralScore() > 0).count();
+        long matchedIdentities = combined.stream().filter(value -> value.behavioralScore() > 0).count();
+        long matchedClassNames = combined.stream()
+                .filter(value -> value.behavioralScore() > 0)
+                .map(CombinedCandidate::className)
+                .distinct()
+                .count();
         List<Map<String, Object>> ranked = combined.stream()
                 .limit(OUTPUT_LIMIT)
                 .map(CombinedCandidate::toMap)
@@ -103,24 +122,31 @@ final class AdapterProbeAnalysis {
         result.put("output", output.toAbsolutePath().normalize());
         result.put("adapterMode", adapterJson.get("mode"));
         result.put("candidateClasses", combined.size());
+        result.put("candidateIdentities", combined.size());
+        result.put("distinctCandidateClassNames", identitiesByClass.size());
         result.put("behavioralClasses", behaviorByClass.size());
-        result.put("matchedClasses", matchedClasses);
+        result.put("matchedClasses", matchedIdentities);
+        result.put("matchedIdentities", matchedIdentities);
+        result.put("matchedClassNames", matchedClassNames);
+        result.put("ambiguousBehavioralClassNames", ambiguousBehavioralClassNames);
         result.put("behaviorOnlyClasses", allBehaviorOnly.size());
         result.put("behaviorOnlyTruncated", allBehaviorOnly.size() > behaviorOnly.size());
         result.put("rankedCandidates", ranked);
         result.put("behaviorOnly", behaviorOnly);
         result.put("exactClassNameJoin", true);
+        result.put("sourceIdentityPreserved", true);
         result.put("automaticAllowlistGenerated", false);
         result.put("liveTransformationEligible", false);
         result.put("requiresHumanReview", true);
         result.put("requiresRealInstallForTargetValidation", true);
-        result.put("diagnostics", diagnostics(candidates, methods, combined, allBehaviorOnly));
+        result.put("diagnostics", diagnostics(
+                candidates, methods, combined, allBehaviorOnly, ambiguousBehavioralClassNames));
         writeAtomic(output.toAbsolutePath().normalize(), Json.object(result) + System.lineSeparator());
         return new Result(
                 output.toAbsolutePath().normalize(),
                 combined.size(),
                 behaviorByClass.size(),
-                matchedClasses,
+                matchedIdentities,
                 allBehaviorOnly.size(),
                 List.copyOf(ranked));
     }
@@ -141,7 +167,12 @@ final class AdapterProbeAnalysis {
             if (className.isBlank() || sha256.isBlank()) {
                 continue;
             }
-            destination.put(className + "@" + sha256, candidate);
+            String key = className
+                    + "@" + sha256
+                    + "@" + string(candidate, "normalizedSource")
+                    + "@" + string(candidate, "loaderClass")
+                    + "@" + string(candidate, "loaderName");
+            destination.put(key, candidate);
         }
     }
 
@@ -149,7 +180,8 @@ final class AdapterProbeAnalysis {
             List<Map<String, Object>> candidates,
             List<Map<String, Object>> methods,
             List<CombinedCandidate> combined,
-            List<BehaviorGroup> behaviorOnly) {
+            List<BehaviorGroup> behaviorOnly,
+            List<String> ambiguousBehavioralClassNames) {
         List<String> values = new ArrayList<>();
         if (candidates.isEmpty()) {
             values.add("Adapter report contains no ranked or retained candidates");
@@ -163,6 +195,9 @@ final class AdapterProbeAnalysis {
         }
         if (!behaviorOnly.isEmpty()) {
             values.add("Some behavioral classes were not retained by the adapter probe; inspect behaviorOnly");
+        }
+        if (!ambiguousBehavioralClassNames.isEmpty()) {
+            values.add("Behavioral evidence matches multiple source/loader identities for some class names; human review must choose the correct identity");
         }
         values.add("This report ranks review candidates and never generates an adapter allowlist");
         return List.copyOf(values);
@@ -276,6 +311,11 @@ final class AdapterProbeAnalysis {
             String sha256,
             String sourceKind,
             String codeSource,
+            String normalizedSource,
+            String sourceSha256,
+            String sourceHashProblem,
+            String loaderClass,
+            String loaderName,
             long staticScore,
             long behavioralScore,
             long combinedScore,
@@ -294,6 +334,11 @@ final class AdapterProbeAnalysis {
             output.put("sha256", sha256);
             output.put("sourceKind", sourceKind);
             output.put("codeSource", codeSource.isBlank() ? null : codeSource);
+            output.put("normalizedSource", normalizedSource.isBlank() ? null : normalizedSource);
+            output.put("sourceSha256", sourceSha256.isBlank() ? null : sourceSha256);
+            output.put("sourceHashProblem", sourceHashProblem.isBlank() ? null : sourceHashProblem);
+            output.put("loaderClass", loaderClass.isBlank() ? null : loaderClass);
+            output.put("loaderName", loaderName.isBlank() ? null : loaderName);
             output.put("staticScore", staticScore);
             output.put("behavioralScore", behavioralScore);
             output.put("combinedScore", combinedScore);

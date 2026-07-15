@@ -17,8 +17,8 @@ The process-local environment disappears when the child exits. Preflight does no
 The runtime adapter has three modes:
 
 - `OFF` — default. JFR profiling may run, but no adapter transformer is installed and no `adapter.json` file is written.
-- `PROBE` — observes candidate game classes and writes their SHA-256 hashes and method signatures. It always retains the original class bytes.
-- `ENABLED` — permits an exact allowlisted target to reach a registered transformation plan. Unknown builds, partial matches, missing plans, malformed classes, and all transformer errors retain the original bytes.
+- `PROBE` — observes candidate game classes and writes their class, source, loader, and method identities. It always retains the original class bytes.
+- `ENABLED` — permits an exact allowlisted target to reach a registered transformation plan. Unknown builds, partial matches, missing source bindings, missing plans, malformed classes, and all transformer errors retain the original bytes.
 
 This build ships with zero live transformation plans. `ENABLED` therefore remains observational until a reviewed target-specific plan is added.
 
@@ -62,18 +62,21 @@ java -jar preflight.jar run --adapter --adapter-targets targets.txt
 
 `adapter.json` contains two candidate views:
 
-- `candidates` — a compact alphabetical list of the best retained classes.
+- `candidates` — a compact alphabetical list of the best retained identities.
 - `rankedCandidates` — up to 50 likely image or texture integration points ordered by a deterministic relevance score.
 
+A candidate identity includes:
+
+- internal class name and exact classfile SHA-256
+- raw and normalized code-source location
+- source kind: Starsector core, Fast Rendering, mod, other, or unknown
+- classloader class and optional loader name
+- optional source archive SHA-256 when a target explicitly requests it
+- static relevance and exact method descriptors
+
+Identical class bytes loaded from two JARs or classloaders remain separate candidates. They are not collapsed merely because the class name and bytes match.
+
 Ranking uses class names, method names, JVM descriptors, and code-source ownership. Signals include texture/image/sprite terminology, image decoding, pixel-buffer and OpenGL types, upload/mipmap methods, and whether the class came from Starsector core, Fast Rendering, or a mod.
-
-Each ranked candidate includes:
-
-- exact class SHA-256
-- source classification and code-source path
-- score evidence
-- the highest-scoring method names and exact JVM descriptors
-- whether additional relevant methods were truncated
 
 Ranking narrows the review set. It never generates or activates an allowlist automatically, and it does not prove a method is safe to rewrite.
 
@@ -81,14 +84,15 @@ Ranking narrows the review set. It never generates or activates an allowlist aut
 
 `adapter-analysis.json` combines:
 
-- every retained agent candidate and its exact class SHA-256
+- every retained agent identity and its exact class SHA-256
+- code-source and classloader identity
 - richer static relevance evidence from `adapter.json`
 - image-read behavioral methods from `summary.json`
 - separate static, behavioral, and combined scores
 - exact method descriptors and bounded image-path samples
 - behavior-only classes that did not overlap an agent candidate
 
-The join uses exact internal class names. It performs no fuzzy matching. Rich top-50 candidate metadata is overlaid on the full retained candidate set, so a behavioral class outside the static top 50 can still receive its exact hash.
+The behavioral join uses exact internal class names because JFR stack frames do not always expose source and loader identity. When one class name maps to multiple retained source/loader identities, the report preserves every variant and lists the class under `ambiguousBehavioralClassNames`. Human review must choose the correct identity.
 
 The report explicitly records:
 
@@ -96,6 +100,7 @@ The report explicitly records:
 automaticAllowlistGenerated: false
 liveTransformationEligible: false
 requiresHumanReview: true
+sourceIdentityPreserved: true
 ```
 
 Analyze existing reports manually with:
@@ -117,20 +122,43 @@ JFR profiling remains independent and may continue.
 
 ## Target records
 
-Every allowlisted target requires:
+Every target includes class identity:
 
 - an internal JVM class name
 - an exact classfile SHA-256
 - required method names and JVM descriptors
 - a transformation plan ID
 
-Class name alone is insufficient. A changed game build or modified class hash fails closed. Code-source and classloader constraints are also required before the first live transformation plan is registered.
+A target is eligible for a future live plan only when it also includes all required source bindings:
+
+- `source-kind`
+- a portable `source-suffix`
+- `loader-class`
+
+Optional stricter bindings are:
+
+- `loader-name`
+- `source-sha256`
+
+The source suffix is installation-prefix independent. For example:
+
+```text
+source-kind STARSECTOR_CORE
+source-suffix starsector-core/starfarer_obf.jar
+loader-class jdk/internal/loader/ClassLoaders$AppClassLoader
+```
+
+Archive hashing is performed only when a target declares `source-sha256`. A missing, unreadable, non-file, oversized, or changed source archive fails closed. The hash result is cached by real path, size, and modification time within the process.
+
+An exact class hash without the required live source bindings is rejected before the transformation registry is consulted. A copied identical class in another mod, JAR, or classloader therefore remains unmodified.
+
+See `docs/adapter-targets.example.txt` for the complete line-oriented format.
 
 ## When a real Starsector installation is required
 
-Synthetic fixtures can verify parsing, matching, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
+Synthetic fixtures can verify parsing, matching, source binding, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
 
-1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, and the combined candidate report automatically.
+1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, code sources, classloaders, and the combined candidate report automatically.
 2. Validate a target-specific rewrite against that build and a representative mod profile before enabling it by default.
 
 You do not need to provide or point Preflight at the installation before step 1. The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, source-bound, and covered by a global kill switch.

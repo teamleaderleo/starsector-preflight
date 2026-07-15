@@ -22,21 +22,29 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run adapter signature, ranking, and packaged-agent tests
+      - name: Run adapter signature, source, ranking, and packaged-agent tests
         shell: bash
-        run: >-
-          mvn --batch-mode --no-transfer-progress
-          -pl preflight-agent,preflight-cli -am
-          -Dtest=AdapterSignatureGateTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
-          -Dit.test=AdapterAgentIT
-          -Dsurefire.failIfNoSpecifiedTests=false
-          verify
+        run: |
+          set +e
+          mvn --batch-mode --no-transfer-progress \
+            -pl preflight-agent,preflight-cli -am \
+            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
+            -Dit.test=AdapterAgentIT \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            verify > adapter-gate-maven.log 2>&1
+          status=$?
+          find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> adapter-gate-maven.log
+          find . -path '*/target/failsafe-reports/*.txt' -type f -print -exec cat {} \; >> adapter-gate-maven.log
+          tail -n 260 adapter-gate-maven.log
+          exit "$status"
       - name: Upload focused logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: adapter-gate-${{ matrix.os }}
           path: |
+            adapter-gate-maven.log
             **/target/surefire-reports/**
             **/target/failsafe-reports/**
-          if-no-files-found: ignore
+          if-no-files-found: warn
+          retention-days: 7

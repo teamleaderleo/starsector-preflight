@@ -1,9 +1,15 @@
 # Example only. Replace every value with output from an exact supported probe.
 # This file does not enable a transformation unless its plan ID is compiled into Preflight.
+# A live plan requires source-kind, source-suffix, and loader-class in addition to class identity.
 
 target starsector-texture-loader-example
 class com/fs/starfarer/example/TextureLoader
 sha256 0000000000000000000000000000000000000000000000000000000000000000
 plan prepared-texture-v1
+source-kind STARSECTOR_CORE
+source-suffix starsector-core/starfarer_obf.jar
+loader-class jdk/internal/loader/ClassLoaders$AppClassLoader
+# loader-name app
+# source-sha256 0000000000000000000000000000000000000000000000000000000000000000
 method loadTexture (Ljava/lang/String;)Ljava/lang/Object;
 end

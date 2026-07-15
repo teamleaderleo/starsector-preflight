@@ -56,6 +56,7 @@ class AdapterProbeAnalysisTest {
         assertEquals(Boolean.FALSE, report.get("automaticAllowlistGenerated"));
         assertEquals(Boolean.FALSE, report.get("liveTransformationEligible"));
         assertEquals(Boolean.TRUE, report.get("requiresHumanReview"));
+        assertEquals(Boolean.TRUE, report.get("sourceIdentityPreserved"));
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> ranked = (List<Map<String, Object>>) report.get("rankedCandidates");
@@ -71,6 +72,49 @@ class AdapterProbeAnalysisTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> behaviorOnly = (List<Map<String, Object>>) report.get("behaviorOnly");
         assertEquals("com/fs/starfarer/Obf", behaviorOnly.get(0).get("className"));
+    }
+
+    @Test
+    void identicalClassBytesFromDifferentSourcesRemainSeparateAndAmbiguous() throws Exception {
+        Path adapter = temporaryDirectory.resolve("source-variants.json");
+        Path summary = temporaryDirectory.resolve("source-summary.json");
+        Path output = temporaryDirectory.resolve("source-analysis.json");
+        String hash = "c".repeat(64);
+        Files.writeString(adapter, """
+                {"mode":"PROBE","candidates":[
+                  {"className":"com/fs/starfarer/A","sha256":"%s","relevanceScore":10,
+                   "sourceKind":"STARSECTOR_CORE","codeSource":"file:/game/starsector-core/core.jar",
+                   "normalizedSource":"/game/starsector-core/core.jar","loaderClass":"loader/Core","loaderName":"core"},
+                  {"className":"com/fs/starfarer/A","sha256":"%s","relevanceScore":10,
+                   "sourceKind":"MOD","codeSource":"file:/game/mods/copy.jar",
+                   "normalizedSource":"/game/mods/copy.jar","loaderClass":"loader/Mod","loaderName":"mod"}
+                ],"rankedCandidates":[]}
+                """.formatted(hash, hash));
+        Files.writeString(summary, """
+                {"imageReadStackAttribution":{"topMethods":[
+                  {"className":"com/fs/starfarer/A","methodName":"a","descriptor":"()V",
+                   "behavioralScore":50,"events":2,"bytes":1000,"durationMs":1.0,"minimumDepth":1,
+                   "depthWeight":20,"pathSamples":["graphics/a.png"],"pathsTruncated":false}
+                ]}}
+                """);
+
+        AdapterProbeAnalysis.Result result = AdapterProbeAnalysis.analyze(adapter, summary, output);
+        assertEquals(2, result.candidateClasses());
+        assertEquals(2, result.matchedClasses());
+        Map<String, Object> report = StrictJson.object(Files.readString(output));
+        assertEquals(2L, report.get("candidateIdentities"));
+        assertEquals(1L, report.get("distinctCandidateClassNames"));
+        assertEquals(2L, report.get("matchedIdentities"));
+        assertEquals(1L, report.get("matchedClassNames"));
+        assertEquals(List.of("com/fs/starfarer/A"), report.get("ambiguousBehavioralClassNames"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> ranked = (List<Map<String, Object>>) report.get("rankedCandidates");
+        assertEquals(2, ranked.size());
+        assertEquals("/game/mods/copy.jar", ranked.get(0).get("normalizedSource"));
+        assertEquals("loader/Mod", ranked.get(0).get("loaderClass"));
+        assertEquals("/game/starsector-core/core.jar", ranked.get(1).get("normalizedSource"));
+        assertEquals("loader/Core", ranked.get(1).get("loaderClass"));
     }
 
     @Test

@@ -51,8 +51,10 @@ class AdapterCandidateScorerTest {
                 null,
                 java.util.List.of("dev/starsector/preflight/agent/"));
         ProtectionDomain core = domain("file:/game/starsector-core/starfarer_obf.jar");
-        report.observed(signature(CampaignManagerFixture.class), core);
-        report.observed(signature(TextureLoaderFixture.class), core);
+        AdapterSourceIdentity identity = AdapterSourceIdentity.capture(
+                getClass().getClassLoader(), core, false);
+        report.observed(signature(CampaignManagerFixture.class), identity);
+        report.observed(signature(TextureLoaderFixture.class), identity);
         report.write();
 
         String json = Files.readString(reportPath);
@@ -65,6 +67,7 @@ class AdapterCandidateScorerTest {
         assertTrue(json.contains("\"name\":\"loadTexture\""), json);
         assertTrue(json.contains("Ljava/nio/ByteBuffer;"), json);
         assertTrue(json.contains("\"sourceKind\":\"STARSECTOR_CORE\""), json);
+        assertTrue(json.contains("\"loaderClass\":"), json);
     }
 
     @Test
