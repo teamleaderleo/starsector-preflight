@@ -150,7 +150,7 @@ class AdapterSignatureGateTest {
         enabledReport.write();
         String enabledJson = Files.readString(enabledReportPath);
         assertTrue(enabledJson.contains("\"transformationEligible\":1"), enabledJson);
-        assertTrue(enabledJson.contains("not registered in this build"), enabledJson);
+        assertTrue(enabledJson.contains("not available for this session"), enabledJson);
         assertTrue(enabledJson.contains("\"sourceBindingRejected\":0"), enabledJson);
         assertTrue(enabledJson.contains("\"transformationsApplied\":0"), enabledJson);
     }
