@@ -32,10 +32,12 @@ record AdapterSourceIdentity(
         URL location = location(domain);
         Path localPath = localPath(location);
         String raw = location == null ? "" : location.toString();
-        String normalized = localPath == null ? normalizePath(raw) : normalizePath(localPath.toAbsolutePath().normalize().toString());
+        String normalized = localPath == null
+                ? normalizePath(raw)
+                : normalizePath(localPath.toAbsolutePath().normalize().toString());
         SourceArchiveHashes.Result hash = hashArchive
                 ? SourceArchiveHashes.sha256(localPath)
-                : new SourceArchiveHashes.Result("", "");
+                : SourceArchiveHashes.notRequested();
         return new AdapterSourceIdentity(
                 raw,
                 normalized,
