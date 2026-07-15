@@ -47,6 +47,7 @@ public final class PreflightCli {
             case "texture" -> textureCommand(args);
             case "classpath" -> ClasspathCommand.execute(args, 1);
             case "benchmark" -> BenchmarkCommand.execute(args, 1);
+            case "analyze" -> AnalysisCommand.execute(args, 1);
             case "fingerprint" -> requirePathCommand(args, "fingerprint", PreflightCli::fingerprint);
             case "summarize" -> summarizeCommand(args);
             default -> {
@@ -120,7 +121,7 @@ public final class PreflightCli {
 
     private static void usage() {
         System.err.println("Usage:");
-        System.err.println("  preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [-- <launcher args>]");
+        System.err.println("  preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [--adapter-probe | --adapter | --no-adapter] [--adapter-targets <path>] [-- <launcher args>]");
         System.err.println("  preflight prepare [--game <path>] [--launcher <path>] [--cache-dir <path>] [--report <path>] [--workers <count>] [--memory-mb <MiB>] [--deep] [--verify-lookups] [--lookup-queries <count>] [--seed <long>] [--no-resource-index] [--no-classpath] [--no-textures]");
         System.err.println("  preflight doctor [--game <path>] [--launcher <path>]");
         System.err.println("  preflight install [--game <path>] [--launcher <path>]");
@@ -143,6 +144,7 @@ public final class PreflightCli {
         System.err.println("  preflight classpath index query <profile.spfc> <entry-name> [--all] [--cache-dir <path>]");
         System.err.println("  preflight classpath index validate <profile.spfc> [--cache-dir <path>] [--deep]");
         System.err.println("  preflight benchmark lookups [--resource-index <index.spfi>] [--classpath-index <profile.spfc>] [--queries <count>] [--seed <long>]");
+        System.err.println("  preflight analyze probe <adapter.json> <summary.json> [--json <adapter-analysis.json>]");
         System.err.println("  preflight fingerprint <file-or-directory>");
         System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
     }
