@@ -9,7 +9,7 @@ public final class PreparedAudio {
     public static final int FORMAT_VERSION = 1;
     public static final int MAX_CHANNELS = 8;
     public static final int MAX_SAMPLE_RATE_HZ = 384_000;
-    public static final int MAX_PCM_BYTES = 256 * 1024 * 1024;
+    public static final int MAX_PCM_BYTES = 64 * 1024 * 1024;
 
     private final String sourceSha256;
     private final String decoderPolicyIdentitySha256;
@@ -142,13 +142,17 @@ public final class PreparedAudio {
         return pcmBytes;
     }
 
-    private static int validateBits(PcmEncoding encoding, int bits) {
-        boolean supported = switch (encoding) {
+    public static boolean supportsFormat(PcmEncoding encoding, int bits) {
+        Objects.requireNonNull(encoding, "encoding");
+        return switch (encoding) {
             case PCM_SIGNED -> bits == 8 || bits == 16 || bits == 24 || bits == 32;
             case PCM_UNSIGNED -> bits == 8;
             case PCM_FLOAT -> bits == 32 || bits == 64;
         };
-        if (!supported) {
+    }
+
+    private static int validateBits(PcmEncoding encoding, int bits) {
+        if (!supportsFormat(encoding, bits)) {
             throw new IllegalArgumentException("Unsupported " + encoding + " bit depth: " + bits);
         }
         return bits;
