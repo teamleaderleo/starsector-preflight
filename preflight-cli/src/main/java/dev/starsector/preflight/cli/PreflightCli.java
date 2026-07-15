@@ -158,6 +158,8 @@ public final class PreflightCli {
         private final Map<String, Long> counts = new LinkedHashMap<>();
         private final IoTraceAttribution io = new IoTraceAttribution();
         private final ImageReadStackAttribution imageReadStacks = new ImageReadStackAttribution();
+        private final StartupCodeAttribution code = new StartupCodeAttribution();
+        private final StartupCpuAttribution cpu = new StartupCpuAttribution();
         private Instant first;
         private Instant last;
         private long fileReadNanos;
@@ -193,7 +195,12 @@ public final class PreflightCli {
                     fileWriteBytes += bytes;
                     io.recordWrite(stringField(event, "path"), bytes, duration);
                 }
-                case "jdk.Compilation" -> compilationNanos += duration;
+                case "jdk.Compilation" -> {
+                    compilationNanos += duration;
+                    code.recordCompilation(event, duration);
+                }
+                case "jdk.ClassDefine" -> code.recordClassDefine(event);
+                case "jdk.ExecutionSample" -> cpu.record(event);
                 case "jdk.GCPhasePause" -> gcPauseNanos += duration;
                 case "jdk.ThreadPark" -> parkNanos += duration;
                 case "jdk.ThreadSleep" -> sleepNanos += duration;
@@ -222,6 +229,8 @@ public final class PreflightCli {
             values.put("preflightAgentStartedEvents", counts.getOrDefault("preflight.AgentStarted", 0L));
             values.put("ioAttribution", io.toMap());
             values.put("imageReadStackAttribution", imageReadStacks.toMap());
+            values.put("codeAttribution", code.toMap());
+            values.put("cpuAttribution", cpu.toMap());
             values.put("eventTypeCounts", counts);
             return Json.object(values);
         }
