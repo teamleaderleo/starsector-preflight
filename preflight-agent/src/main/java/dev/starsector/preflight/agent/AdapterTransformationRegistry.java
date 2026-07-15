@@ -1,21 +1,22 @@
 package dev.starsector.preflight.agent;
 
-/**
- * Registry for target-specific bytecode rewrites.
- *
- * <p>The safety-gate release intentionally contains no live Starsector transformation plans. A plan
- * added later must still pass the exact target signature checks before this registry is called.</p>
- */
+/** Registry for exact target-specific bytecode rewrites. */
 final class AdapterTransformationRegistry {
     private AdapterTransformationRegistry() {
     }
 
     static byte[] transform(AdapterTarget target, ClassSignature signature, byte[] originalBytes) {
-        // No live plans are registered until a real supported Starsector build has been probed.
+        if (PreparedImageTransformation.PLAN_ID.equals(target.planId())) {
+            return PreparedImageTransformation.transform(target, signature, originalBytes);
+        }
         return null;
     }
 
     static boolean hasPlan(String planId) {
-        return false;
+        return PreparedImageTransformation.PLAN_ID.equals(planId);
+    }
+
+    static boolean hasLivePlans() {
+        return true;
     }
 }
