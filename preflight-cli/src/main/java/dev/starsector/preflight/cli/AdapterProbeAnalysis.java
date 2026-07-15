@@ -39,10 +39,7 @@ final class AdapterProbeAnalysis {
         Map<String, Object> adapterJson = StrictJson.object(Files.readString(adapter, StandardCharsets.UTF_8));
         Map<String, Object> summaryJson = StrictJson.object(Files.readString(summary, StandardCharsets.UTF_8));
 
-        List<Map<String, Object>> candidates = objectList(adapterJson.get("rankedCandidates"));
-        if (candidates.isEmpty()) {
-            candidates = objectList(adapterJson.get("candidates"));
-        }
+        List<Map<String, Object>> candidates = candidateReports(adapterJson);
         List<Map<String, Object>> methods = objectList(nested(
                 summaryJson, "imageReadStackAttribution", "topMethods"));
 
@@ -82,11 +79,13 @@ final class AdapterProbeAnalysis {
         }
         combined.sort(RANKING);
 
-        List<Map<String, Object>> behaviorOnly = behaviorByClass.values().stream()
+        List<BehaviorGroup> allBehaviorOnly = behaviorByClass.values().stream()
                 .filter(group -> !observedCandidateClasses.contains(group.className()))
                 .sorted(Comparator.comparingLong(BehaviorGroup::maximumScore)
                         .reversed()
                         .thenComparing(BehaviorGroup::className))
+                .toList();
+        List<Map<String, Object>> behaviorOnly = allBehaviorOnly.stream()
                 .limit(BEHAVIOR_ONLY_LIMIT)
                 .map(BehaviorGroup::toMap)
                 .toList();
@@ -106,7 +105,8 @@ final class AdapterProbeAnalysis {
         result.put("candidateClasses", combined.size());
         result.put("behavioralClasses", behaviorByClass.size());
         result.put("matchedClasses", matchedClasses);
-        result.put("behaviorOnlyClasses", behaviorOnly.size());
+        result.put("behaviorOnlyClasses", allBehaviorOnly.size());
+        result.put("behaviorOnlyTruncated", allBehaviorOnly.size() > behaviorOnly.size());
         result.put("rankedCandidates", ranked);
         result.put("behaviorOnly", behaviorOnly);
         result.put("exactClassNameJoin", true);
@@ -114,22 +114,42 @@ final class AdapterProbeAnalysis {
         result.put("liveTransformationEligible", false);
         result.put("requiresHumanReview", true);
         result.put("requiresRealInstallForTargetValidation", true);
-        result.put("diagnostics", diagnostics(candidates, methods, combined, behaviorOnly));
+        result.put("diagnostics", diagnostics(candidates, methods, combined, allBehaviorOnly));
         writeAtomic(output.toAbsolutePath().normalize(), Json.object(result) + System.lineSeparator());
         return new Result(
                 output.toAbsolutePath().normalize(),
                 combined.size(),
                 behaviorByClass.size(),
                 matchedClasses,
-                behaviorOnly.size(),
+                allBehaviorOnly.size(),
                 List.copyOf(ranked));
+    }
+
+    private static List<Map<String, Object>> candidateReports(Map<String, Object> adapterJson) {
+        Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+        addCandidateReports(merged, objectList(adapterJson.get("candidates")));
+        addCandidateReports(merged, objectList(adapterJson.get("rankedCandidates")));
+        return List.copyOf(merged.values());
+    }
+
+    private static void addCandidateReports(
+            Map<String, Map<String, Object>> destination,
+            List<Map<String, Object>> candidates) {
+        for (Map<String, Object> candidate : candidates) {
+            String className = string(candidate, "className");
+            String sha256 = string(candidate, "sha256");
+            if (className.isBlank() || sha256.isBlank()) {
+                continue;
+            }
+            destination.put(className + "@" + sha256, candidate);
+        }
     }
 
     private static List<String> diagnostics(
             List<Map<String, Object>> candidates,
             List<Map<String, Object>> methods,
             List<CombinedCandidate> combined,
-            List<Map<String, Object>> behaviorOnly) {
+            List<BehaviorGroup> behaviorOnly) {
         List<String> values = new ArrayList<>();
         if (candidates.isEmpty()) {
             values.add("Adapter report contains no ranked or retained candidates");
@@ -299,7 +319,7 @@ final class AdapterProbeAnalysis {
         }
 
         private void add(Map<String, Object> method) {
-            methods.add(Map.copyOf(method));
+            methods.add(new LinkedHashMap<>(method));
             maximumScore = Math.max(maximumScore, integer(method, "behavioralScore"));
             maximumEvents = Math.max(maximumEvents, integer(method, "events"));
             maximumBytes = Math.max(maximumBytes, integer(method, "bytes"));
@@ -327,6 +347,7 @@ final class AdapterProbeAnalysis {
                             .reversed()
                             .thenComparing(value -> string(value, "methodName"))
                             .thenComparing(value -> string(value, "descriptor")))
+                    .map(Map::copyOf)
                     .toList();
         }
 
