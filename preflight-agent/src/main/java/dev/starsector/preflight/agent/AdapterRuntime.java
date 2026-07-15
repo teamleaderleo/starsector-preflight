@@ -23,7 +23,8 @@ final class AdapterRuntime {
                 options.adapterReport(),
                 options.adapterTargets(),
                 options.candidatePrefixes());
-        Session session = new Session(report, options.adapterMode() != AdapterMode.OFF);
+        BytecodeShapeReport shapeReport = new BytecodeShapeReport(shapeDestination(options.adapterReport()));
+        Session session = new Session(report, shapeReport, options.adapterMode() != AdapterMode.OFF);
         PreparedImageBridge.disable("Prepared image cache is not active for this agent session");
         if (options.adapterMode() == AdapterMode.OFF) {
             return session;
@@ -50,7 +51,11 @@ final class AdapterRuntime {
 
         try {
             instrumentation.addTransformer(new AdapterProbeTransformer(
-                    options.adapterMode(), registry, options.candidatePrefixes(), report), false);
+                    options.adapterMode(),
+                    registry,
+                    options.candidatePrefixes(),
+                    report,
+                    shapeReport), false);
             report.transformerInstalled(registry.targets().size());
             if (registry.targets().isEmpty()) {
                 report.diagnostic("No adapter targets are allowlisted; probe-only observation remains safe");
@@ -107,6 +112,14 @@ final class AdapterRuntime {
         return AdapterTargetRegistry.empty();
     }
 
+    private static Path shapeDestination(Path adapterReport) {
+        Path absolute = adapterReport.toAbsolutePath().normalize();
+        String name = absolute.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        return absolute.resolveSibling(stem + "-bytecode-shape.json");
+    }
+
     private static boolean truthy(String value) {
         if (value == null) {
             return false;
@@ -133,11 +146,13 @@ final class AdapterRuntime {
 
     static final class Session implements AutoCloseable {
         private final AdapterReport report;
+        private final BytecodeShapeReport shapeReport;
         private final boolean writeReport;
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private Session(AdapterReport report, boolean writeReport) {
+        private Session(AdapterReport report, BytecodeShapeReport shapeReport, boolean writeReport) {
             this.report = report;
+            this.shapeReport = shapeReport;
             this.writeReport = writeReport;
         }
 
@@ -150,6 +165,11 @@ final class AdapterRuntime {
                 report.write();
             } catch (IOException error) {
                 System.err.println("[Preflight] Failed to write adapter report: " + error.getMessage());
+            }
+            try {
+                shapeReport.write();
+            } catch (IOException error) {
+                System.err.println("[Preflight] Failed to write bytecode shape report: " + error.getMessage());
             }
         }
     }
