@@ -8,8 +8,14 @@ final class ClasspathCommand {
     }
 
     static int execute(String[] args, int offset) throws Exception {
-        if (offset >= args.length || !"audit".equals(args[offset])) {
-            throw new IllegalArgumentException("Expected: classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]");
+        if (offset >= args.length) {
+            throw new IllegalArgumentException("Expected: classpath <audit|index> ...");
+        }
+        if ("index".equals(args[offset])) {
+            return ClasspathIndexCommand.execute(args, offset + 1);
+        }
+        if (!"audit".equals(args[offset])) {
+            throw new IllegalArgumentException("Expected: classpath <audit|index> ...");
         }
         Options options = parse(args, offset + 1);
         DiscoveryResult discovery = StarsectorDiscovery.discover(
