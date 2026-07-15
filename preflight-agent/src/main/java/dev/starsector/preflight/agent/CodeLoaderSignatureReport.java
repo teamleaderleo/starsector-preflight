@@ -18,6 +18,7 @@ import java.util.TreeMap;
 
 /** Exact bounded signatures for the source compiler and loader classes needed by the bytecode cache. */
 final class CodeLoaderSignatureReport {
+    static final int IDENTITY_LIMIT = 128;
     private static final int METHOD_LIMIT = 1_024;
     private static final int DIAGNOSTIC_LIMIT = 100;
     private static final Set<String> TARGETS = Set.of(
@@ -33,8 +34,9 @@ final class CodeLoaderSignatureReport {
 
     private final Path destination;
     private final Instant startedAt = Instant.now();
-    private final Map<String, Entry> entries = new TreeMap<>();
+    private final TreeMap<String, Entry> entries = new TreeMap<>();
     private final List<String> diagnostics = new ArrayList<>();
+    private boolean entriesTruncated;
     private boolean diagnosticsTruncated;
 
     CodeLoaderSignatureReport(Path destination) {
@@ -61,7 +63,7 @@ final class CodeLoaderSignatureReport {
                 .limit(METHOD_LIMIT)
                 .map(method -> new Method(method.name(), method.descriptor(), method.access()))
                 .toList();
-        entries.put(key, new Entry(
+        Entry entry = new Entry(
                 signature.internalName(),
                 signature.sha256(),
                 signature.majorVersion(),
@@ -74,7 +76,8 @@ final class CodeLoaderSignatureReport {
                 source.sourceSha256(),
                 source.sourceHashProblem(),
                 source.loaderClass(),
-                source.loaderName()));
+                source.loaderName());
+        retainIdentity(key, entry);
     }
 
     synchronized void contained(String detail, Throwable error) {
@@ -93,11 +96,26 @@ final class CodeLoaderSignatureReport {
         root.put("liveTransformationEligible", false);
         root.put("requiresHumanReview", true);
         root.put("targetClassNames", TARGETS.stream().sorted().toList());
+        root.put("identityLimit", IDENTITY_LIMIT);
         root.put("retainedIdentities", entries.size());
+        root.put("entriesTruncated", entriesTruncated);
         root.put("entries", entries.values().stream().map(Entry::toMap).toList());
         root.put("diagnosticsTruncated", diagnosticsTruncated);
         root.put("diagnostics", List.copyOf(diagnostics));
         writeAtomic(destination, AgentJson.object(root) + System.lineSeparator());
+    }
+
+    private void retainIdentity(String key, Entry entry) {
+        if (entries.size() < IDENTITY_LIMIT) {
+            entries.put(key, entry);
+            return;
+        }
+        entriesTruncated = true;
+        String largest = entries.lastKey();
+        if (key.compareTo(largest) < 0) {
+            entries.pollLastEntry();
+            entries.put(key, entry);
+        }
     }
 
     private void diagnostic(String detail) {
