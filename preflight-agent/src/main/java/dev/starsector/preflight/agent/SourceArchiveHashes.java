@@ -19,6 +19,10 @@ final class SourceArchiveHashes {
     private SourceArchiveHashes() {
     }
 
+    static Result notRequested() {
+        return new Result("", "");
+    }
+
     static Result sha256(Path source) {
         if (source == null) {
             return Result.failure("code source is not a local file");
