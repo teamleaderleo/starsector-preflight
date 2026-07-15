@@ -18,6 +18,8 @@ final class AdapterTargetRegistry {
     private static final int MAX_LINE_CHARS = 4_096;
     private static final int MAX_TARGETS = 256;
     private static final int MAX_METHODS_PER_TARGET = 128;
+    private static final String VANILLA_TEXTURE_LOADER_SHA256 =
+            "d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50";
 
     private final List<AdapterTarget> targets;
     private final Map<String, List<AdapterTarget>> byClass;
@@ -35,6 +37,22 @@ final class AdapterTargetRegistry {
 
     static AdapterTargetRegistry empty() {
         return new AdapterTargetRegistry(List.of());
+    }
+
+    static AdapterTargetRegistry builtInPreparedImage() {
+        return new AdapterTargetRegistry(List.of(new AdapterTarget(
+                "starsector-0.98a-rc8-vanilla-prepared-image",
+                "com/fs/graphics/TextureLoader",
+                VANILLA_TEXTURE_LOADER_SHA256,
+                PreparedImageTransformation.PLAN_ID,
+                List.of(new AdapterTarget.RequiredMethod(
+                        PreparedImageTransformation.METHOD_NAME,
+                        PreparedImageTransformation.METHOD_DESCRIPTOR)),
+                "STARSECTOR_CORE",
+                "Contents/Resources/Java/fs.common_obf.jar",
+                "",
+                "jdk/internal/loader/ClassLoaders$AppClassLoader",
+                "app")));
     }
 
     static AdapterTargetRegistry load(Path path) throws IOException {
