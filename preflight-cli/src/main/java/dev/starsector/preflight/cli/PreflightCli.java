@@ -154,6 +154,7 @@ public final class PreflightCli {
 
     private static final class TraceAccumulator {
         private final Map<String, Long> counts = new LinkedHashMap<>();
+        private final IoTraceAttribution io = new IoTraceAttribution();
         private Instant first;
         private Instant last;
         private long fileReadNanos;
@@ -176,12 +177,16 @@ public final class PreflightCli {
             long duration = event.getDuration().toNanos();
             switch (name) {
                 case "jdk.FileRead" -> {
+                    long bytes = longField(event, "bytesRead");
                     fileReadNanos += duration;
-                    fileReadBytes += longField(event, "bytesRead");
+                    fileReadBytes += bytes;
+                    io.recordRead(stringField(event, "path"), bytes, duration);
                 }
                 case "jdk.FileWrite" -> {
+                    long bytes = longField(event, "bytesWritten");
                     fileWriteNanos += duration;
-                    fileWriteBytes += longField(event, "bytesWritten");
+                    fileWriteBytes += bytes;
+                    io.recordWrite(stringField(event, "path"), bytes, duration);
                 }
                 case "jdk.Compilation" -> compilationNanos += duration;
                 case "jdk.GCPhasePause" -> gcPauseNanos += duration;
@@ -210,12 +215,24 @@ public final class PreflightCli {
             values.put("classDefineEvents", counts.getOrDefault("jdk.ClassDefine", 0L));
             values.put("executionSamples", counts.getOrDefault("jdk.ExecutionSample", 0L));
             values.put("preflightAgentStartedEvents", counts.getOrDefault("preflight.AgentStarted", 0L));
+            values.put("ioAttribution", io.toMap());
             values.put("eventTypeCounts", counts);
             return Json.object(values);
         }
 
         private static long longField(RecordedEvent event, String field) {
-            return event.hasField(field) ? event.getLong(field) : 0L;
+            return event.hasField(field) ? Math.max(0, event.getLong(field)) : 0L;
+        }
+
+        private static String stringField(RecordedEvent event, String field) {
+            if (!event.hasField(field)) {
+                return null;
+            }
+            try {
+                return event.getString(field);
+            } catch (RuntimeException ignored) {
+                return null;
+            }
         }
 
         private static double nanosToMillis(long nanos) {
