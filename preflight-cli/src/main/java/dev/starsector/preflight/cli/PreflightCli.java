@@ -39,6 +39,7 @@ public final class PreflightCli {
 
         return switch (args[0]) {
             case "run" -> RunCommand.execute(CommandLine.parse(args, 1));
+            case "prepare" -> PrepareCommand.execute(args, 1);
             case "doctor" -> RunCommand.doctor(CommandLine.parse(args, 1));
             case "install" -> InstallCommand.execute(CommandLine.parse(args, 1));
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
@@ -120,6 +121,7 @@ public final class PreflightCli {
     private static void usage() {
         System.err.println("Usage:");
         System.err.println("  preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [-- <launcher args>]");
+        System.err.println("  preflight prepare [--game <path>] [--launcher <path>] [--cache-dir <path>] [--report <path>] [--workers <count>] [--memory-mb <MiB>] [--deep] [--verify-lookups] [--lookup-queries <count>] [--seed <long>] [--no-resource-index] [--no-classpath] [--no-textures]");
         System.err.println("  preflight doctor [--game <path>] [--launcher <path>]");
         System.err.println("  preflight install [--game <path>] [--launcher <path>]");
         System.err.println("  preflight scan [--game <path>] [--launcher <path>] [--json <profile.json>]");
