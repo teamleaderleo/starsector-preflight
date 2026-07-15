@@ -23,7 +23,6 @@ final class StartupCodeAttribution {
     private static final int DEFINITION_METHOD_LIMIT = 500;
     private static final int OUTPUT_METHOD_LIMIT = 75;
     private static final int CLASS_SAMPLE_LIMIT = 2_000;
-    private static final int SOURCE_SAMPLE_LIMIT = 100;
 
     private static final Comparator<CompilationSummary> COMPILATION_RANKING = Comparator
             .comparingLong(CompilationSummary::durationNanos)
@@ -45,7 +44,6 @@ final class StartupCodeAttribution {
     private final Map<MethodKey, MutableDefinitionMethod> janinoDefinitionMethods = new TreeMap<>();
     private final Map<String, MutableCategory> compilationCategories = new TreeMap<>();
     private final Set<String> janinoClasses = new TreeSet<>();
-    private final Set<String> janinoSourceSamples = new LinkedHashSet<>();
     private long classDefineEvents;
     private long classDefineMetadataFailures;
     private long janinoClassDefineEvents;
@@ -58,7 +56,6 @@ final class StartupCodeAttribution {
     private boolean compilationMethodsTruncated;
     private boolean definitionMethodsTruncated;
     private boolean janinoClassesTruncated;
-    private boolean sourceSamplesTruncated;
 
     void recordClassDefine(RecordedEvent event) {
         classDefineEvents++;
@@ -75,9 +72,8 @@ final class StartupCodeAttribution {
             if (loader != null && loader.getType() != null) {
                 loaderType = normalizeClass(loader.getType().getName());
             }
-            String source = stringField(event, "source");
             List<Frame> frames = frames(event);
-            recordClassDefine(className, loaderType, loaderName, source, frames);
+            recordClassDefine(className, loaderType, loaderName, frames);
         } catch (RuntimeException error) {
             classDefineMetadataFailures++;
         }
@@ -106,7 +102,6 @@ final class StartupCodeAttribution {
             String className,
             String loaderType,
             String loaderName,
-            String source,
             List<Frame> frames) {
         className = normalizeClass(className);
         loaderType = normalizeClass(loaderType);
@@ -131,14 +126,6 @@ final class StartupCodeAttribution {
             janinoClasses.add(className);
         } else {
             janinoClassesTruncated = true;
-        }
-        String normalizedSource = IoTraceAttribution.normalizePath(source);
-        if (!normalizedSource.isBlank() && !janinoSourceSamples.contains(normalizedSource)) {
-            if (janinoSourceSamples.size() >= SOURCE_SAMPLE_LIMIT) {
-                sourceSamplesTruncated = true;
-            } else {
-                janinoSourceSamples.add(normalizedSource);
-            }
         }
 
         Set<MethodKey> seen = new LinkedHashSet<>();
@@ -216,8 +203,6 @@ final class StartupCodeAttribution {
         classDefinitions.put("janinoUniqueClasses", janinoClasses.size());
         classDefinitions.put("janinoClassSamples", List.copyOf(janinoClasses));
         classDefinitions.put("janinoClassesTruncated", janinoClassesTruncated);
-        classDefinitions.put("janinoSourceSamples", List.copyOf(janinoSourceSamples));
-        classDefinitions.put("janinoSourceSamplesTruncated", sourceSamplesTruncated);
         classDefinitions.put("janinoDefinitionMethodsRetained", janinoDefinitionMethods.size());
         classDefinitions.put("janinoDefinitionMethodsTruncated", definitionMethodsTruncated);
         classDefinitions.put("topJaninoDefinitionStackMethods",
@@ -259,15 +244,6 @@ final class StartupCodeAttribution {
             depth++;
         }
         return List.copyOf(result);
-    }
-
-    private static String stringField(RecordedEvent event, String name) {
-        if (!event.hasField(name)) return "";
-        try {
-            return safe(event.getString(name));
-        } catch (RuntimeException ignored) {
-            return "";
-        }
     }
 
     private static boolean janinoLoader(String loaderType) {
