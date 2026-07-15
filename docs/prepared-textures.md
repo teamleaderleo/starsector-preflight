@@ -41,6 +41,44 @@ java -jar preflight.jar texture benchmark example.png example.spft --runs 10
 
 The benchmark performs untimed validation passes, alternates literal and bulk measurement order, reports every sample plus minimum, median, mean, and maximum, and keeps blob reads separate. CI checks correctness rather than enforcing timing ratios.
 
+Build a profile-wide cache from an existing or discovered resource index:
+
+```bash
+java -jar preflight.jar texture build --game "/path/to/Starsector.app"
+java -jar preflight.jar texture build --index profile.spfi --cache-dir cache
+```
+
+### Deterministic subset builds
+
+For profiling and staged rollouts, pass a newline-delimited list of logical resource paths:
+
+```bash
+java -jar preflight.jar texture build \
+  --game "/path/to/Starsector.app" \
+  --cache-dir cache \
+  --paths-file startup-images.txt
+```
+
+The selection file accepts blank lines and `#` comments. Every other line must be a relative logical resource path such as:
+
+```text
+graphics/ships/example.png
+graphics/icons/example.jpg
+cache/generated_normal.png
+```
+
+Subset preparation:
+
+- normalizes, lowercases, deduplicates, and sorts paths with the same resource-index rules
+- rejects absolute and traversal paths
+- reports missing and non-image paths without discarding valid selections
+- derives a deterministic subset fingerprint from the full-profile fingerprint and selected winning paths
+- writes a matching subset `.spfi` index and `.spfm` manifest
+- reuses the same content-addressed blob store as full builds
+- never overwrites the full-profile index or manifest
+
+The JSON command result reports `sourceIndex`, the active subset `index`, the subset `manifest`, selection counts, and diagnostics. A runtime adapter must use the reported subset index and subset manifest together.
+
 ## Prepared payload
 
 A prepared texture contains:
@@ -107,6 +145,6 @@ The writer uses a sibling temporary file and atomic replacement where supported.
 
 ## Runtime boundary
 
-A future vanilla or Fast Rendering adapter can read an `.spft` file, create a direct byte buffer, and proceed directly to texture upload. OpenGL object creation, upload, and mipmap generation still occur in the running process.
+A vanilla or Fast Rendering adapter can read an `.spft` file, create an image or direct byte buffer, and proceed toward texture upload. OpenGL object creation, upload, and mipmap generation still occur in the running process.
 
-The runtime path treats any missing, stale, corrupt, or incompatible blob as a cache miss and uses the original image loader.
+The runtime path treats any missing, stale, corrupt, unsupported, or incompatible blob as a cache miss and uses the original image loader.
