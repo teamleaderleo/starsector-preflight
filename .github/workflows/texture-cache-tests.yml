@@ -45,7 +45,7 @@ jobs:
             tests: TextureManifestValidatorTest
           - name: batch-builder
             module: preflight-cli
-            tests: TextureBatchBuilderTest
+            tests: TextureBatchBuilderTest,TextureParallelHashingTest
           - name: batch-cli
             module: preflight-cli
             tests: TextureBatchCommandTest
