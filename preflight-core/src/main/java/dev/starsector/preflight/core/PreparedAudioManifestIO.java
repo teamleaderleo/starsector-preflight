@@ -29,6 +29,9 @@ public final class PreparedAudioManifestIO {
     private static final int CHECKSUM_BYTES = 32;
     private static final int MAX_STRING_BYTES = 16 * 1024;
     private static final int MAX_FILE_BYTES = 64 * 1024 * 1024;
+    private static final int PAYLOAD_BASE_BYTES = SHA256_BYTES * 4 + Integer.BYTES;
+    private static final int ENTRY_FIXED_BYTES = SHA256_BYTES + Long.BYTES * 2 + Integer.BYTES + 2;
+    private static final int PREPARED_ENTRY_BYTES = SHA256_BYTES + Integer.BYTES * 6 + Long.BYTES * 2 + SHA256_BYTES;
 
     private PreparedAudioManifestIO() {
     }
@@ -110,7 +113,7 @@ public final class PreparedAudioManifestIO {
                 throw new IOException("Unsupported prepared audio manifest version: " + version);
             }
             int payloadLength = input.readInt();
-            if (payloadLength < SHA256_BYTES * 4 + Integer.BYTES
+            if (payloadLength < PAYLOAD_BASE_BYTES
                     || minimumFileBytes() + (long) payloadLength != bytes.length) {
                 throw new IOException("Prepared audio manifest payload length is invalid");
             }
@@ -129,7 +132,8 @@ public final class PreparedAudioManifestIO {
     }
 
     private static byte[] encodePayload(PreparedAudioManifest manifest) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        int estimated = estimatedPayloadBytes(manifest);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(estimated);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
             output.write(Hashes.decodeSha256(manifest.profileFingerprintSha256()));
             output.write(Hashes.decodeSha256(manifest.starsectorBuildSha256()));
@@ -161,10 +165,32 @@ public final class PreparedAudioManifestIO {
             }
             output.write(Hashes.decodeSha256(manifest.manifestSha256()));
         }
-        if (bytes.size() > MAX_FILE_BYTES - minimumFileBytes()) {
-            throw new IOException("Prepared audio manifest payload exceeds its safety limit");
+        if (bytes.size() != estimated) {
+            throw new IOException("Prepared audio manifest size estimate differs from encoded payload");
         }
         return bytes.toByteArray();
+    }
+
+    private static int estimatedPayloadBytes(PreparedAudioManifest manifest) throws IOException {
+        long bytes = PAYLOAD_BASE_BYTES;
+        long maximum = MAX_FILE_BYTES - (long) minimumFileBytes();
+        for (PreparedAudioManifest.Entry entry : manifest.entries().values()) {
+            int pathBytes = entry.logicalPath().getBytes(StandardCharsets.UTF_8).length;
+            if (pathBytes < 1 || pathBytes > MAX_STRING_BYTES) {
+                throw new IOException("Prepared audio manifest string length is invalid");
+            }
+            bytes = Math.addExact(bytes, Integer.BYTES + (long) pathBytes + ENTRY_FIXED_BYTES);
+            if (!entry.cacheKeySha256().isEmpty()) {
+                bytes = Math.addExact(bytes, SHA256_BYTES);
+            }
+            if (entry.metadata() != null) {
+                bytes = Math.addExact(bytes, PREPARED_ENTRY_BYTES);
+            }
+            if (bytes > maximum) {
+                throw new IOException("Prepared audio manifest payload exceeds its safety limit");
+            }
+        }
+        return Math.toIntExact(bytes);
     }
 
     private static PreparedAudioManifest decodePayload(byte[] payload) throws IOException {
