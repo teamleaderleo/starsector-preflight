@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.security.ProtectionDomain;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,7 +24,10 @@ final class AdapterReport {
             .comparingInt(Candidate::relevanceScore)
             .reversed()
             .thenComparing(Candidate::className)
-            .thenComparing(Candidate::sha256);
+            .thenComparing(Candidate::sha256)
+            .thenComparing(Candidate::normalizedSource)
+            .thenComparing(Candidate::loaderClass)
+            .thenComparing(Candidate::loaderName);
 
     private final AdapterMode mode;
     private final Path destination;
@@ -42,6 +44,7 @@ final class AdapterReport {
     private long parsedClasses;
     private long malformedClasses;
     private long exactMatches;
+    private long sourceBindingRejected;
     private long transformationEligible;
     private long transformationsApplied;
     private long containedFailures;
@@ -66,24 +69,32 @@ final class AdapterReport {
         diagnostic(detail);
     }
 
-    synchronized void observed(ClassSignature signature, ProtectionDomain domain) {
+    synchronized void observed(ClassSignature signature, AdapterSourceIdentity source) {
         observedClasses++;
         parsedClasses++;
-        String key = signature.internalName() + "@" + signature.sha256();
+        String key = signature.internalName()
+                + "@" + signature.sha256()
+                + "@" + source.normalizedSource()
+                + "@" + source.loaderClass()
+                + "@" + source.loaderName();
         if (candidates.containsKey(key)) {
             return;
         }
 
-        String source = codeSource(domain);
-        AdapterCandidateScorer.Score score = AdapterCandidateScorer.score(signature, source);
+        AdapterCandidateScorer.Score score = AdapterCandidateScorer.score(signature, source.codeSource());
         Candidate candidate = new Candidate(
                 signature.internalName(),
                 signature.sha256(),
                 signature.majorVersion(),
                 signature.methods().size(),
-                source,
+                source.codeSource(),
+                source.normalizedSource(),
+                source.sourceKind(),
+                source.sourceSha256(),
+                source.sourceHashProblem(),
+                source.loaderClass(),
+                source.loaderName(),
                 score.value(),
-                score.sourceKind(),
                 score.evidence(),
                 score.relevantMethods(),
                 score.methodsTruncated());
@@ -116,13 +127,30 @@ final class AdapterReport {
         if (evaluations.size() >= EVALUATION_LIMIT) {
             evaluationsTruncated = true;
         } else {
-            evaluations.add(new Evaluation(target.id(), target.internalClassName(), target.planId(), match.exact(), match.problems()));
+            evaluations.add(new Evaluation(
+                    target.id(),
+                    target.internalClassName(),
+                    target.planId(),
+                    match.exact(),
+                    target.sourceKind(),
+                    target.sourceSuffix(),
+                    target.sourceSha256(),
+                    target.loaderClass(),
+                    target.loaderName(),
+                    match.problems()));
         }
+    }
+
+    synchronized void unbound(AdapterTarget target) {
+        sourceBindingRejected++;
+        diagnostic("Exact target " + target.id() + " lacks required live source bindings: "
+                + String.join(", ", target.missingLiveSourceBindings())
+                + "; original bytes retained");
     }
 
     synchronized void eligible(AdapterTarget target) {
         transformationEligible++;
-        diagnostic("Exact target " + target.id() + " matched, but plan " + target.planId()
+        diagnostic("Exact source-bound target " + target.id() + " matched, but plan " + target.planId()
                 + " is not registered in this build; original bytes retained");
     }
 
@@ -171,14 +199,18 @@ final class AdapterReport {
 
     private String toJson() {
         List<Candidate> orderedCandidates = candidates.values().stream()
-                .sorted(Comparator.comparing(Candidate::className).thenComparing(Candidate::sha256))
+                .sorted(Comparator.comparing(Candidate::className)
+                        .thenComparing(Candidate::sha256)
+                        .thenComparing(Candidate::normalizedSource)
+                        .thenComparing(Candidate::loaderClass)
+                        .thenComparing(Candidate::loaderName))
                 .toList();
         List<Candidate> rankedCandidates = candidates.values().stream()
                 .filter(candidate -> candidate.relevanceScore() > 0)
                 .sorted(CANDIDATE_RANKING)
                 .limit(RANKED_CANDIDATE_LIMIT)
                 .toList();
-        StringBuilder output = new StringBuilder(16_384).append('{');
+        StringBuilder output = new StringBuilder(20_000).append('{');
         field(output, "generatedAt", Instant.now().toString());
         field(output, "startedAt", startedAt.toString());
         field(output, "mode", mode.name());
@@ -194,6 +226,7 @@ final class AdapterReport {
         numberField(output, "rankedCandidatesCount", rankedCandidates.size());
         numberField(output, "malformedClasses", malformedClasses);
         numberField(output, "exactMatches", exactMatches);
+        numberField(output, "sourceBindingRejected", sourceBindingRejected);
         numberField(output, "transformationEligible", transformationEligible);
         numberField(output, "transformationsApplied", transformationsApplied);
         numberField(output, "containedFailures", containedFailures);
@@ -225,6 +258,11 @@ final class AdapterReport {
             field(output, "className", evaluation.className());
             field(output, "planId", evaluation.planId());
             booleanField(output, "exact", evaluation.exact());
+            nullableField(output, "requiredSourceKind", emptyToNull(evaluation.sourceKind()));
+            nullableField(output, "requiredSourceSuffix", emptyToNull(evaluation.sourceSuffix()));
+            nullableField(output, "requiredSourceSha256", emptyToNull(evaluation.sourceSha256()));
+            nullableField(output, "requiredLoaderClass", emptyToNull(evaluation.loaderClass()));
+            nullableField(output, "requiredLoaderName", emptyToNull(evaluation.loaderName()));
             arrayField(output, "problems", evaluation.problems());
             trimComma(output).append('}');
         }
@@ -239,8 +277,7 @@ final class AdapterReport {
         field(output, "sha256", candidate.sha256());
         numberField(output, "majorVersion", candidate.majorVersion());
         numberField(output, "methodCount", candidate.methodCount());
-        nullableField(output, "codeSource", candidate.codeSource());
-        field(output, "sourceKind", candidate.sourceKind());
+        writeSourceIdentity(output, candidate);
         numberField(output, "relevanceScore", candidate.relevanceScore());
         trimComma(output).append('}');
     }
@@ -251,8 +288,7 @@ final class AdapterReport {
         field(output, "sha256", candidate.sha256());
         numberField(output, "majorVersion", candidate.majorVersion());
         numberField(output, "methodCount", candidate.methodCount());
-        nullableField(output, "codeSource", candidate.codeSource());
-        field(output, "sourceKind", candidate.sourceKind());
+        writeSourceIdentity(output, candidate);
         numberField(output, "relevanceScore", candidate.relevanceScore());
         arrayField(output, "evidence", candidate.evidence());
         booleanField(output, "methodsTruncated", candidate.methodsTruncated());
@@ -272,15 +308,18 @@ final class AdapterReport {
         trimComma(output).append('}');
     }
 
-    private static String codeSource(ProtectionDomain domain) {
-        try {
-            if (domain != null && domain.getCodeSource() != null && domain.getCodeSource().getLocation() != null) {
-                return domain.getCodeSource().getLocation().toString();
-            }
-        } catch (RuntimeException ignored) {
-            // Protection-domain metadata is diagnostic only.
-        }
-        return null;
+    private static void writeSourceIdentity(StringBuilder output, Candidate candidate) {
+        nullableField(output, "codeSource", emptyToNull(candidate.codeSource()));
+        nullableField(output, "normalizedSource", emptyToNull(candidate.normalizedSource()));
+        field(output, "sourceKind", candidate.sourceKind());
+        nullableField(output, "sourceSha256", emptyToNull(candidate.sourceSha256()));
+        nullableField(output, "sourceHashProblem", emptyToNull(candidate.sourceHashProblem()));
+        field(output, "loaderClass", candidate.loaderClass());
+        nullableField(output, "loaderName", emptyToNull(candidate.loaderName()));
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static StringBuilder key(StringBuilder output, String name) {
@@ -352,8 +391,13 @@ final class AdapterReport {
             int majorVersion,
             int methodCount,
             String codeSource,
-            int relevanceScore,
+            String normalizedSource,
             String sourceKind,
+            String sourceSha256,
+            String sourceHashProblem,
+            String loaderClass,
+            String loaderName,
+            int relevanceScore,
             List<String> evidence,
             List<AdapterCandidateScorer.RelevantMethod> relevantMethods,
             boolean methodsTruncated) {
@@ -363,7 +407,17 @@ final class AdapterReport {
         }
     }
 
-    private record Evaluation(String targetId, String className, String planId, boolean exact, List<String> problems) {
+    private record Evaluation(
+            String targetId,
+            String className,
+            String planId,
+            boolean exact,
+            String sourceKind,
+            String sourceSuffix,
+            String sourceSha256,
+            String loaderClass,
+            String loaderName,
+            List<String> problems) {
         private Evaluation {
             problems = List.copyOf(problems);
         }
