@@ -195,11 +195,14 @@ final class StrictJson {
             }
             String raw = text.substring(start, offset);
             try {
-                Number value = decimal ? Double.parseDouble(raw) : Long.parseLong(raw);
-                if (value instanceof Double floating && !Double.isFinite(floating)) {
-                    throw error("Non-finite number: " + raw);
+                if (decimal) {
+                    double value = Double.parseDouble(raw);
+                    if (!Double.isFinite(value)) {
+                        throw error("Non-finite number: " + raw);
+                    }
+                    return value;
                 }
-                return value;
+                return Long.parseLong(raw);
             } catch (NumberFormatException error) {
                 throw error("Invalid number: " + raw);
             }
