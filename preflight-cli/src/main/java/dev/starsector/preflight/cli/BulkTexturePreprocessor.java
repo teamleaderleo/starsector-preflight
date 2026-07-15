@@ -63,10 +63,12 @@ final class BulkTexturePreprocessor {
         boolean hasAlpha = image.getColorModel().hasAlpha();
         int channels = hasAlpha ? 4 : 3;
         int bands = raster.getNumBands();
-        if (raster.getMinX() != 0
-                || raster.getMinY() != 0
-                || raster.getWidth() < image.getWidth()
-                || raster.getHeight() < image.getHeight()
+        long maximumX = (long) raster.getMinX() + raster.getWidth();
+        long maximumY = (long) raster.getMinY() + raster.getHeight();
+        if (raster.getMinX() > 0
+                || raster.getMinY() > 0
+                || maximumX < image.getWidth()
+                || maximumY < image.getHeight()
                 || bands < 1
                 || bands > channels) {
             return reference(image, sourceSha256, transformation);
