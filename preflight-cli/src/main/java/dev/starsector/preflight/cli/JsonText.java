@@ -62,19 +62,21 @@ final class JsonText {
             if (cursor.finished()) {
                 return -1;
             }
-            if (cursor.peek() == '"') {
-                String candidate = cursor.readString();
-                cursor.skipWhitespaceAndComments();
-                if (cursor.consume(':')) {
-                    cursor.skipWhitespaceAndComments();
-                    if (candidate.equals(key)) {
-                        return cursor.position();
-                    }
-                    cursor.skipValue();
-                }
-            } else {
+            if (cursor.peek() != '"') {
                 cursor.advance();
+                continue;
             }
+
+            String candidate = cursor.readString();
+            cursor.skipWhitespaceAndComments();
+            if (!cursor.consume(':')) {
+                continue;
+            }
+            cursor.skipWhitespaceAndComments();
+            if (candidate.equals(key)) {
+                return cursor.position();
+            }
+            cursor.skipValue();
         }
         return -1;
     }
@@ -114,34 +116,43 @@ final class JsonText {
             return false;
         }
 
-        void skipWhitespace() {
-            while (!finished() && Character.isWhitespace(peek())) {
-                offset++;
-            }
-        }
-
         void skipWhitespaceAndComments() {
             while (true) {
-                skipWhitespace();
-                if (offset + 1 >= text.length() || text.charAt(offset) != '/') {
+                while (!finished() && Character.isWhitespace(peek())) {
+                    offset++;
+                }
+                if (finished()) {
+                    return;
+                }
+                if (peek() == '#') {
+                    skipLineComment(1);
+                    continue;
+                }
+                if (offset + 1 >= text.length() || peek() != '/') {
                     return;
                 }
                 char next = text.charAt(offset + 1);
                 if (next == '/') {
-                    offset += 2;
-                    while (!finished() && peek() != '\n' && peek() != '\r') {
-                        offset++;
-                    }
-                } else if (next == '*') {
+                    skipLineComment(2);
+                    continue;
+                }
+                if (next == '*') {
                     offset += 2;
                     while (offset + 1 < text.length()
                             && !(text.charAt(offset) == '*' && text.charAt(offset + 1) == '/')) {
                         offset++;
                     }
                     offset = Math.min(text.length(), offset + 2);
-                } else {
-                    return;
+                    continue;
                 }
+                return;
+            }
+        }
+
+        private void skipLineComment(int prefixLength) {
+            offset += prefixLength;
+            while (!finished() && peek() != '\n' && peek() != '\r') {
+                offset++;
             }
         }
 
@@ -203,15 +214,15 @@ final class JsonText {
                     char c = peek();
                     if (c == '"') {
                         readString();
-                    } else {
-                        offset++;
-                        if (c == '{') {
-                            closes.push('}');
-                        } else if (c == '[') {
-                            closes.push(']');
-                        } else if (c == closes.peek()) {
-                            closes.pop();
-                        }
+                        continue;
+                    }
+                    offset++;
+                    if (c == '{') {
+                        closes.push('}');
+                    } else if (c == '[') {
+                        closes.push(']');
+                    } else if (c == closes.peek()) {
+                        closes.pop();
                     }
                 }
                 return;
