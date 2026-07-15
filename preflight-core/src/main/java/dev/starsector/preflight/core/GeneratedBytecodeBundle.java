@@ -1,5 +1,6 @@
 package dev.starsector.preflight.core;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -107,18 +108,19 @@ public final class GeneratedBytecodeBundle {
     private static String validateClassName(String value) {
         Objects.requireNonNull(value, "className");
         String name = value.trim();
-        if (name.isEmpty() || name.length() > MAX_CLASS_NAME_CHARS) {
-            throw new IllegalArgumentException("Generated class name length is invalid");
+        if (name.isEmpty() || name.length() > MAX_CLASS_NAME_CHARS
+                || name.startsWith(".") || name.endsWith(".") || name.contains("..")) {
+            throw new IllegalArgumentException("Generated class name is not a canonical binary name: " + name);
         }
-        if (name.startsWith(".") || name.endsWith(".") || name.contains("..")
-                || name.startsWith("/") || name.endsWith("/") || name.contains("//")
-                || name.indexOf('\\') >= 0 || name.indexOf(':') >= 0) {
-            throw new IllegalArgumentException("Generated class name is not canonical: " + name);
-        }
-        for (int i = 0; i < name.length(); i++) {
-            char c = name.charAt(i);
-            if (!(Character.isJavaIdentifierPart(c) || c == '.' || c == '/' || c == '$')) {
-                throw new IllegalArgumentException("Generated class name contains an invalid character: " + name);
+        for (String segment : name.split("\\.", -1)) {
+            if (segment.isEmpty() || !Character.isJavaIdentifierStart(segment.charAt(0))) {
+                throw new IllegalArgumentException("Generated class name is not a canonical binary name: " + name);
+            }
+            for (int i = 1; i < segment.length(); i++) {
+                if (!Character.isJavaIdentifierPart(segment.charAt(i))) {
+                    throw new IllegalArgumentException(
+                            "Generated class name contains an invalid binary-name character: " + name);
+                }
             }
         }
         return name;
@@ -126,15 +128,21 @@ public final class GeneratedBytecodeBundle {
 
     private static byte[] validateBytecode(String className, byte[] value) {
         Objects.requireNonNull(value, "bytecode for " + className);
-        if (value.length < 8 || value.length > MAX_CLASS_BYTES) {
+        if (value.length < 10 || value.length > MAX_CLASS_BYTES) {
             throw new IllegalArgumentException(
                     "Generated class " + className + " has invalid bytecode length " + value.length);
         }
-        if ((value[0] & 0xff) != 0xca
-                || (value[1] & 0xff) != 0xfe
-                || (value[2] & 0xff) != 0xba
-                || (value[3] & 0xff) != 0xbe) {
-            throw new IllegalArgumentException("Generated class " + className + " lacks the classfile magic header");
+        final String actualName;
+        try {
+            actualName = ClassFileIdentity.binaryName(value);
+        } catch (IOException error) {
+            throw new IllegalArgumentException(
+                    "Generated class " + className + " is not a valid bounded classfile: " + error.getMessage(),
+                    error);
+        }
+        if (!className.equals(actualName)) {
+            throw new IllegalArgumentException(
+                    "Generated class map key " + className + " differs from classfile identity " + actualName);
         }
         return value;
     }
