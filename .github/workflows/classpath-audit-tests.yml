@@ -27,14 +27,24 @@ jobs:
           java-version: '17'
           cache: maven
       - name: Run focused tests
+        id: tests
         shell: bash
         run: |
           set +e
-          mvn -B -ntp -pl preflight-cli -am test \
+          mvn -q -pl preflight-cli -am test \
             -Dtest=ClasspathAuditTest,ClasspathCommandTest,JsonObjectArraysTest \
-            -Dsurefire.failIfNoSpecifiedTests=false
+            -Dsurefire.failIfNoSpecifiedTests=false > focused-maven.log 2>&1
           status=$?
-          if [ "$status" -ne 0 ]; then
-            find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \;
-          fi
+          find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> focused-maven.log
+          tail -n 120 focused-maven.log
           exit "$status"
+      - name: Upload focused logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classpath-audit-test-logs
+          path: |
+            focused-maven.log
+            **/target/surefire-reports/*
+          if-no-files-found: warn
+          retention-days: 7
