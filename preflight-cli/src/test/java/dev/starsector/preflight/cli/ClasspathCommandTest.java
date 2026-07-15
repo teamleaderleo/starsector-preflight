@@ -46,6 +46,7 @@ class ClasspathCommandTest {
         }));
         String json = Files.readString(report);
         assertTrue(json.contains("\"classpathFingerprint\""));
-        assertTrue(json.contains("fixture.Library"));
+        assertTrue(json.contains("\"classEntries\":1"));
+        assertTrue(json.contains("\"relativePath\":\"jars/library.jar\""));
     }
 }
