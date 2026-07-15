@@ -48,6 +48,8 @@ class GeneratedBytecodeBundleTest {
         assertArrayEquals(alpha, decoded.bytecode(Alpha.class.getName()));
         assertArrayEquals(beta, decoded.bytecode(Beta.class.getName()));
         assertEquals(left.bytecodeSha256(), decoded.bytecodeSha256());
+        assertEquals(Alpha.class.getName(), ClassFileIdentity.binaryName(alpha));
+        assertEquals(Beta.class.getName(), ClassFileIdentity.binaryName(beta));
 
         alpha[4] ^= 1;
         assertNotEquals(alpha[4], decoded.bytecode(Alpha.class.getName())[4]);
@@ -80,6 +82,17 @@ class GeneratedBytecodeBundleTest {
                 "c".repeat(64),
                 "../escape",
                 Map.of("../escape", classBytes(Alpha.class))));
+        assertThrows(IllegalArgumentException.class, () -> new GeneratedBytecodeBundle(
+                "c".repeat(64),
+                "dev/example/SlashName",
+                Map.of("dev/example/SlashName", classBytes(Alpha.class))));
+        IllegalArgumentException wrongIdentity = assertThrows(
+                IllegalArgumentException.class,
+                () -> new GeneratedBytecodeBundle(
+                        "c".repeat(64),
+                        Beta.class.getName(),
+                        Map.of(Beta.class.getName(), classBytes(Alpha.class))));
+        assertTrue(wrongIdentity.getMessage().contains("differs from classfile identity"), wrongIdentity.getMessage());
         assertThrows(IllegalArgumentException.class, () -> new GeneratedBytecodeBundle(
                 "c".repeat(64),
                 Alpha.class.getName(),
@@ -115,7 +128,7 @@ class GeneratedBytecodeBundleTest {
 
     @Test
     void contextKeyIsCanonicalAndEveryRequiredComponentInvalidatesIt() {
-        GeneratedBytecodeContext baseline = context("0");
+        GeneratedBytecodeContext baseline = context();
         GeneratedBytecodeContext uppercase = new GeneratedBytecodeContext(
                 "0".repeat(64).toUpperCase(),
                 "1".repeat(64).toUpperCase(),
@@ -139,7 +152,7 @@ class GeneratedBytecodeBundleTest {
         }
     }
 
-    private static GeneratedBytecodeContext context(String ignored) {
+    private static GeneratedBytecodeContext context() {
         return new GeneratedBytecodeContext(
                 "0".repeat(64),
                 "1".repeat(64),
