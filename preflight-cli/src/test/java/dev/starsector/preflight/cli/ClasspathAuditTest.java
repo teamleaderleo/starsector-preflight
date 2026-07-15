@@ -31,14 +31,14 @@ class ClasspathAuditTest {
                 (List<Map<String, Object>>) values.get("duplicateClassSamples");
 
         assertEquals(List.of("campaign", "lunalib", "lw_lazylib"), values.get("enabledModIds"));
-        assertEquals(5L, totals.get("jars"));
-        assertEquals(4L, totals.get("validJars"));
-        assertEquals(1L, totals.get("malformedJars"));
-        assertEquals(1L, totals.get("declaredMissingJars"));
-        assertEquals(2L, totals.get("undeclaredJars"));
-        assertEquals(1L, totals.get("missingDependencies"));
-        assertEquals(2L, totals.get("dependencyOrderProblems"));
-        assertEquals(3L, totals.get("duplicateClasses"));
+        assertEquals(5L, count(totals, "jars"));
+        assertEquals(4L, count(totals, "validJars"));
+        assertEquals(1L, count(totals, "malformedJars"));
+        assertEquals(1L, count(totals, "declaredMissingJars"));
+        assertEquals(2L, count(totals, "undeclaredJars"));
+        assertEquals(1L, count(totals, "missingDependencies"));
+        assertEquals(2L, count(totals, "dependencyOrderProblems"));
+        assertEquals(3L, count(totals, "duplicateClasses"));
         assertEquals(
                 "lw_lazylib:jars/internal/LazyLib.jar",
                 duplicate(duplicateSamples, "shared.Utility").get("probableWinner"));
@@ -59,10 +59,14 @@ class ClasspathAuditTest {
 
         assertEquals(archiveFingerprint, reordered.values().get("archiveFingerprint"));
         assertNotEquals(classpathFingerprint, reordered.values().get("classpathFingerprint"));
-        assertEquals(0L, reorderedTotals.get("dependencyOrderProblems"));
+        assertEquals(0L, count(reorderedTotals, "dependencyOrderProblems"));
         assertEquals(
                 "campaign:jars/campaign.jar",
                 duplicate(reorderedDuplicates, "shared.Utility").get("probableWinner"));
+    }
+
+    private static long count(Map<String, Object> totals, String key) {
+        return ((Number) totals.get(key)).longValue();
     }
 
     private Path fixture() throws Exception {
