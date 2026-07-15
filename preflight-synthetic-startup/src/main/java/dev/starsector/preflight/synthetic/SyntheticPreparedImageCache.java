@@ -161,17 +161,19 @@ final class SyntheticPreparedImageCache {
         if (payload.length != payloadLength(image.width(), image.height())) {
             throw new IOException("Prepared synthetic image payload length differs from its dimensions");
         }
+        byte[] sourceHash = HexFormat.of().parseHex(canonicalSha256(sourceSha256));
+        byte[] checksum = sha256(integrityBytes(sourceHash, image.width(), image.height(), payload));
         int total = Math.addExact(minimumFileBytes(), payload.length);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(total);
         try (DataOutputStream output = new DataOutputStream(bytes)) {
             output.write(MAGIC);
             output.writeInt(VERSION);
-            output.write(HexFormat.of().parseHex(canonicalSha256(sourceSha256)));
+            output.write(sourceHash);
             output.writeInt(image.width());
             output.writeInt(image.height());
             output.writeInt(payload.length);
             output.write(payload);
-            output.write(sha256(payload));
+            output.write(checksum);
         }
         return bytes.toByteArray();
     }
@@ -210,11 +212,25 @@ final class SyntheticPreparedImageCache {
             if (input.available() != 0) {
                 throw new IOException("Prepared synthetic image contains trailing data");
             }
-            if (!MessageDigest.isEqual(checksum, sha256(payload))) {
+            byte[] actualChecksum = sha256(integrityBytes(sourceHash, width, height, payload));
+            if (!MessageDigest.isEqual(checksum, actualChecksum)) {
                 throw new IOException("Prepared synthetic image checksum mismatch");
             }
             return new PreparedImage(width, height, payload);
         }
+    }
+
+    private static byte[] integrityBytes(byte[] sourceHash, int width, int height, byte[] payload) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(
+                SHA256_BYTES + Integer.BYTES * 3 + payload.length);
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            output.write(sourceHash);
+            output.writeInt(width);
+            output.writeInt(height);
+            output.writeInt(payload.length);
+            output.write(payload);
+        }
+        return bytes.toByteArray();
     }
 
     private static void validateDimensions(int width, int height) throws IOException {
