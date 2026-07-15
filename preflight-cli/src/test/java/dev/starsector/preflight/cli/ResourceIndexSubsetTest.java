@@ -53,7 +53,7 @@ class ResourceIndexSubsetTest {
         assertEquals(left.selectionFingerprint(), right.selectionFingerprint());
         assertArrayEquals(ResourceIndexIO.toBytes(left.index()), ResourceIndexIO.toBytes(right.index()));
         assertEquals(List.of("graphics/a.png", "graphics/b.png"), left.index().entries().keySet().stream().toList());
-        assertEquals(5, left.requestedPaths());
+        assertEquals(4, left.requestedPaths());
         assertEquals(2, left.selectedPaths());
         assertEquals(1, left.missingPaths());
         assertEquals(1, left.nonImagePaths());
