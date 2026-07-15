@@ -12,6 +12,7 @@ import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.security.cert.Certificate;
 import java.util.List;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,6 +54,7 @@ class CodeLoaderSignatureReportTest {
         String codeJson = Files.readString(codePath);
         assertFalse(adapterJson.contains(signature.internalName()), adapterJson);
         assertTrue(codeJson.contains("\"retainedIdentities\":1"), codeJson);
+        assertTrue(codeJson.contains("\"entriesTruncated\":false"), codeJson);
         assertTrue(codeJson.contains("org/codehaus/janino/JavaSourceClassLoader"), codeJson);
         assertTrue(codeJson.contains(signature.sha256()), codeJson);
         assertTrue(codeJson.contains("generateBytecodes"), codeJson);
@@ -62,6 +64,36 @@ class CodeLoaderSignatureReportTest {
         assertTrue(codeJson.matches("(?s).*\\\"sourceSha256\\\":\\\"[0-9a-f]{64}\\\".*"), codeJson);
         assertTrue(codeJson.contains("\"automaticTargetGenerated\":false"), codeJson);
         assertTrue(codeJson.contains("\"liveTransformationEligible\":false"), codeJson);
+    }
+
+    @Test
+    void retainedIdentitiesAreBoundedAndIndependentOfObservationOrder() throws Exception {
+        byte[] bytes = classBytes(org.codehaus.janino.JavaSourceClassLoader.class);
+        ClassSignature signature = ClassSignature.parse(bytes);
+        Path output = temporaryDirectory.resolve("bounded.json");
+        CodeLoaderSignatureReport report = new CodeLoaderSignatureReport(output);
+
+        int total = CodeLoaderSignatureReport.IDENTITY_LIMIT + 5;
+        for (int index = total - 1; index >= 0; index--) {
+            String variant = String.format(Locale.ROOT, "variant-%04d", index);
+            report.observed(signature, new AdapterSourceIdentity(
+                    "file:/" + variant + "/janino.jar",
+                    "/" + variant + "/janino.jar",
+                    "OTHER",
+                    "",
+                    "",
+                    "example.Loader",
+                    variant));
+        }
+        report.write();
+
+        String json = Files.readString(output);
+        assertTrue(json.contains("\"identityLimit\":" + CodeLoaderSignatureReport.IDENTITY_LIMIT), json);
+        assertTrue(json.contains("\"retainedIdentities\":" + CodeLoaderSignatureReport.IDENTITY_LIMIT), json);
+        assertTrue(json.contains("\"entriesTruncated\":true"), json);
+        assertTrue(json.contains("variant-0000"), json);
+        assertTrue(json.contains(String.format(Locale.ROOT, "variant-%04d", CodeLoaderSignatureReport.IDENTITY_LIMIT - 1)), json);
+        assertFalse(json.contains(String.format(Locale.ROOT, "variant-%04d", total - 1)), json);
     }
 
     @Test
@@ -77,6 +109,7 @@ class CodeLoaderSignatureReportTest {
 
         String json = Files.readString(output);
         assertTrue(json.contains("\"retainedIdentities\":0"), json);
+        assertTrue(json.contains("\"entriesTruncated\":false"), json);
         assertFalse(json.contains(signature.sha256()), json);
     }
 
