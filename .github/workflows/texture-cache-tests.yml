@@ -1,0 +1,65 @@
+name: Texture cache tests
+
+on:
+  pull_request:
+    paths:
+      - 'preflight-core/**'
+      - 'preflight-cli/**'
+      - '.github/workflows/texture-cache-tests.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'preflight-core/**'
+      - 'preflight-cli/**'
+      - '.github/workflows/texture-cache-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Compile and package
+        run: mvn --batch-mode --no-transfer-progress -DskipTests package
+
+  focused:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: manifest-format
+            module: preflight-core
+            tests: TextureManifestIOTest
+          - name: manifest-validator
+            module: preflight-core
+            tests: TextureManifestValidatorTest
+          - name: batch-builder
+            module: preflight-cli
+            tests: TextureBatchBuilderTest
+          - name: batch-cli
+            module: preflight-cli
+            tests: TextureBatchCommandTest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Run focused suite
+        run: >-
+          mvn --batch-mode --no-transfer-progress
+          -pl ${{ matrix.module }} -am
+          -Dtest=${{ matrix.tests }}
+          -Dsurefire.failIfNoSpecifiedTests=false
+          test
