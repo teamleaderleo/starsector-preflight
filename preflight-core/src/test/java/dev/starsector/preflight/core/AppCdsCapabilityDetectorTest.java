@@ -27,6 +27,10 @@ class AppCdsCapabilityDetectorTest {
 
         assertEquals(AppCdsCapabilityDetector.Status.SUPPORTED, result.status(), result.detail());
         assertTrue(result.supported());
+        assertEquals(java.toRealPath(), result.javaExecutable());
+        assertTrue(result.javaExecutableBytes() > 0);
+        assertTrue(result.javaExecutableModifiedMillis() > 0);
+        assertEquals(64, result.javaExecutableSha256().length());
         assertEquals(0, result.generationExitCode());
         assertEquals(0, result.consumptionExitCode());
         assertFalse(result.outputTruncated());
@@ -39,58 +43,43 @@ class AppCdsCapabilityDetectorTest {
                 List.of(
                         AppCdsCapabilityDetector.XSHARE_ON,
                         AppCdsCapabilityDetector.ARCHIVE_AT_EXIT_PREFIX + expectedCreationArchive),
-                result.archiveCreationArguments(applicationArchive));
+                result.archiveCreationArguments(java, applicationArchive));
 
         Files.write(applicationArchive, new byte[] {1});
         assertEquals(
                 List.of(
                         AppCdsCapabilityDetector.XSHARE_ON,
                         AppCdsCapabilityDetector.SHARED_ARCHIVE_PREFIX + applicationArchive.toRealPath()),
-                result.archiveConsumptionArguments(applicationArchive));
-    }
+                result.archiveConsumptionArguments(java, applicationArchive));
 
-    @Test
-    void everyFailureStatusContributesNoArchiveFlags() throws Exception {
-        Path creationTarget = temporaryDirectory.resolve("new.jsa");
-        Path existingArchive = temporaryDirectory.resolve("existing.jsa");
-        Files.write(existingArchive, new byte[] {1});
+        Path copiedJava = temporaryDirectory.resolve(java.getFileName().toString());
+        Files.copy(java, copiedJava);
+        assertTrue(result.archiveCreationArguments(copiedJava, temporaryDirectory.resolve("wrong-java.jsa")).isEmpty());
+        assertTrue(result.archiveConsumptionArguments(copiedJava, applicationArchive).isEmpty());
 
-        for (AppCdsCapabilityDetector.Status status : List.of(
-                AppCdsCapabilityDetector.Status.UNSUPPORTED,
-                AppCdsCapabilityDetector.Status.TIMED_OUT,
-                AppCdsCapabilityDetector.Status.ERROR)) {
-            AppCdsCapabilityDetector.Result result = new AppCdsCapabilityDetector.Result(
-                    status, null, "failure", -1, -1, false, 0, "");
-            assertTrue(result.archiveCreationArguments(creationTarget).isEmpty());
-            assertTrue(result.archiveConsumptionArguments(existingArchive).isEmpty());
-        }
-    }
-
-    @Test
-    void invalidExecutableAndUnsafeArchiveTargetsFailClosed() throws Exception {
-        AppCdsCapabilityDetector.Result missingJava = AppCdsCapabilityDetector.detect(
-                temporaryDirectory.resolve("missing-java"),
-                temporaryDirectory.resolve("probe"),
-                Duration.ofSeconds(1));
-        assertEquals(AppCdsCapabilityDetector.Status.ERROR, missingJava.status());
-        assertTrue(missingJava.archiveCreationArguments(temporaryDirectory.resolve("unused.jsa")).isEmpty());
-
-        AppCdsCapabilityDetector.Result supported = new AppCdsCapabilityDetector.Result(
-                AppCdsCapabilityDetector.Status.SUPPORTED,
-                currentJavaExecutable(),
-                "synthetic supported result",
-                0,
-                0,
-                false,
-                1,
-                "0".repeat(64));
         Path directoryTarget = temporaryDirectory.resolve("directory.jsa");
         Files.createDirectory(directoryTarget);
-        assertTrue(supported.archiveCreationArguments(directoryTarget).isEmpty());
-        assertTrue(supported.archiveConsumptionArguments(temporaryDirectory.resolve("missing.jsa")).isEmpty());
+        assertTrue(result.archiveCreationArguments(java, directoryTarget).isEmpty());
+        assertTrue(result.archiveConsumptionArguments(java, temporaryDirectory.resolve("missing.jsa")).isEmpty());
         Path emptyArchive = temporaryDirectory.resolve("empty.jsa");
         Files.createFile(emptyArchive);
-        assertTrue(supported.archiveConsumptionArguments(emptyArchive).isEmpty());
+        assertTrue(result.archiveConsumptionArguments(java, emptyArchive).isEmpty());
+    }
+
+    @Test
+    void invalidExecutableContributesNoArchiveFlags() {
+        Path missingExecutable = temporaryDirectory.resolve("missing-java");
+        AppCdsCapabilityDetector.Result result = AppCdsCapabilityDetector.detect(
+                missingExecutable,
+                temporaryDirectory.resolve("probe"),
+                Duration.ofSeconds(1));
+
+        assertEquals(AppCdsCapabilityDetector.Status.ERROR, result.status());
+        assertFalse(result.supported());
+        assertTrue(result.archiveCreationArguments(
+                currentJavaExecutable(), temporaryDirectory.resolve("unused.jsa")).isEmpty());
+        assertTrue(result.archiveConsumptionArguments(
+                currentJavaExecutable(), temporaryDirectory.resolve("unused.jsa")).isEmpty());
     }
 
     private static Path currentJavaExecutable() {
