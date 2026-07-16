@@ -1,0 +1,73 @@
+name: Synthetic extended index tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tiny:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Run tiny extended provider-index tests
+        shell: bash
+        run: |
+          set +e
+          mvn --batch-mode --no-transfer-progress \
+            -pl preflight-synthetic-startup -am \
+            -Dtest=SyntheticExtendedProfileTest,SyntheticExtendedResourceIndexTest,SyntheticExtendedIndexCrossProcessTest \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            test > synthetic-extended-index-tiny.log 2>&1
+          status=$?
+          cat synthetic-extended-index-tiny.log
+          exit $status
+      - name: Upload tiny logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-extended-index-tiny-${{ matrix.os }}
+          path: synthetic-extended-index-tiny.log
+          if-no-files-found: error
+
+  medium:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Run medium extended provider-index tests
+        shell: bash
+        run: |
+          set +e
+          mvn --batch-mode --no-transfer-progress \
+            -pl preflight-synthetic-startup -am \
+            -Dpreflight.synthetic.medium=true \
+            -Dtest=SyntheticExtendedMediumProfileTest,SyntheticExtendedIndexCrossProcessTest \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            test > synthetic-extended-index-medium.log 2>&1
+          status=$?
+          cat synthetic-extended-index-medium.log
+          exit $status
+      - name: Upload medium logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-extended-index-medium-ubuntu
+          path: synthetic-extended-index-medium.log
+          if-no-files-found: error
