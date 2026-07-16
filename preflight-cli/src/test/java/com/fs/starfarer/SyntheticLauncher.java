@@ -6,6 +6,7 @@ public final class SyntheticLauncher {
     }
 
     public static void main(String[] args) {
+        new org.newdawn.slick.openal.OggDecoder().reset();
         System.out.println("synthetic-starsector-launcher");
     }
 }
