@@ -12,7 +12,7 @@ trap 'rm -rf "$TEMP"' EXIT
 KIT="$TEMP/kit"
 FAKE_HOME="$TEMP/home"
 FAKE_BIN="$TEMP/bin"
-FAKE_APP="$TEMP/Starsector.app"
+FAKE_APP="$FAKE_HOME/Applications/Starsector.app"
 CAPTURE_PWD="$TEMP/java-pwd.txt"
 CAPTURE_ARGS="$TEMP/java-args.txt"
 
@@ -38,9 +38,8 @@ PATH="$FAKE_BIN:$PATH" \
 HOME="$FAKE_HOME" \
 CAPTURE_PWD="$CAPTURE_PWD" \
 CAPTURE_ARGS="$CAPTURE_ARGS" \
-bash -c 'cd "$HOME" && "$1" --game "$2"' _ \
-    "$KIT/run-audio-decoder-probe-macos.command" \
-    "$FAKE_APP"
+bash -c 'cd "$HOME" && "$1"' _ \
+    "$KIT/run-audio-decoder-probe-macos.command"
 
 [ "$(cat "$CAPTURE_PWD")" = "$KIT" ]
 grep -Fx -- '--game' "$CAPTURE_ARGS" >/dev/null
