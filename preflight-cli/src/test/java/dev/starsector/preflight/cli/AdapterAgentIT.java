@@ -22,6 +22,7 @@ class AdapterAgentIT {
     void packagedAgentProbesCandidateAndPreservesOriginalClass() throws Exception {
         Path recording = temporaryDirectory.resolve("startup.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
+        Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapter=probe,adapterReport64=" + encoded(adapterReport);
 
@@ -32,17 +33,26 @@ class AdapterAgentIT {
         assertTrue(result.output().contains("synthetic-starsector-launcher"), result.output());
         assertTrue(Files.isRegularFile(recording), result.output());
         assertTrue(Files.isRegularFile(adapterReport), result.output());
+        assertTrue(Files.isRegularFile(audioReport), result.output());
         String json = Files.readString(adapterReport);
         assertTrue(json.contains("\"mode\":\"PROBE\""), json);
         assertTrue(json.contains("com/fs/starfarer/SyntheticLauncher"), json);
         assertTrue(json.contains("\"transformationsApplied\":0"), json);
         assertTrue(json.contains("\"containedFailures\":0"), json);
+
+        String audioJson = Files.readString(audioReport);
+        assertTrue(audioJson.contains("starsector-preflight-audio-decoder-signatures-v1"), audioJson);
+        assertTrue(audioJson.contains("org/newdawn/slick/openal/OggDecoder"), audioJson);
+        assertTrue(audioJson.contains("\"originalClassBytesRetained\":true"), audioJson);
+        assertTrue(audioJson.contains("\"decoderEquivalenceEstablished\":false"), audioJson);
+        assertTrue(audioJson.contains("\"preparedAudioWritesEligible\":false"), audioJson);
     }
 
     @Test
     void profilerOnlyLaunchDoesNotCreateAdapterReport() throws Exception {
         Path recording = temporaryDirectory.resolve("profile-only.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
+        Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapterReport64=" + encoded(adapterReport);
 
@@ -52,6 +62,7 @@ class AdapterAgentIT {
         assertEquals(0, result.exitCode(), result.output());
         assertTrue(Files.isRegularFile(recording), result.output());
         assertFalse(Files.exists(adapterReport), result.output());
+        assertFalse(Files.exists(audioReport), result.output());
     }
 
     private ProcessResult launch(String agentArguments) throws Exception {
