@@ -17,7 +17,10 @@ largest observed startup CPU domains and the surrounding loading path:
   2. Janino-generated code
      - exact installed Janino and commons-compiler class identities
      - method descriptors, source archive hashes, and defining loader identity
-     - startup JFR and attribution summaries for compiler and class-definition work
+     - a separate bounded contract for JavaSourceClassLoader.generateBytecodes,
+       defineBytecode, and findClass at the preferred complete-map seam
+     - startup JFR and attribution summaries for compiler, file, resource, and
+       class-definition work from the same launch
 
   3. Audio decoding and Starsector sound wrappers
      - exact Jogg/JOrbis identities and source archive hashes
@@ -78,6 +81,7 @@ Upload that generated results ZIP. Do not upload this kit ZIP again.
 The result ZIP normally contains:
 
   adapter-texture-loader-contract.json
+  adapter-janino-loader-contract.json
   adapter-sound-loader-contract.json
   adapter-audio-decoder-signatures.json
   adapter-code-loader-signatures.json
