@@ -1,4 +1,4 @@
-name: Audio decoder probe kit
+name: Audio decoder and sound contract probe kit
 
 on:
   pull_request:
@@ -49,7 +49,7 @@ jobs:
         run: >-
           mvn --batch-mode --no-transfer-progress
           -pl preflight-agent,preflight-cli -am
-          -Dtest=AudioDecoderSignatureReportTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
+          -Dtest=AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
           -Dit.test=AdapterAgentIT
           -Dsurefire.failIfNoSpecifiedTests=false
           verify
