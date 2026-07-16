@@ -89,6 +89,7 @@ OMITTED="$RESULTS/OMITTED_FILES.txt"
 
 FILES=(
     adapter-texture-loader-contract.json
+    adapter-janino-loader-contract.json
     adapter-sound-loader-contract.json
     adapter-audio-decoder-signatures.json
     adapter-code-loader-signatures.json
@@ -175,6 +176,17 @@ if [ -f "$TEXTURE" ]; then
     fi
 else
     printf '\n%s\n' "WARNING: the texture-loader contract report was not created."
+fi
+
+JANINO="$OUT/adapter-janino-loader-contract.json"
+if [ -f "$JANINO" ]; then
+    if grep -Eq '"captured":[[:space:]]*true' "$JANINO"; then
+        printf '%s\n' "Confirmed: the exact Janino complete-map loader contract was captured."
+    else
+        printf '%s\n' "NOTE: the exact Janino complete-map loader contract was not captured. Upload the result ZIP anyway."
+    fi
+else
+    printf '%s\n' "WARNING: the Janino-loader contract report was not created."
 fi
 
 CODE="$OUT/adapter-code-loader-signatures.json"
