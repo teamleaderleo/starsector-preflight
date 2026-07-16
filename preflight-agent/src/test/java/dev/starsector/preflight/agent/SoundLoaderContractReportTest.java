@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 
 class SoundLoaderContractReportTest {
     private static final String SYNTHETIC_LITERAL = "repository-owned-sound-contract-literal";
@@ -112,6 +115,10 @@ class SoundLoaderContractReportTest {
         assertTrue(json.contains("\"maxLocals\":"), json);
         assertTrue(json.contains("\"frameValueLimit\":" + SoundLoaderContractReport.FRAME_VALUE_LIMIT), json);
         assertTrue(json.contains("\"flowPointsTruncated\":false"), json);
+        assertTrue(json.contains("\"sameClassCallsTruncated\":false"), json);
+        assertTrue(json.contains("\"constructorCallsTruncated\":false"), json);
+        assertTrue(json.contains("\"localsTruncated\":false"), json);
+        assertTrue(json.contains("\"stackTruncated\":false"), json);
 
         assertFalse(json.contains(SYNTHETIC_LITERAL), json);
         assertTrue(json.contains(sha256(SYNTHETIC_LITERAL)), json);
@@ -190,6 +197,49 @@ class SoundLoaderContractReportTest {
         assertTrue(json.contains("\"methodLimitPerIdentity\":" + SoundLoaderContractReport.METHOD_LIMIT), json);
         assertTrue(json.contains("\"methodsTruncated\":false"), json);
         assertTrue(json.contains("\"descriptor\":\"(Ljava/io/InputStream;)Lsound/F;\""), json);
+    }
+
+    @Test
+    void structuralEdgesAndFrameValuesAreExplicitlyBounded() throws Exception {
+        byte[] bytes = oversizedStructuralClass();
+        ClassSignature signature = ClassSignature.parse(bytes);
+        Path output = temporaryDirectory.resolve("structural-bounds.json");
+        SoundLoaderContractReport report = new SoundLoaderContractReport(output);
+
+        report.observed(signature, source("/synthetic/fs.common_obf.jar", "example.Loader", "synthetic"), bytes);
+        report.write();
+
+        String json = Files.readString(output);
+        assertTrue(json.contains("\"sameClassCallLimitPerMethod\":" + SoundLoaderContractReport.CALL_LIMIT), json);
+        assertTrue(json.contains("\"constructorCallLimitPerMethod\":" + SoundLoaderContractReport.CALL_LIMIT), json);
+        assertTrue(json.contains("\"sameClassCallsTruncated\":true"), json);
+        assertTrue(json.contains("\"constructorCallsTruncated\":true"), json);
+        assertTrue(json.contains("\"localsTruncated\":true"), json);
+    }
+
+    private static byte[] oversizedStructuralClass() {
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, "sound/J", null, "java/lang/Object", null);
+        MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "oversized", "()V", null, null);
+        method.visitCode();
+        for (int index = 0; index < SoundLoaderContractReport.CALL_LIMIT + 5; index++) {
+            method.visitMethodInsn(Opcodes.INVOKESTATIC, "sound/J", "same" + index, "()V", false);
+            String owner = "example/Constructed" + index;
+            method.visitTypeInsn(Opcodes.NEW, owner);
+            method.visitInsn(Opcodes.DUP);
+            method.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "<init>", "()V", false);
+            method.visitInsn(Opcodes.POP);
+        }
+        for (int index = 0; index < SoundLoaderContractReport.FRAME_VALUE_LIMIT + 5; index++) {
+            method.visitInsn(Opcodes.ICONST_0);
+            method.visitVarInsn(Opcodes.ISTORE, index);
+        }
+        method.visitInsn(Opcodes.RETURN);
+        method.visitMaxs(2, SoundLoaderContractReport.FRAME_VALUE_LIMIT + 5);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
     }
 
     private static AdapterSourceIdentity source(String path, String loaderClass, String loaderName) {
