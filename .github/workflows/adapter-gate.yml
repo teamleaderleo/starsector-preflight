@@ -57,13 +57,13 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run adapter signature, source, decoder, sound-contract, code-loader, ranking, and packaged-agent tests
+      - name: Run adapter signature, source, texture, decoder, sound-contract, code-loader, ranking, and packaged-agent tests
         shell: bash
         run: |
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-agent,preflight-cli -am \
-            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
+            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
             -Dit.test=AdapterAgentIT \
             -Dsurefire.failIfNoSpecifiedTests=false \
             verify > adapter-gate-maven.log 2>&1
