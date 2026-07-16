@@ -23,6 +23,7 @@ class AdapterAgentIT {
         Path recording = temporaryDirectory.resolve("startup.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
         Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
+        Path soundReport = temporaryDirectory.resolve("adapter-sound-loader-contract.json");
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapter=probe,adapterReport64=" + encoded(adapterReport);
 
@@ -34,6 +35,7 @@ class AdapterAgentIT {
         assertTrue(Files.isRegularFile(recording), result.output());
         assertTrue(Files.isRegularFile(adapterReport), result.output());
         assertTrue(Files.isRegularFile(audioReport), result.output());
+        assertTrue(Files.isRegularFile(soundReport), result.output());
         String json = Files.readString(adapterReport);
         assertTrue(json.contains("\"mode\":\"PROBE\""), json);
         assertTrue(json.contains("com/fs/starfarer/SyntheticLauncher"), json);
@@ -43,9 +45,31 @@ class AdapterAgentIT {
         String audioJson = Files.readString(audioReport);
         assertTrue(audioJson.contains("starsector-preflight-audio-decoder-signatures-v1"), audioJson);
         assertTrue(audioJson.contains("org/newdawn/slick/openal/OggDecoder"), audioJson);
+        assertTrue(audioJson.contains("com/jcraft/jorbis/Info"), audioJson);
         assertTrue(audioJson.contains("\"originalClassBytesRetained\":true"), audioJson);
         assertTrue(audioJson.contains("\"decoderEquivalenceEstablished\":false"), audioJson);
         assertTrue(audioJson.contains("\"preparedAudioWritesEligible\":false"), audioJson);
+
+        String soundJson = Files.readString(soundReport);
+        assertTrue(soundJson.contains("starsector-preflight-sound-loader-contract-v1"), soundJson);
+        assertTrue(soundJson.contains("\"retainedIdentities\":6"), soundJson);
+        assertTrue(soundJson.contains("sound/J"), soundJson);
+        assertTrue(soundJson.contains("sound/F"), soundJson);
+        assertTrue(soundJson.contains("sound/ooOO"), soundJson);
+        assertTrue(soundJson.contains("sound/D"), soundJson);
+        assertTrue(soundJson.contains("sound/Sound"), soundJson);
+        assertTrue(soundJson.contains("com/fs/starfarer/loading/A"), soundJson);
+        assertTrue(soundJson.contains("\"primarySeam\":true"), soundJson);
+        assertTrue(soundJson.contains("\"consumerCandidate\":true"), soundJson);
+        assertTrue(soundJson.contains("\"kind\":\"jogg-jorbis-call\""), soundJson);
+        assertTrue(soundJson.contains("\"kind\":\"constructor-consuming-sound-f\""), soundJson);
+        assertTrue(soundJson.contains("\"originalClassBytesRetained\":true"), soundJson);
+        assertTrue(soundJson.contains("\"transformationPlanGenerated\":false"), soundJson);
+        assertTrue(soundJson.contains("\"transformRegistered\":false"), soundJson);
+        assertTrue(soundJson.contains("\"cacheReadsEnabled\":false"), soundJson);
+        assertTrue(soundJson.contains("\"cacheWritesEnabled\":false"), soundJson);
+        assertTrue(soundJson.contains("\"requiresHumanReview\":true"), soundJson);
+        assertFalse(soundJson.contains("packaged-repository-owned-sound-contract-literal"), soundJson);
     }
 
     @Test
@@ -53,6 +77,7 @@ class AdapterAgentIT {
         Path recording = temporaryDirectory.resolve("profile-only.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
         Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
+        Path soundReport = temporaryDirectory.resolve("adapter-sound-loader-contract.json");
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapterReport64=" + encoded(adapterReport);
 
@@ -63,6 +88,7 @@ class AdapterAgentIT {
         assertTrue(Files.isRegularFile(recording), result.output());
         assertFalse(Files.exists(adapterReport), result.output());
         assertFalse(Files.exists(audioReport), result.output());
+        assertFalse(Files.exists(soundReport), result.output());
     }
 
     private ProcessResult launch(String agentArguments) throws Exception {
