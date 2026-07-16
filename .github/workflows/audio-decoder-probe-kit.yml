@@ -1,0 +1,85 @@
+name: Audio decoder probe kit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/audio-decoder-probe-kit.yml'
+      - 'probe-kits/audio-decoder/**'
+      - 'preflight-agent/**'
+      - 'preflight-cli/**'
+      - 'preflight-core/**'
+      - 'pom.xml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-decoder-probe-kit.yml'
+      - 'probe-kits/audio-decoder/**'
+      - 'preflight-agent/**'
+      - 'preflight-cli/**'
+      - 'preflight-core/**'
+      - 'pom.xml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-kit:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    env:
+      KIT_NAME: starsector-preflight-audio-decoder-probe-kit-macos
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Verify packaged probe path
+        run: >-
+          mvn --batch-mode --no-transfer-progress
+          -pl preflight-agent,preflight-cli -am
+          -Dtest=AudioDecoderSignatureReportTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
+          -Dit.test=AdapterAgentIT
+          -Dsurefire.failIfNoSpecifiedTests=false
+          verify
+      - name: Assemble macOS kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="dist/$KIT_NAME"
+          mkdir -p "$ROOT"
+          cp preflight-cli/target/preflight.jar "$ROOT/preflight.jar"
+          cp probe-kits/audio-decoder/README.txt "$ROOT/README.txt"
+          cp probe-kits/audio-decoder/run-audio-decoder-probe-macos.command "$ROOT/"
+          cp probe-kits/audio-decoder/setup-project-checkout-macos.command "$ROOT/"
+          printf '%s\n' "$SOURCE_SHA" > "$ROOT/SOURCE_COMMIT.txt"
+          chmod +x "$ROOT"/*.command
+          (
+            cd "$ROOT"
+            sha256sum \
+              preflight.jar \
+              README.txt \
+              run-audio-decoder-probe-macos.command \
+              setup-project-checkout-macos.command \
+              SOURCE_COMMIT.txt \
+              > CHECKSUMS.sha256
+          )
+          (
+            cd dist
+            zip -q -r "$KIT_NAME.zip" "$KIT_NAME"
+          )
+      - name: Upload self-contained kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: starsector-preflight-audio-decoder-probe-kit-macos
+          path: dist/starsector-preflight-audio-decoder-probe-kit-macos.zip
+          if-no-files-found: error
+          retention-days: 14
