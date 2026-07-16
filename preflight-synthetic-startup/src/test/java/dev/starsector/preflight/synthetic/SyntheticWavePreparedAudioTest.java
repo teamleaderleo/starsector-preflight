@@ -33,10 +33,10 @@ class SyntheticWavePreparedAudioTest {
         PreparedAudio second = SyntheticWavePreparedAudio.decode(source, provider.sha256());
 
         assertEquals(PreparedAudio.Policy.FULLY_DECODED_EFFECT, first.policy());
-        assertEquals(PreparedAudio.PcmEncoding.PCM_SIGNED, first.pcmEncoding());
+        assertEquals(PreparedAudio.PcmEncoding.PCM_SIGNED, first.encoding());
         assertEquals(PreparedAudio.ByteOrder.LITTLE_ENDIAN, first.byteOrder());
         assertEquals(16, first.bitsPerSample());
-        assertEquals(22_050, first.sampleRate());
+        assertEquals(22_050, first.sampleRateHz());
         assertEquals(2, first.channels());
         assertEquals(64, first.frameCount());
         assertEquals(128, first.sampleCount());
