@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   build-kit:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: ${{ true }}
     runs-on: ubuntu-latest
     env:
       KIT_NAME: starsector-preflight-audio-decoder-probe-kit-macos
