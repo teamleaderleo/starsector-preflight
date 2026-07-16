@@ -23,6 +23,21 @@ jobs:
           cache: maven
       - name: Apply review edits
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply_sound_contract_review_fixes.py')
+          text = path.read_text()
+          old = """    method_record = idx(lines, '    private record MethodStructure(')\n    method_json = idx(lines, '        Map<String, Object> toMap() {', method_record)"""
+          new = """    method_record = idx(lines, '    private record MethodStructure(')\n    method_end = idx(lines, '    private record FieldAccess(', method_record)\n    method_json = idx(lines, '        Map<String, Object> toMap() {', method_record, method_end)"""
+          if text.count(old) != 1:
+              raise SystemExit('MethodStructure search anchor changed')
+          text = text.replace(old, new, 1)
+          old = """    flow_record = idx(lines, '    private record FlowPoint(')\n    flow_json = idx(lines, '        Map<String, Object> toMap() {', flow_record)"""
+          new = """    flow_record = idx(lines, '    private record FlowPoint(')\n    flow_end = idx(lines, '    private record StructuralAnalysis(', flow_record)\n    flow_json = idx(lines, '        Map<String, Object> toMap() {', flow_record, flow_end)"""
+          if text.count(old) != 1:
+              raise SystemExit('FlowPoint search anchor changed')
+          path.write_text(text.replace(old, new, 1))
+          PY
           python3 tools/apply_sound_contract_review_fixes.py
           git diff --check
       - name: Verify focused collector and packaged agent
