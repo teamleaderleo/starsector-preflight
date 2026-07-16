@@ -35,6 +35,7 @@ public final class AppCdsCapabilityDetector {
     private static final int MAX_PROCESS_OUTPUT_BYTES = 64 * 1024;
     private static final int MAX_DETAIL_CHARS = 4 * 1024;
     private static final int MAX_CLASS_BYTES = 1024 * 1024;
+    private static final long MAX_JAVA_EXECUTABLE_BYTES = 64L * 1024L * 1024L;
     private static final long MAX_ARCHIVE_BYTES = 256L * 1024L * 1024L;
     private static final Duration PROCESS_SHUTDOWN_GRACE = Duration.ofSeconds(2);
 
@@ -48,46 +49,113 @@ public final class AppCdsCapabilityDetector {
         ERROR
     }
 
-    public record Result(
-            Status status,
-            Path javaExecutable,
-            String detail,
-            int generationExitCode,
-            int consumptionExitCode,
-            boolean outputTruncated,
-            long proofArchiveBytes,
-            String proofArchiveSha256) {
-        public Result {
-            Objects.requireNonNull(status, "status");
-            javaExecutable = javaExecutable == null ? null : javaExecutable.toAbsolutePath().normalize();
-            detail = boundedDetail(detail == null ? "" : detail);
-            proofArchiveSha256 = proofArchiveSha256 == null ? "" : proofArchiveSha256;
-            if (proofArchiveBytes < 0) throw new IllegalArgumentException("proofArchiveBytes must be non-negative");
+    /** Immutable detector output. Instances can only be created by the detector. */
+    public static final class Result {
+        private final Status status;
+        private final JavaIdentity javaIdentity;
+        private final String detail;
+        private final int generationExitCode;
+        private final int consumptionExitCode;
+        private final boolean outputTruncated;
+        private final long proofArchiveBytes;
+        private final String proofArchiveSha256;
+
+        private Result(
+                Status status,
+                JavaIdentity javaIdentity,
+                String detail,
+                int generationExitCode,
+                int consumptionExitCode,
+                boolean outputTruncated,
+                long proofArchiveBytes,
+                String proofArchiveSha256) {
+            this.status = Objects.requireNonNull(status, "status");
+            if (status == Status.SUPPORTED && javaIdentity == null) {
+                throw new IllegalArgumentException("A supported result requires an exact Java identity");
+            }
+            if (proofArchiveBytes < 0) {
+                throw new IllegalArgumentException("proofArchiveBytes must be non-negative");
+            }
+            this.javaIdentity = javaIdentity;
+            this.detail = boundedDetail(detail == null ? "" : detail);
+            this.generationExitCode = generationExitCode;
+            this.consumptionExitCode = consumptionExitCode;
+            this.outputTruncated = outputTruncated;
+            this.proofArchiveBytes = proofArchiveBytes;
+            this.proofArchiveSha256 = proofArchiveSha256 == null ? "" : proofArchiveSha256;
+        }
+
+        public Status status() {
+            return status;
+        }
+
+        public Path javaExecutable() {
+            return javaIdentity == null ? null : javaIdentity.path();
+        }
+
+        public long javaExecutableBytes() {
+            return javaIdentity == null ? 0 : javaIdentity.bytes();
+        }
+
+        public long javaExecutableModifiedMillis() {
+            return javaIdentity == null ? 0 : javaIdentity.modifiedMillis();
+        }
+
+        public String javaExecutableSha256() {
+            return javaIdentity == null ? "" : javaIdentity.sha256();
+        }
+
+        public String detail() {
+            return detail;
+        }
+
+        public int generationExitCode() {
+            return generationExitCode;
+        }
+
+        public int consumptionExitCode() {
+            return consumptionExitCode;
+        }
+
+        public boolean outputTruncated() {
+            return outputTruncated;
+        }
+
+        public long proofArchiveBytes() {
+            return proofArchiveBytes;
+        }
+
+        public String proofArchiveSha256() {
+            return proofArchiveSha256;
         }
 
         public boolean supported() {
-            return status == Status.SUPPORTED;
+            return status == Status.SUPPORTED && javaIdentity != null;
         }
 
         /** Flags for a training launch that creates an application archive. */
-        public List<String> archiveCreationArguments(Path archive) {
-            if (!supported()) return List.of();
+        public List<String> archiveCreationArguments(Path launchJavaExecutable, Path archive) {
+            if (!supportsExactJava(launchJavaExecutable)) return List.of();
             Path safeArchive = safeCreationTarget(archive);
             if (safeArchive == null) return List.of();
             return List.of(XSHARE_ON, ARCHIVE_AT_EXIT_PREFIX + safeArchive);
         }
 
         /** Flags for a launch that consumes an already-created application archive. */
-        public List<String> archiveConsumptionArguments(Path archive) {
-            if (!supported()) return List.of();
+        public List<String> archiveConsumptionArguments(Path launchJavaExecutable, Path archive) {
+            if (!supportsExactJava(launchJavaExecutable)) return List.of();
             Path safeArchive = safeExistingArchive(archive);
             if (safeArchive == null) return List.of();
             return List.of(XSHARE_ON, SHARED_ARCHIVE_PREFIX + safeArchive);
         }
+
+        private boolean supportsExactJava(Path launchJavaExecutable) {
+            return supported() && javaIdentity.matches(launchJavaExecutable);
+        }
     }
 
     public static Result detect(Path javaExecutable, Path workDirectory, Duration timeout) {
-        Path resolvedJava = null;
+        JavaIdentity javaIdentity = null;
         Path probeDirectory = null;
         try {
             Objects.requireNonNull(javaExecutable, "javaExecutable");
@@ -96,15 +164,13 @@ public final class AppCdsCapabilityDetector {
             long timeoutMillis = timeout.toMillis();
             if (timeoutMillis <= 0) throw new IllegalArgumentException("timeout must be positive");
 
-            resolvedJava = javaExecutable.toRealPath();
-            if (!Files.isRegularFile(resolvedJava, LinkOption.NOFOLLOW_LINKS)) {
-                return failure(Status.ERROR, resolvedJava, "Java executable is not a regular file", -1, -1, false);
-            }
+            javaIdentity = JavaIdentity.capture(javaExecutable);
+            Path resolvedJava = javaIdentity.path();
 
             Files.createDirectories(workDirectory);
             Path resolvedWork = workDirectory.toRealPath();
             if (!Files.isDirectory(resolvedWork, LinkOption.NOFOLLOW_LINKS)) {
-                return failure(Status.ERROR, resolvedJava, "Probe work path is not a directory", -1, -1, false);
+                return failure(Status.ERROR, javaIdentity, "Probe work path is not a directory", -1, -1, false);
             }
             probeDirectory = Files.createTempDirectory(resolvedWork, "appcds-capability-");
             Path probeJar = probeDirectory.resolve("probe.jar");
@@ -118,25 +184,27 @@ public final class AppCdsCapabilityDetector {
                     "-jar",
                     probeJar.toString()), timeoutMillis);
             if (generation.timedOut()) {
-                return failure(Status.TIMED_OUT, resolvedJava, "Archive creation timed out", -1, -1, generation.truncated());
+                return failure(Status.TIMED_OUT, javaIdentity, "Archive creation timed out", -1, -1,
+                        generation.truncated());
             }
             if (generation.exitCode() != 0) {
-                return failure(classifyFailure(generation.output()), resolvedJava,
+                return failure(classifyFailure(generation.output()), javaIdentity,
                         "Archive creation failed: " + generation.output(), generation.exitCode(), -1,
                         generation.truncated());
             }
             if (generation.truncated()) {
-                return failure(Status.ERROR, resolvedJava, "Archive creation output exceeded its limit",
+                return failure(Status.ERROR, javaIdentity, "Archive creation output exceeded its limit",
                         generation.exitCode(), -1, true);
             }
             if (Files.isSymbolicLink(archive)
                     || !Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)) {
-                return failure(Status.ERROR, resolvedJava, "Archive creation produced no regular archive",
+                return failure(Status.ERROR, javaIdentity, "Archive creation produced no regular archive",
                         generation.exitCode(), -1, false);
             }
             long archiveBytes = Files.size(archive);
             if (archiveBytes <= 0 || archiveBytes > MAX_ARCHIVE_BYTES) {
-                return failure(Status.ERROR, resolvedJava, "Archive size was outside the allowed range: " + archiveBytes,
+                return failure(Status.ERROR, javaIdentity,
+                        "Archive size was outside the allowed range: " + archiveBytes,
                         generation.exitCode(), -1, false);
             }
             String archiveSha256 = sha256Bounded(archive, MAX_ARCHIVE_BYTES);
@@ -148,32 +216,37 @@ public final class AppCdsCapabilityDetector {
                     "-jar",
                     probeJar.toString()), timeoutMillis);
             if (consumption.timedOut()) {
-                return new Result(Status.TIMED_OUT, resolvedJava, "Archive consumption timed out",
+                return new Result(Status.TIMED_OUT, javaIdentity, "Archive consumption timed out",
                         generation.exitCode(), -1, consumption.truncated(), archiveBytes, archiveSha256);
             }
             if (consumption.exitCode() != 0) {
-                return new Result(classifyFailure(consumption.output()), resolvedJava,
+                return new Result(classifyFailure(consumption.output()), javaIdentity,
                         "Archive consumption failed: " + consumption.output(), generation.exitCode(),
                         consumption.exitCode(), consumption.truncated(), archiveBytes, archiveSha256);
             }
             if (consumption.truncated()) {
-                return new Result(Status.ERROR, resolvedJava, "Archive consumption output exceeded its limit",
+                return new Result(Status.ERROR, javaIdentity, "Archive consumption output exceeded its limit",
                         generation.exitCode(), consumption.exitCode(), true, archiveBytes, archiveSha256);
             }
             if (!consumption.output().contains(AppCdsProbeMain.MARKER)) {
-                return new Result(Status.ERROR, resolvedJava, "Archive consumption omitted the probe marker",
+                return new Result(Status.ERROR, javaIdentity, "Archive consumption omitted the probe marker",
                         generation.exitCode(), consumption.exitCode(), false, archiveBytes, archiveSha256);
             }
-            return new Result(Status.SUPPORTED, resolvedJava, "Dynamic AppCDS archive creation and consumption succeeded",
+            if (!javaIdentity.matches(resolvedJava)) {
+                return new Result(Status.ERROR, javaIdentity, "Java executable identity changed during probing",
+                        generation.exitCode(), consumption.exitCode(), false, archiveBytes, archiveSha256);
+            }
+            return new Result(Status.SUPPORTED, javaIdentity,
+                    "Dynamic AppCDS archive creation and consumption succeeded",
                     generation.exitCode(), consumption.exitCode(), false, archiveBytes, archiveSha256);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            return failure(Status.ERROR, resolvedJava, "Capability detection was interrupted", -1, -1, false);
+            return failure(Status.ERROR, javaIdentity, "Capability detection was interrupted", -1, -1, false);
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
         } catch (IOException | RuntimeException error) {
-            return failure(Status.ERROR, resolvedJava, error.getClass().getSimpleName() + ": " + error.getMessage(),
-                    -1, -1, false);
+            return failure(Status.ERROR, javaIdentity,
+                    error.getClass().getSimpleName() + ": " + error.getMessage(), -1, -1, false);
         } finally {
             deleteRecursively(probeDirectory);
         }
@@ -181,12 +254,12 @@ public final class AppCdsCapabilityDetector {
 
     private static Result failure(
             Status status,
-            Path javaExecutable,
+            JavaIdentity javaIdentity,
             String detail,
             int generationExitCode,
             int consumptionExitCode,
             boolean truncated) {
-        return new Result(status, javaExecutable, detail, generationExitCode, consumptionExitCode, truncated, 0, "");
+        return new Result(status, javaIdentity, detail, generationExitCode, consumptionExitCode, truncated, 0, "");
     }
 
     private static Status classifyFailure(String output) {
@@ -342,6 +415,43 @@ public final class AppCdsCapabilityDetector {
             });
         } catch (IOException ignored) {
             // Probe cleanup is best effort and never changes capability classification.
+        }
+    }
+
+    private record JavaIdentity(Path path, long bytes, long modifiedMillis, String sha256) {
+        private JavaIdentity {
+            path = path.toAbsolutePath().normalize();
+            if (bytes <= 0 || bytes > MAX_JAVA_EXECUTABLE_BYTES) {
+                throw new IllegalArgumentException("Java executable size is outside the allowed range");
+            }
+            Objects.requireNonNull(sha256, "sha256");
+        }
+
+        private static JavaIdentity capture(Path executable) throws IOException {
+            Path real = executable.toRealPath();
+            if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("Java executable is not a regular file: " + real);
+            }
+            long bytes = Files.size(real);
+            if (bytes <= 0 || bytes > MAX_JAVA_EXECUTABLE_BYTES) {
+                throw new IOException("Java executable size is outside the allowed range: " + bytes);
+            }
+            long modifiedMillis = Files.getLastModifiedTime(real, LinkOption.NOFOLLOW_LINKS).toMillis();
+            return new JavaIdentity(real, bytes, modifiedMillis, sha256Bounded(real, MAX_JAVA_EXECUTABLE_BYTES));
+        }
+
+        private boolean matches(Path candidate) {
+            if (candidate == null) return false;
+            try {
+                Path real = candidate.toRealPath();
+                if (!path.equals(real)) return false;
+                if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) return false;
+                if (Files.size(real) != bytes) return false;
+                if (Files.getLastModifiedTime(real, LinkOption.NOFOLLOW_LINKS).toMillis() != modifiedMillis) return false;
+                return sha256.equals(sha256Bounded(real, MAX_JAVA_EXECUTABLE_BYTES));
+            } catch (IOException | RuntimeException error) {
+                return false;
+            }
         }
     }
 
