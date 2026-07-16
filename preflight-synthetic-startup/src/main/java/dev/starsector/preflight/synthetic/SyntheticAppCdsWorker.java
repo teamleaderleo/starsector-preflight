@@ -38,9 +38,16 @@ public final class SyntheticAppCdsWorker {
                 Duration.ofSeconds(20));
 
         Path applicationArchive = workRoot.resolve("application.jsa");
-        List<String> creationArguments = result.archiveCreationArguments(applicationArchive);
+        List<String> creationArguments = result.archiveCreationArguments(java, applicationArchive);
         Files.write(applicationArchive, new byte[] {1});
-        List<String> consumptionArguments = result.archiveConsumptionArguments(applicationArchive);
+        List<String> consumptionArguments = result.archiveConsumptionArguments(java, applicationArchive);
+
+        Path copiedJava = workRoot.resolve(java.getFileName().toString());
+        Files.copy(java, copiedJava);
+        List<String> copiedJavaCreationArguments = result.archiveCreationArguments(
+                copiedJava, workRoot.resolve("copied-java.jsa"));
+        List<String> copiedJavaConsumptionArguments = result.archiveConsumptionArguments(
+                copiedJava, applicationArchive);
 
         AppCdsCapabilityDetector.Result missingExecutable = AppCdsCapabilityDetector.detect(
                 workRoot.resolve("missing-java"),
@@ -52,6 +59,8 @@ public final class SyntheticAppCdsWorker {
         report.put("processId", ProcessHandle.current().pid());
         report.put("status", result.status());
         report.put("supported", result.supported());
+        report.put("javaExecutableBytes", result.javaExecutableBytes());
+        report.put("javaExecutableSha256", result.javaExecutableSha256());
         report.put("generationExitCode", result.generationExitCode());
         report.put("consumptionExitCode", result.consumptionExitCode());
         report.put("outputTruncated", result.outputTruncated());
@@ -61,11 +70,13 @@ public final class SyntheticAppCdsWorker {
         report.put("creationArguments", creationArguments);
         report.put("consumptionArgumentCount", consumptionArguments.size());
         report.put("consumptionArguments", consumptionArguments);
+        report.put("copiedJavaCreationArgumentCount", copiedJavaCreationArguments.size());
+        report.put("copiedJavaConsumptionArgumentCount", copiedJavaConsumptionArguments.size());
         report.put("missingExecutableStatus", missingExecutable.status());
         report.put("missingCreationArgumentCount", missingExecutable.archiveCreationArguments(
-                workRoot.resolve("never-created.jsa")).size());
+                java, workRoot.resolve("never-created.jsa")).size());
         report.put("missingConsumptionArgumentCount", missingExecutable.archiveConsumptionArguments(
-                applicationArchive).size());
+                java, applicationArchive).size());
         report.put("detail", result.detail());
         Files.createDirectories(reportPath.toAbsolutePath().normalize().getParent());
         Files.writeString(reportPath, Json.object(report) + System.lineSeparator(), StandardCharsets.UTF_8);
