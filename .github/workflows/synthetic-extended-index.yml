@@ -3,13 +3,30 @@ name: Synthetic extended index tests
 on:
   push:
     branches: [main]
+    paths:
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/pom.xml'
+      - 'pom.xml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/pom.xml'
+      - 'pom.xml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tiny:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -41,8 +58,10 @@ jobs:
           name: synthetic-extended-index-tiny-${{ matrix.os }}
           path: synthetic-extended-index-tiny.log
           if-no-files-found: error
+          retention-days: 7
 
   medium:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,3 +90,4 @@ jobs:
           name: synthetic-extended-index-medium-ubuntu
           path: synthetic-extended-index-medium.log
           if-no-files-found: error
+          retention-days: 7
