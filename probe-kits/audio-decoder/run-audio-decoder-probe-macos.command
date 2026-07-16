@@ -21,7 +21,6 @@ if ! command -v java >/dev/null 2>&1; then
     exit 2
 fi
 
-LAUNCH_ARGS=("$@")
 HAS_EXPLICIT_PATH=false
 for ARG in "$@"; do
     case "$ARG" in
@@ -39,7 +38,7 @@ if [ "$HAS_EXPLICIT_PATH" = false ]; then
         "$HOME/Applications/starsector.app" \
         "$HOME/Games/Starsector.app"; do
         if [ -d "$CANDIDATE" ]; then
-            LAUNCH_ARGS=(--game "$CANDIDATE" "${LAUNCH_ARGS[@]}")
+            set -- --game "$CANDIDATE" "$@"
             HAS_EXPLICIT_PATH=true
             break
         fi
@@ -57,7 +56,7 @@ APPLESCRIPT
 )
     if [ -n "$SELECTED_APP" ]; then
         SELECTED_APP=${SELECTED_APP%/}
-        LAUNCH_ARGS=(--game "$SELECTED_APP" "${LAUNCH_ARGS[@]}")
+        set -- --game "$SELECTED_APP" "$@"
         HAS_EXPLICIT_PATH=true
     fi
 fi
@@ -71,10 +70,10 @@ printf '%s\n' "  1. Reach the main menu and let the music play for about 30 seco
 printf '%s\n' "  2. Load a representative save or start a campaign."
 printf '%s\n' "  3. Trigger several UI or combat sound effects."
 printf '%s\n' "  4. Exit Starsector normally."
-printf '\n%s\n' "Resolved launch arguments: ${LAUNCH_ARGS[*]}"
+printf '\n%s\n' "Resolved launch arguments: $*"
 printf '\n'
 
-java -jar "$JAR" run --adapter-probe --trace-dir "$OUT" "${LAUNCH_ARGS[@]}" 2>&1 | tee "$CONSOLE"
+java -jar "$JAR" run --adapter-probe --trace-dir "$OUT" "$@" 2>&1 | tee "$CONSOLE"
 STATUS=${PIPESTATUS[0]}
 
 mkdir -p "$RESULTS"
