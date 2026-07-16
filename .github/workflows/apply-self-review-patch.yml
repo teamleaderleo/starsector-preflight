@@ -1,0 +1,46 @@
+name: Apply self-review patch
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Apply checked review patch
+        run: |
+          git apply --check self-review-sound-contract.patch
+          git apply self-review-sound-contract.patch
+          rm self-review-sound-contract.patch
+          rm .github/workflows/apply-self-review-patch.yml
+      - name: Verify focused collector and packaged agent
+        run: >-
+          mvn --batch-mode --no-transfer-progress
+          -pl preflight-agent,preflight-cli -am
+          -Dtest=SoundLoaderContractReportTest,AudioDecoderSignatureReportTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
+          -Dit.test=AdapterAgentIT
+          -Dsurefire.failIfNoSpecifiedTests=false
+          verify
+      - name: Verify full reactor
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Commit review fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: harden sound-contract bounds and ASM isolation'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
