@@ -15,9 +15,12 @@ shipped decoder and it does not wire a live decoder adapter.
 | `mono-22050-opus.ogg` | 484 | `d799bf51d2f8e4b81db45c636db59eabc619de2bf97256f8cb7709a35ca06831` | valid Ogg/Opus, ineligible for the Vorbis path |
 
 Binary fixtures are stored as Base64 text so repository connector writes remain
-text-only. The larger stereo PCM reference is split into numbered parts; tests
-concatenate the encoded text before decoding and verify the final byte count and
-SHA-256.
+text-only. Both Vorbis containers and the larger stereo PCM reference are split
+into numbered parts. The focused workflow verifies each encoded Ogg part against
+`encoded-ogg-parts.sha256` before Maven runs; tests then concatenate the encoded
+text and verify the final decoded byte count and SHA-256. `.gitattributes` forces
+LF line endings for fixture text so raw part identities stay identical on Linux,
+macOS, and Windows.
 
 ## Reference generation
 
