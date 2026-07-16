@@ -5,8 +5,9 @@ public final class SyntheticLauncher {
     private SyntheticLauncher() {
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         new org.newdawn.slick.openal.OggDecoder().reset();
-        System.out.println("synthetic-starsector-launcher");
+        int sampleRate = new com.fs.starfarer.loading.A().load();
+        System.out.println("synthetic-starsector-launcher:" + sampleRate);
     }
 }
