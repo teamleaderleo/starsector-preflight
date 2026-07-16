@@ -140,10 +140,7 @@ class OggVorbisGoldenFixtureTest {
     @Test
     void everyTruncatedFirstPageFailsWithoutThrowingOrBecomingEligible() throws Exception {
         byte[] original = fixture("stereo-44100.ogg");
-        int firstPageBytes = 27 + Byte.toUnsignedInt(original[26]);
-        for (int i = 27; i < firstPageBytes; i++) {
-            firstPageBytes += Byte.toUnsignedInt(original[i]);
-        }
+        int firstPageBytes = firstPageLength(original);
         for (int length = 0; length < firstPageBytes; length++) {
             OggVorbisIdentification.Result result = OggVorbisIdentification.inspect(
                     Arrays.copyOf(original, length));
@@ -216,13 +213,18 @@ class OggVorbisGoldenFixtureTest {
         assertEquals(0, result.largeBlockSize());
     }
 
-    private static void rewriteFirstPageChecksum(byte[] ogg) {
-        assertNotNull(ogg);
+    private static int firstPageLength(byte[] ogg) {
         int segmentCount = Byte.toUnsignedInt(ogg[26]);
         int pageLength = 27 + segmentCount;
         for (int i = 0; i < segmentCount; i++) {
             pageLength += Byte.toUnsignedInt(ogg[27 + i]);
         }
+        return pageLength;
+    }
+
+    private static void rewriteFirstPageChecksum(byte[] ogg) {
+        assertNotNull(ogg);
+        int pageLength = firstPageLength(ogg);
         ogg[22] = 0;
         ogg[23] = 0;
         ogg[24] = 0;
