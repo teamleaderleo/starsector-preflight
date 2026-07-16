@@ -23,8 +23,11 @@ class AdapterAgentIT {
     void packagedAgentProbesCandidateAndPreservesOriginalClass() throws Exception {
         Path recording = temporaryDirectory.resolve("startup.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
+        Path codeReport = temporaryDirectory.resolve("adapter-code-loader-signatures.json");
+        Path janinoReport = temporaryDirectory.resolve("adapter-janino-loader-contract.json");
         Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
         Path soundReport = temporaryDirectory.resolve("adapter-sound-loader-contract.json");
+        Path textureReport = temporaryDirectory.resolve("adapter-texture-loader-contract.json");
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapter=probe,adapterReport64=" + encoded(adapterReport);
 
@@ -36,13 +39,33 @@ class AdapterAgentIT {
         assertTrue(result.output().contains("synthetic-starsector-launcher"), result.output());
         assertTrue(Files.isRegularFile(recording), result.output());
         assertTrue(Files.isRegularFile(adapterReport), result.output());
+        assertTrue(Files.isRegularFile(codeReport), result.output());
+        assertTrue(Files.isRegularFile(janinoReport), result.output());
         assertTrue(Files.isRegularFile(audioReport), result.output());
         assertTrue(Files.isRegularFile(soundReport), result.output());
+        assertTrue(Files.isRegularFile(textureReport), result.output());
         String json = Files.readString(adapterReport);
         assertTrue(json.contains("\"mode\":\"PROBE\""), json);
         assertTrue(json.contains("com/fs/starfarer/SyntheticLauncher"), json);
         assertTrue(json.contains("\"transformationsApplied\":0"), json);
         assertTrue(json.contains("\"containedFailures\":0"), json);
+
+        String codeJson = Files.readString(codeReport);
+        assertTrue(codeJson.contains("starsector-preflight-code-loader-signatures-v1"), codeJson);
+        assertTrue(codeJson.contains("org/codehaus/janino/JavaSourceClassLoader"), codeJson);
+        assertTrue(codeJson.contains("\"retainedIdentities\":0"), codeJson);
+        assertTrue(codeJson.contains("\"liveTransformationEligible\":false"), codeJson);
+        assertTrue(codeJson.contains("\"requiresHumanReview\":true"), codeJson);
+
+        String janinoJson = Files.readString(janinoReport);
+        assertTrue(janinoJson.contains("starsector-preflight-bytecode-shape-v1"), janinoJson);
+        assertTrue(janinoJson.contains("installed-janino-complete-map-shape-v1"), janinoJson);
+        assertTrue(janinoJson.contains("\"captured\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"classBytesIncluded\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"transformationPlanGenerated\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"cacheReadsEnabled\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"cacheWritesEnabled\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"requiresHumanReview\":true"), janinoJson);
 
         String audioJson = Files.readString(audioReport);
         assertTrue(audioJson.contains("starsector-preflight-audio-decoder-signatures-v1"), audioJson);
@@ -73,14 +96,26 @@ class AdapterAgentIT {
         assertTrue(soundJson.contains("\"cacheWritesEnabled\":false"), soundJson);
         assertTrue(soundJson.contains("\"requiresHumanReview\":true"), soundJson);
         assertFalse(soundJson.contains("packaged-repository-owned-sound-contract-literal"), soundJson);
+
+        String textureJson = Files.readString(textureReport);
+        assertTrue(textureJson.contains("starsector-preflight-bytecode-shape-v1"), textureJson);
+        assertTrue(textureJson.contains("vanilla-texture-loader-upload-shape-v1"), textureJson);
+        assertTrue(textureJson.contains("\"captured\":false"), textureJson);
+        assertTrue(textureJson.contains("\"classBytesIncluded\":false"), textureJson);
+        assertTrue(textureJson.contains("\"stringConstantsIncluded\":false"), textureJson);
+        assertTrue(textureJson.contains("\"automaticRewriteGenerated\":false"), textureJson);
+        assertTrue(textureJson.contains("\"requiresHumanReview\":true"), textureJson);
     }
 
     @Test
     void profilerOnlyLaunchDoesNotCreateAdapterReport() throws Exception {
         Path recording = temporaryDirectory.resolve("profile-only.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
+        Path codeReport = temporaryDirectory.resolve("adapter-code-loader-signatures.json");
+        Path janinoReport = temporaryDirectory.resolve("adapter-janino-loader-contract.json");
         Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
         Path soundReport = temporaryDirectory.resolve("adapter-sound-loader-contract.json");
+        Path textureReport = temporaryDirectory.resolve("adapter-texture-loader-contract.json");
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapterReport64=" + encoded(adapterReport);
 
@@ -90,8 +125,11 @@ class AdapterAgentIT {
         assertEquals(0, result.exitCode(), result.output());
         assertTrue(Files.isRegularFile(recording), result.output());
         assertFalse(Files.exists(adapterReport), result.output());
+        assertFalse(Files.exists(codeReport), result.output());
+        assertFalse(Files.exists(janinoReport), result.output());
         assertFalse(Files.exists(audioReport), result.output());
         assertFalse(Files.exists(soundReport), result.output());
+        assertFalse(Files.exists(textureReport), result.output());
     }
 
     private static void assertAsmIsRelocated() throws Exception {

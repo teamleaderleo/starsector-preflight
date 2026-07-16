@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SOURCE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-RUNNER="$SOURCE_ROOT/probe-kits/audio-decoder/run-audio-decoder-probe-macos.command"
+RUNNER="$SOURCE_ROOT/probe-kits/audio-decoder/run-startup-contract-probe-macos.command"
 
 bash -n "$RUNNER"
 
@@ -17,8 +17,8 @@ CAPTURE_PWD="$TEMP/java-pwd.txt"
 CAPTURE_ARGS="$TEMP/java-args.txt"
 
 mkdir -p "$KIT" "$FAKE_HOME/Library/Daemon Containers" "$FAKE_BIN" "$FAKE_APP"
-cp "$RUNNER" "$KIT/run-audio-decoder-probe-macos.command"
-chmod +x "$KIT/run-audio-decoder-probe-macos.command"
+cp "$RUNNER" "$KIT/run-startup-contract-probe-macos.command"
+chmod +x "$KIT/run-startup-contract-probe-macos.command"
 printf 'not-a-real-jar\n' > "$KIT/preflight.jar"
 printf 'test-source\n' > "$KIT/SOURCE_COMMIT.txt"
 
@@ -39,9 +39,9 @@ HOME="$FAKE_HOME" \
 CAPTURE_PWD="$CAPTURE_PWD" \
 CAPTURE_ARGS="$CAPTURE_ARGS" \
 bash -c 'cd "$HOME" && "$1"' _ \
-    "$KIT/run-audio-decoder-probe-macos.command"
+    "$KIT/run-startup-contract-probe-macos.command"
 
 [ "$(cat "$CAPTURE_PWD")" = "$KIT" ]
 grep -Fx -- '--game' "$CAPTURE_ARGS" >/dev/null
 grep -Fx -- "$FAKE_APP" "$CAPTURE_ARGS" >/dev/null
-find "$KIT" -maxdepth 1 -name 'audio-decoder-probe-results-*.zip' -type f | grep . >/dev/null
+find "$KIT" -maxdepth 1 -name 'startup-contract-probe-results-*.zip' -type f | grep . >/dev/null

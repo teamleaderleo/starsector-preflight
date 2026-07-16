@@ -1,4 +1,4 @@
-STARSECTOR PREFLIGHT — REAL-INSTALL AUDIO AND SOUND-LOADER PROBE KIT
+STARSECTOR PREFLIGHT — UNIFIED REAL-INSTALL STARTUP CONTRACT PROBE KIT
 
 What this kit does
 ------------------
@@ -6,23 +6,31 @@ This is a self-contained read-only probe for macOS. The verified preflight.jar i
 included in the downloaded kit. You do not need to clone the repository, install
 Maven, or build anything before running the probe.
 
-The probe records exact loaded JOrbis and Jogg class identities, method
-descriptors, source archive hashes, and defining classloaders. It also records a
-separate bounded contract report for these exact Starsector wrapper classes:
+One ordinary Starsector launch collects the evidence needed to review the three
+largest observed startup CPU domains and the surrounding loading path:
 
-  sound/J
-  sound/F
-  sound/ooOO
-  sound/D
-  sound/Sound
-  sound/void
-  com/fs/starfarer/loading/A
+  1. Texture and image loading
+     - exact com/fs/graphics/TextureLoader class, source, archive, and loader identity
+     - bounded opcode/instruction fingerprints for the reviewed methods
+     - field accesses, call edges, exception regions, constants, and dataflow frames
 
-For the primary sound/J.o00000(InputStream) -> sound/F seam and its observed
-consumers, the report includes bounded field accesses, call and constructor
-edges, exception regions, and selected ASM dataflow frames. Literal strings are
-stored only as length plus SHA-256. The original class bytes remain active.
-Prepared-audio writes and live audio transformations remain disabled.
+  2. Janino-generated code
+     - exact installed Janino and commons-compiler class identities
+     - method descriptors, source archive hashes, and defining loader identity
+     - a separate bounded contract for JavaSourceClassLoader.generateBytecodes,
+       defineBytecode, and findClass at the preferred complete-map seam
+     - startup JFR and attribution summaries for compiler, file, resource, and
+       class-definition work from the same launch
+
+  3. Audio decoding and Starsector sound wrappers
+     - exact Jogg/JOrbis identities and source archive hashes
+     - bounded contracts for sound/J, sound/F, sound/ooOO, sound/D, sound/Sound,
+       sound/void, and com/fs/starfarer/loading/A
+     - field, call, constructor, exception, and selected dataflow evidence
+
+The probe also packages the normal adapter candidate report, analyzed startup
+summary, run metadata, and profile report. The original class bytes remain active.
+No transformation plan, prepared cache read, or prepared cache write is enabled.
 
 Run the probe
 -------------
@@ -30,13 +38,13 @@ Run the probe
 2. Open the unzipped folder.
 3. Double-click:
 
-     run-audio-decoder-probe-macos.command
+     run-startup-contract-probe-macos.command
 
 If macOS blocks the downloaded script, Control-click it and choose Open. You can
 also open Terminal in the folder and run:
 
-  chmod +x run-audio-decoder-probe-macos.command
-  ./run-audio-decoder-probe-macos.command
+  chmod +x run-startup-contract-probe-macos.command
+  ./run-startup-contract-probe-macos.command
 
 The runner first checks the normal macOS Starsector application locations. If it
 cannot find the application there, it opens an application picker. The runner
@@ -46,28 +54,77 @@ folders under ~/Library.
 
 You can still provide the path explicitly:
 
-  ./run-audio-decoder-probe-macos.command --game "/Applications/Starsector.app"
+  ./run-startup-contract-probe-macos.command --game "/Applications/Starsector.app"
 
 During the Starsector run
 -------------------------
-1. Reach the main menu and let its music play for about 30 seconds.
-2. Load a representative save or start a campaign.
-3. Trigger several UI or combat sound effects.
-4. Exit Starsector normally.
+Use the game normally, while making sure the major startup paths execute:
 
+1. Reach the main menu and let its music play for about 30 seconds.
+2. Load the representative save or campaign you normally use.
+3. Open several UI, intel, fleet, colony, or refit screens.
+4. Trigger several UI or combat sound effects.
+5. Wait until the campaign is fully responsive, then exit Starsector normally.
+
+Do not change the enabled mod order or edit the installation solely for the probe.
+The goal is to capture the profile whose startup behavior you actually want to
+improve.
+
+Result ZIP
+----------
 After the game exits, the script automatically creates and reveals:
 
-  audio-decoder-probe-results-YYYYMMDD-HHMMSS.zip
+  startup-contract-probe-results-YYYYMMDD-HHMMSS.zip
 
 Upload that generated results ZIP. Do not upload this kit ZIP again.
 
-The upload ZIP contains only the bounded JSON reports, a console log, and probe
-metadata. It excludes startup.jfr, Starsector binaries, mod JARs, game assets,
-decoded sound data, and saves. The complete local run directory remains beside
-the script in case a later review specifically needs the JFR recording.
+The result ZIP normally contains:
 
-Human review remains required before the installed-JOrbis equivalence harness or
-any target-specific prepared-audio adapter can begin.
+  adapter-texture-loader-contract.json
+  adapter-janino-loader-contract.json
+  adapter-sound-loader-contract.json
+  adapter-audio-decoder-signatures.json
+  adapter-code-loader-signatures.json
+  adapter.json
+  adapter-analysis.json
+  summary.json
+  run.json
+  profile.json
+  probe-console.log
+  probe-kit-metadata.txt
+  RESULT_CHECKSUMS.sha256
+
+Raw startup JFR
+---------------
+The runner includes startup JFR files by default when their cumulative size is no
+more than 384 MiB. This gives the review exact timing, thread, stack, class-load,
+file-read, compilation, and execution-sample evidence from the same launch.
+
+JFR data can contain local paths, class names, mod names, and other runtime
+metadata. It does not intentionally package Starsector binaries, mod JARs, game
+assets, saves, or decoded audio. Review the result ZIP before sharing it outside a
+private review channel.
+
+To omit raw JFR while keeping all bounded JSON reports, run from Terminal with:
+
+  PREFLIGHT_INCLUDE_JFR=0 ./run-startup-contract-probe-macos.command
+
+If a JFR file would push the archive beyond the 384 MiB ceiling, it remains in the
+full local run directory and is listed in OMITTED_FILES.txt.
+
+What happens after review
+-------------------------
+The returned evidence will be used to write one consolidated report covering:
+
+  - measured CPU attribution and limits of wall-clock inference
+  - exact cacheable work identified for textures, generated bytecode, and audio
+  - remaining equivalence or dependency-key blockers
+  - selected fail-open integration seams
+  - ordered implementation and real A/B benchmark roadmap
+
+A successful probe does not itself enable any acceleration. Live cache consumers
+remain separate, opt-in work and require packaged tests plus real OFF-versus-ENABLED
+safety runs.
 
 Optional source checkout
 ------------------------
@@ -86,4 +143,5 @@ changes.
 Kit identity
 ------------
 SOURCE_COMMIT.txt records the exact repository commit used to build the bundled
-preflight.jar. CHECKSUMS.sha256 authenticates the files in the kit.
+preflight.jar. CHECKSUMS.sha256 authenticates the files in the kit. The generated
+result ZIP contains a separate RESULT_CHECKSUMS.sha256 for the collected evidence.
