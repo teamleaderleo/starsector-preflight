@@ -1,10 +1,10 @@
-# Audio decoder evidence collection
+# Audio decoder and sound-loader evidence collection
 
-Prepared-audio reuse for Ogg/Vorbis remains disabled until the exact decoder path used by a real Starsector build has been observed and compared with the committed PCM oracle.
+Prepared-audio reuse for Ogg/Vorbis remains disabled until the exact decoder path used by a real Starsector build has been observed, the Starsector `sound/*` wrapper contract has been reviewed, and the installed decoder has matched the committed PCM oracle.
 
 This evidence step is read-only. It does not decode or replace audio, does not modify the launcher or installation, and does not make Ogg/Vorbis inputs eligible for SPAU writes.
 
-## What the probe records
+## Decoder identity report
 
 A normal `--adapter-probe` launch writes `adapter-audio-decoder-signatures.json` beside `adapter.json`. The report observes only classes that were actually loaded during that process and whose internal names begin with one of these bounded prefixes:
 
@@ -31,7 +31,23 @@ preparedAudioWritesEligible: false
 requiresHumanReview: true
 ```
 
-An empty report means only that no matching decoder class was loaded during the observed process. It is not evidence that the game has no such decoder.
+An empty decoder report means only that no matching decoder class was loaded during the observed process.
+
+## Starsector sound-loader contract report
+
+The same probe writes `adapter-sound-loader-contract.json`. It observes only these exact internal names:
+
+- `sound/J`
+- `sound/F`
+- `sound/ooOO`
+- `sound/D`
+- `sound/Sound`
+- `sound/void`
+- `com/fs/starfarer/loading/A`
+
+The primary seam is `sound/J.o00000(Ljava/io/InputStream;)Lsound/F;`. The report retains exact class/source/archive/loader identity plus bounded field accesses, call and constructor edges, same-class calls, try/catch regions, maximum stack and locals, redacted string identities, and selected ASM dataflow frames. Literal strings appear only as length plus SHA-256.
+
+See `docs/sound-loader-contract-evidence.md` for the complete report contract and review gate.
 
 ## Build the evidence branch
 
@@ -65,7 +81,7 @@ java -jar preflight-cli/target/preflight.jar run \
   --adapter-probe
 ```
 
-Let the launch reach the main menu and allow menu music or another known Ogg/Vorbis sound to begin playing before exiting normally. Do not alter the installation merely to make a class appear.
+Let the launch reach the main menu and allow menu music or another known Ogg/Vorbis sound to begin playing before exiting normally. Use ordinary campaign and UI activity. The old decoder-identity probe already completed successfully; request a new real-install run only after the sound-loader collector is merged and a rebuilt self-contained kit is available.
 
 The run directory should contain:
 
@@ -78,12 +94,14 @@ adapter.json
 adapter-analysis.json
 adapter-code-loader-signatures.json
 adapter-audio-decoder-signatures.json
+adapter-sound-loader-contract.json
 ```
 
 ## Data to return for review
 
 Return these text files from one run:
 
+- `adapter-sound-loader-contract.json`
 - `adapter-audio-decoder-signatures.json`
 - `adapter-code-loader-signatures.json`
 - `adapter.json`
@@ -92,18 +110,21 @@ Return these text files from one run:
 - `run.json`
 - `profile.json`
 
-The JFR recording is useful when method-level behavioral correlation is needed, but it may be substantially larger. Do not send Starsector JARs, game assets, mod files, saves, credentials, or other proprietary binaries. The signature report contains hashes and metadata, not source archive contents.
+The JFR recording is useful when method-level behavioral correlation is needed, but it may be substantially larger. Do not send Starsector JARs, game assets, mod files, saves, credentials, decoded sound data, or other proprietary binaries. The reports contain hashes, metadata, and bounded structural evidence.
 
 Before sharing, inspect the JSON for local paths or mod names you consider sensitive. Installation prefixes are evidence for local review but are not required in public issue text.
 
 ## Review gate after collection
 
-The next implementation step remains blocked until review establishes all of the following:
+The installed-JOrbis equivalence phase remains blocked until review establishes all of the following:
 
-1. The actual decoder implementation class and entry method are present with exact descriptors.
-2. Its dependency classes, source archives, and defining loaders are identified without truncation.
-3. Source archive hashing succeeded or the failure is understood and resolved safely.
-4. A target-specific harness can invoke the exact shipped path without guessing constructor, stream, buffer, or error semantics.
-5. The exact path matches the committed mono and stereo Ogg fixtures for PCM bytes, encoding, byte order, sample rate, channels, frame count, and malformed or unsupported behavior.
+1. The exact decoder implementation classes, source archives, and defining loaders are present without truncation.
+2. The exact `sound/J` primary seam and its direct consumers are present with complete descriptors.
+3. The `sound/F` field and metadata contract is understood.
+4. Stream ownership, close behavior, fully decoded versus streamed policy, and object lifetime are understood.
+5. Source archive hashing succeeded or every failure is understood and resolved safely.
+6. A controlled harness can invoke the exact shipped Jogg/JOrbis path without guessing constructor, stream, buffer, or error semantics.
+7. The exact path matches the committed mono and stereo Ogg fixtures for PCM bytes, encoding, byte order, sample rate, channels, frame count, and malformed or unsupported behavior.
+8. Human review selects one fail-open interception seam.
 
-Only a later reviewed gate may make exact identities eligible for prepared-audio cache writes. Unknown, missing, changed, ambiguous, or partially observed identities must continue through the original decoder path.
+Only a later reviewed gate may make exact identities eligible for prepared-audio cache writes. Unknown, missing, changed, ambiguous, partially observed, truncated, or corrupt contexts continue through the original decoder path.
