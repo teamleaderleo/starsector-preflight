@@ -1,4 +1,4 @@
-name: Audio decoder and sound contract probe kit
+name: Unified startup contract probe kit
 
 on:
   pull_request:
@@ -33,7 +33,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     env:
-      KIT_NAME: starsector-preflight-audio-decoder-probe-kit-macos
+      KIT_NAME: starsector-preflight-startup-contract-probe-kit-macos
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -45,11 +45,11 @@ jobs:
       - name: Verify macOS runner from a home-directory working folder
         shell: bash
         run: bash probe-kits/audio-decoder/test-macos-runner.sh
-      - name: Verify packaged probe path
+      - name: Verify packaged unified probe path
         run: >-
           mvn --batch-mode --no-transfer-progress
           -pl preflight-agent,preflight-cli -am
-          -Dtest=AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
+          -Dtest=BytecodeShapeReportTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest
           -Dit.test=AdapterAgentIT
           -Dsurefire.failIfNoSpecifiedTests=false
           verify
@@ -61,7 +61,7 @@ jobs:
           mkdir -p "$ROOT"
           cp preflight-cli/target/preflight.jar "$ROOT/preflight.jar"
           cp probe-kits/audio-decoder/README.txt "$ROOT/README.txt"
-          cp probe-kits/audio-decoder/run-audio-decoder-probe-macos.command "$ROOT/"
+          cp probe-kits/audio-decoder/run-startup-contract-probe-macos.command "$ROOT/"
           cp probe-kits/audio-decoder/setup-project-checkout-macos.command "$ROOT/"
           printf '%s\n' "$SOURCE_SHA" > "$ROOT/SOURCE_COMMIT.txt"
           chmod +x "$ROOT"/*.command
@@ -70,7 +70,7 @@ jobs:
             sha256sum \
               preflight.jar \
               README.txt \
-              run-audio-decoder-probe-macos.command \
+              run-startup-contract-probe-macos.command \
               setup-project-checkout-macos.command \
               SOURCE_COMMIT.txt \
               > CHECKSUMS.sha256
@@ -82,7 +82,7 @@ jobs:
       - name: Upload self-contained kit
         uses: actions/upload-artifact@v4
         with:
-          name: starsector-preflight-audio-decoder-probe-kit-macos
-          path: dist/starsector-preflight-audio-decoder-probe-kit-macos.zip
+          name: starsector-preflight-startup-contract-probe-kit-macos
+          path: dist/starsector-preflight-startup-contract-probe-kit-macos.zip
           if-no-files-found: error
           retention-days: 14
