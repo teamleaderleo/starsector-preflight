@@ -41,11 +41,11 @@ class SyntheticExtendedResourceIndexTest {
         assertEquals(64, index.providerDigest().length());
 
         SyntheticExtendedResourceIndex.Provider shared = index.providers().get(
-                "classpath/generated/shared-000.txt");
+                "classpath/generated/shared-001.txt");
         assertEquals(SyntheticExtendedResourceIndex.Kind.LOOSE, shared.kind());
         assertArrayEquals(
-                "loose-override-12345-2\n".getBytes(StandardCharsets.UTF_8),
-                index.readBytes("classpath/generated/shared-000.txt"));
+                "loose-override-12345-1\n".getBytes(StandardCharsets.UTF_8),
+                index.readBytes("classpath/generated/shared-001.txt"));
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> index.providers().clear());
