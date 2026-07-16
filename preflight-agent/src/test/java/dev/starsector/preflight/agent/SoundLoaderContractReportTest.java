@@ -16,6 +16,7 @@ import java.security.CodeSource;
 import java.security.MessageDigest;
 import java.security.ProtectionDomain;
 import java.security.cert.Certificate;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -109,9 +110,13 @@ class SoundLoaderContractReportTest {
         assertTrue(json.contains("\"kind\":\"throw\""), json);
         assertTrue(json.contains("\"maxStack\":"), json);
         assertTrue(json.contains("\"maxLocals\":"), json);
+        assertTrue(json.contains("\"frameValueLimit\":" + SoundLoaderContractReport.FRAME_VALUE_LIMIT), json);
+        assertTrue(json.contains("\"flowPointsTruncated\":false"), json);
 
         assertFalse(json.contains(SYNTHETIC_LITERAL), json);
         assertTrue(json.contains(sha256(SYNTHETIC_LITERAL)), json);
+        assertFalse(json.contains(Base64.getEncoder().encodeToString(original)), json);
+        assertFalse(json.contains(HexFormat.of().formatHex(original)), json);
         assertTrue(json.contains("\"literalStringsIncluded\":false"), json);
         assertTrue(json.contains("\"classBytesIncluded\":false"), json);
         assertTrue(json.contains("\"bytecodeListingsIncluded\":false"), json);
