@@ -7,8 +7,6 @@ import dev.starsector.preflight.core.Hashes;
 import dev.starsector.preflight.core.Json;
 import dev.starsector.preflight.core.PreparedAudio;
 import dev.starsector.preflight.core.PreparedAudioCache;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
@@ -19,10 +17,8 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,9 +26,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Separate-process extended workload using the production SPAU and SPJB cache implementations. */
 public final class SyntheticProductionCacheWorker {
     private static final int MAX_IMPLEMENTATION_BYTES = 1024 * 1024;
+    private static final int MAX_CLASSPATH_BYTES = 1024 * 1024;
     private static final long MAX_JAVA_EXECUTABLE_BYTES = 64L * 1024L * 1024L;
     private static final String BYTECODE_IMPLEMENTATION_SUFFIX =
             "synthetic-production-cache-workload-v1/jdk-complete-source-set";
+    private static final String PROTECTION_DOMAIN_POLICY =
+            "synthetic-map-class-loader-v1/platform-parent/default-protection-domain";
 
     private SyntheticProductionCacheWorker() {
     }
@@ -65,10 +64,10 @@ public final class SyntheticProductionCacheWorker {
         SyntheticExtendedResourceIndex index = indexPass.index();
         String providerDigest = index.providerDigest();
 
-        AudioPass audio = runAudio(index, cacheRoot.resolve("prepared-audio"));
+        AudioPass audio = runAudio(index, cacheRoot);
         BytecodePass bytecode = runBytecode(
                 index,
-                cacheRoot.resolve("generated-bytecode"),
+                cacheRoot,
                 fingerprint.sha256(),
                 providerDigest);
 
@@ -106,6 +105,9 @@ public final class SyntheticProductionCacheWorker {
         report.put("bytecodeRequestedClass", bytecode.requestedClass());
         report.put("bytecodeLookupStatus", bytecode.lookupStatus());
         report.put("bytecodeSourceDisposition", bytecode.sourceDisposition());
+        report.put("bytecodeCacheSource", bytecode.cacheSource());
+        report.put("bytecodeCacheUsable", bytecode.cacheUsable());
+        report.put("bytecodeCacheDetail", bytecode.cacheDetail());
         report.put("bytecodeCompilerCalls", bytecode.compilerCalls());
         report.put("bytecodeWriteAttempted", bytecode.writeAttempted());
         report.put("bytecodeWriteSucceeded", bytecode.writeSucceeded());
@@ -170,8 +172,7 @@ public final class SyntheticProductionCacheWorker {
 
     private static AudioPass runAudio(
             SyntheticExtendedResourceIndex index,
-            Path audioCacheRoot) throws IOException {
-        PreparedAudioCache cache = new PreparedAudioCache(audioCacheRoot);
+            Path cacheRoot) throws IOException {
         String decoderIdentity = SyntheticWavePreparedAudio.decoderPolicyIdentitySha256();
         int effectFiles = 0;
         int streamedFiles = 0;
@@ -196,7 +197,8 @@ public final class SyntheticProductionCacheWorker {
             if (policy == PreparedAudio.Policy.STREAMED) streamedFiles++;
             else effectFiles++;
 
-            PreparedAudioCache.Result lookup = cache.lookup(
+            PreparedAudioCache.Lookup lookup = PreparedAudioCache.lookup(
+                    cacheRoot,
                     provider.sha256(),
                     decoderIdentity,
                     policy);
@@ -223,7 +225,7 @@ public final class SyntheticProductionCacheWorker {
                     decoderCalls++;
                     prepared = SyntheticWavePreparedAudio.decode(source, provider.sha256());
                     try {
-                        cache.store(prepared);
+                        PreparedAudioCache.write(cacheRoot, prepared);
                         writes++;
                     } catch (IOException | RuntimeException error) {
                         writeErrors++;
@@ -252,7 +254,7 @@ public final class SyntheticProductionCacheWorker {
 
     private static BytecodePass runBytecode(
             SyntheticExtendedResourceIndex index,
-            Path bytecodeCacheRoot,
+            Path cacheRoot,
             String profileFingerprintSha256,
             String providerDigestSha256) throws Exception {
         TreeMap<String, byte[]> sources = new TreeMap<>();
@@ -266,37 +268,47 @@ public final class SyntheticProductionCacheWorker {
         String sourceSetSha256 = sourceSetSha256(sources);
         String producerClassSha256 = classBytesSha256(SyntheticJdkSourceCompiler.class);
         String javaIdentity = javaExecutableIdentity();
-        String loaderIdentity = Hashes.sha256((
-                "synthetic-loader-v1|"
-                        + SyntheticJdkSourceCompiler.class.getClassLoader().getClass().getName()
-                        + '|'
-                        + javaIdentity).getBytes(StandardCharsets.UTF_8));
+        String loaderIdentity = identitySha256(
+                "synthetic-loader-v1",
+                SyntheticJdkSourceCompiler.class.getClassLoader().getClass().getName(),
+                javaIdentity);
+        String syntheticBuildIdentity = identitySha256(
+                "synthetic-extended-build-v1",
+                profileFingerprintSha256,
+                providerDigestSha256);
+        String compilerImplementationIdentity = identitySha256(
+                "synthetic-jdk-compiler-implementation-v1",
+                javaIdentity,
+                SyntheticJdkSourceCompiler.class.getName(),
+                producerClassSha256,
+                BYTECODE_IMPLEMENTATION_SUFFIX,
+                System.getProperty("java.runtime.version", "unknown"),
+                System.getProperty("java.vendor", "unknown"),
+                System.getProperty("os.arch", "unknown"));
+        String classpathIdentity = runtimeClasspathIdentitySha256(javaIdentity);
+        String compilerOptionsIdentity = identitySha256(
+                "synthetic-jdk-compiler-options-v1",
+                SyntheticJdkSourceCompiler.OPTIONS.toArray(String[]::new));
+        String protectionDomainIdentity = identitySha256(
+                "synthetic-protection-domain-policy-v1",
+                PROTECTION_DOMAIN_POLICY);
 
-        GeneratedBytecodeContext context = GeneratedBytecodeContext.builder()
-                .requestedClassName(requestedClass)
-                .sourceSha256(sourceSetSha256)
-                .compilerIdentity("jdk-compiler|" + javaIdentity)
-                .producerClassName(SyntheticJdkSourceCompiler.class.getName())
-                .producerClassBytecodeSha256(producerClassSha256)
-                .implementationSourceSuffix(BYTECODE_IMPLEMENTATION_SUFFIX)
-                .definingLoaderIdentitySha256(loaderIdentity)
-                .compilerOptions(SyntheticJdkSourceCompiler.OPTIONS)
-                .dependencySnapshots(Map.of(
-                        "extended-profile", profileFingerprintSha256,
-                        "provider-index", providerDigestSha256))
-                .environment(Map.of(
-                        "java.runtime.version", System.getProperty("java.runtime.version", "unknown"),
-                        "java.vendor", System.getProperty("java.vendor", "unknown"),
-                        "os.arch", System.getProperty("os.arch", "unknown")))
-                .build();
+        GeneratedBytecodeContext context = new GeneratedBytecodeContext(
+                syntheticBuildIdentity,
+                compilerImplementationIdentity,
+                classpathIdentity,
+                sourceSetSha256,
+                compilerOptionsIdentity,
+                loaderIdentity,
+                protectionDomainIdentity);
 
         AtomicInteger compilerCalls = new AtomicInteger();
-        GeneratedBytecodeCacheWrapper wrapper = new GeneratedBytecodeCacheWrapper(
-                new GeneratedBytecodeCache(bytecodeCacheRoot));
-        GeneratedBytecodeCacheWrapper.Outcome outcome = wrapper.execute(
+        GeneratedBytecodeCacheWrapper.Result result = GeneratedBytecodeCacheWrapper.generate(
+                cacheRoot,
                 context,
+                requestedClass,
                 ignored -> SyntheticJdkSourceCompiler.compile(sources, compilerCalls));
-        Map<String, byte[]> bytecodes = outcome.bytecodes();
+        Map<String, byte[]> bytecodes = result.classes();
         if (bytecodes == null || !bytecodes.containsKey(requestedClass)) {
             throw new IOException("Complete generated bytecode bundle omitted requested class");
         }
@@ -313,16 +325,27 @@ public final class SyntheticProductionCacheWorker {
         int requestedValue = ((Number) valueMethod.invoke(instance)).intValue();
         output.update(ByteBuffer.allocate(Integer.BYTES).putInt(requestedValue).array());
 
+        String sourceDisposition = result.source() == GeneratedBytecodeCacheWrapper.Source.CACHE_HIT
+                ? "CACHE_REUSED"
+                : "ORIGINAL_GENERATED";
+        boolean writeAttempted = result.source() == GeneratedBytecodeCacheWrapper.Source.ORIGINAL_STORED
+                || result.source() == GeneratedBytecodeCacheWrapper.Source.ORIGINAL_STORE_FAILED;
+        boolean writeSucceeded =
+                result.source() == GeneratedBytecodeCacheWrapper.Source.ORIGINAL_STORED;
+
         return new BytecodePass(
                 requestedClass,
-                outcome.cacheLookupStatus(),
-                outcome.sourceDisposition(),
+                result.lookupStatus(),
+                sourceDisposition,
+                result.source(),
+                result.cacheUsable(),
+                result.detail(),
                 compilerCalls.get(),
-                outcome.cacheWriteAttempted(),
-                outcome.cacheWriteSucceeded(),
+                writeAttempted,
+                writeSucceeded,
                 bytecodes.size(),
                 requestedValue,
-                context.cacheKeySha256(),
+                context.keySha256(),
                 HexFormat.of().formatHex(output.digest()));
     }
 
@@ -332,10 +355,10 @@ public final class SyntheticProductionCacheWorker {
                 digest,
                 audio.decoderPolicyIdentitySha256().getBytes(StandardCharsets.US_ASCII));
         updateLengthPrefixed(digest, audio.policy().name().getBytes(StandardCharsets.US_ASCII));
-        updateLengthPrefixed(digest, audio.pcmEncoding().name().getBytes(StandardCharsets.US_ASCII));
+        updateLengthPrefixed(digest, audio.encoding().name().getBytes(StandardCharsets.US_ASCII));
         updateLengthPrefixed(digest, audio.byteOrder().name().getBytes(StandardCharsets.US_ASCII));
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(audio.bitsPerSample()).array());
-        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(audio.sampleRate()).array());
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(audio.sampleRateHz()).array());
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(audio.channels()).array());
         digest.update(ByteBuffer.allocate(Long.BYTES).putLong(audio.frameCount()).array());
         updateLengthPrefixed(digest, audio.pcmBytes());
@@ -346,6 +369,31 @@ public final class SyntheticProductionCacheWorker {
         for (Map.Entry<String, byte[]> entry : new TreeMap<>(sources).entrySet()) {
             updateLengthPrefixed(digest, entry.getKey().getBytes(StandardCharsets.UTF_8));
             updateLengthPrefixed(digest, entry.getValue());
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static String runtimeClasspathIdentitySha256(String javaIdentity) throws IOException {
+        byte[] classpath = System.getProperty("java.class.path", "").getBytes(StandardCharsets.UTF_8);
+        if (classpath.length > MAX_CLASSPATH_BYTES) {
+            throw new IOException("Runtime classpath exceeds identity byte limit");
+        }
+        MessageDigest digest = sha256Digest();
+        updateLengthPrefixed(
+                digest,
+                "synthetic-runtime-classpath-v1".getBytes(StandardCharsets.US_ASCII));
+        updateLengthPrefixed(digest, javaIdentity.getBytes(StandardCharsets.UTF_8));
+        updateLengthPrefixed(digest, classpath);
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static String identitySha256(String schema, String... values) {
+        MessageDigest digest = sha256Digest();
+        updateLengthPrefixed(digest, schema.getBytes(StandardCharsets.US_ASCII));
+        for (String value : values) {
+            updateLengthPrefixed(
+                    digest,
+                    (value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
         }
         return HexFormat.of().formatHex(digest.digest());
     }
@@ -430,8 +478,11 @@ public final class SyntheticProductionCacheWorker {
 
     private record BytecodePass(
             String requestedClass,
-            GeneratedBytecodeCache.LookupStatus lookupStatus,
-            GeneratedBytecodeCacheWrapper.SourceDisposition sourceDisposition,
+            GeneratedBytecodeCache.Status lookupStatus,
+            String sourceDisposition,
+            GeneratedBytecodeCacheWrapper.Source cacheSource,
+            boolean cacheUsable,
+            String cacheDetail,
             int compilerCalls,
             boolean writeAttempted,
             boolean writeSucceeded,
