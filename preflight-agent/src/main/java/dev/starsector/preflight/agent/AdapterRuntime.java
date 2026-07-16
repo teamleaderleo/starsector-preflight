@@ -29,11 +29,14 @@ final class AdapterRuntime {
                 sibling(options.adapterReport(), "audio-decoder-signatures.json"));
         SoundLoaderContractReport soundLoaderReport = new SoundLoaderContractReport(
                 sibling(options.adapterReport(), "sound-loader-contract.json"));
+        BytecodeShapeReport textureLoaderReport = new BytecodeShapeReport(
+                sibling(options.adapterReport(), "texture-loader-contract.json"));
         Session session = new Session(
                 report,
                 codeLoaderReport,
                 audioDecoderReport,
                 soundLoaderReport,
+                textureLoaderReport,
                 options.adapterMode() != AdapterMode.OFF);
         if (options.adapterMode() == AdapterMode.OFF) {
             return session;
@@ -59,7 +62,8 @@ final class AdapterRuntime {
                     report,
                     codeLoaderReport,
                     audioDecoderReport,
-                    soundLoaderReport), false);
+                    soundLoaderReport,
+                    textureLoaderReport), false);
             report.transformerInstalled(registry.targets().size());
             if (registry.targets().isEmpty()) {
                 report.diagnostic("No adapter targets are allowlisted; probe-only observation remains safe");
@@ -114,6 +118,7 @@ final class AdapterRuntime {
         private final CodeLoaderSignatureReport codeLoaderReport;
         private final AudioDecoderSignatureReport audioDecoderReport;
         private final SoundLoaderContractReport soundLoaderReport;
+        private final BytecodeShapeReport textureLoaderReport;
         private final boolean writeReport;
         private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -122,11 +127,13 @@ final class AdapterRuntime {
                 CodeLoaderSignatureReport codeLoaderReport,
                 AudioDecoderSignatureReport audioDecoderReport,
                 SoundLoaderContractReport soundLoaderReport,
+                BytecodeShapeReport textureLoaderReport,
                 boolean writeReport) {
             this.report = report;
             this.codeLoaderReport = codeLoaderReport;
             this.audioDecoderReport = audioDecoderReport;
             this.soundLoaderReport = soundLoaderReport;
+            this.textureLoaderReport = textureLoaderReport;
             this.writeReport = writeReport;
         }
 
@@ -154,6 +161,11 @@ final class AdapterRuntime {
                 soundLoaderReport.write();
             } catch (IOException error) {
                 System.err.println("[Preflight] Failed to write sound-loader contract report: " + error.getMessage());
+            }
+            try {
+                textureLoaderReport.write();
+            } catch (IOException error) {
+                System.err.println("[Preflight] Failed to write texture-loader contract report: " + error.getMessage());
             }
         }
     }
