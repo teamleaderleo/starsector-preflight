@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -103,6 +104,31 @@ class SyntheticExtendedResourceIndexTest {
                 firstProfile,
                 firstManifest.fingerprintSha256());
         assertEquals(SyntheticExtendedResourceIndex.Status.CORRUPT, corrupt.status());
+    }
+
+    @Test
+    void providerMutationAndIndexWriteFailureAreExplicitWithoutDestroyingBuiltIndex()
+            throws Exception {
+        Path profile = temporaryDirectory.resolve("mutable-profile");
+        SyntheticExtendedProfile.Manifest manifest = SyntheticExtendedProfile.generate(
+                profile,
+                303,
+                SyntheticExtendedProfile.Scale.TINY);
+        SyntheticExtendedResourceIndex index = SyntheticExtendedResourceIndex.build(
+                profile,
+                manifest.fingerprintSha256()).index();
+
+        String logical = "data/generated/resource-00000.json";
+        SyntheticExtendedResourceIndex.Provider provider = index.providers().get(logical);
+        Path physical = profile.resolve(provider.relativeSource());
+        Files.writeString(physical, "changed\n");
+        assertThrows(IOException.class, () -> index.readBytes(logical));
+
+        Path directoryTarget = temporaryDirectory.resolve("index-directory.spxr");
+        Files.createDirectory(directoryTarget);
+        assertThrows(IOException.class, () -> index.write(directoryTarget));
+        assertEquals(89, index.providerCount());
+        assertEquals(64, index.providerDigest().length());
     }
 
     @Test
