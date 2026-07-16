@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,6 +28,7 @@ class AdapterAgentIT {
         String agentArguments = "dest64=" + encoded(recording)
                 + ",adapter=probe,adapterReport64=" + encoded(adapterReport);
 
+        assertAsmIsRelocated();
         ProcessResult result = launch(agentArguments);
 
         assertTrue(result.completed(), result.output());
@@ -90,6 +92,14 @@ class AdapterAgentIT {
         assertFalse(Files.exists(adapterReport), result.output());
         assertFalse(Files.exists(audioReport), result.output());
         assertFalse(Files.exists(soundReport), result.output());
+    }
+
+    private static void assertAsmIsRelocated() throws Exception {
+        Path agent = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
+        try (JarFile jar = new JarFile(agent.toFile())) {
+            assertTrue(jar.getEntry("dev/starsector/preflight/internal/asm/ClassReader.class") != null);
+            assertTrue(jar.getEntry("org/objectweb/asm/ClassReader.class") == null);
+        }
     }
 
     private ProcessResult launch(String agentArguments) throws Exception {
