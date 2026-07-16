@@ -8,6 +8,7 @@ import java.util.Objects;
 /** Observes candidate classes and only delegates exact source-bound targets to a registered plan. */
 final class AdapterProbeTransformer implements ClassFileTransformer {
     private static final String TEXTURE_LOADER = "com/fs/graphics/TextureLoader";
+    private static final String JANINO_LOADER = "org/codehaus/janino/JavaSourceClassLoader";
 
     private final AdapterMode mode;
     private final AdapterTargetRegistry registry;
@@ -17,13 +18,14 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
     private final AudioDecoderSignatureReport audioDecoderReport;
     private final SoundLoaderContractReport soundLoaderReport;
     private final BytecodeShapeReport textureLoaderReport;
+    private final BytecodeShapeReport janinoLoaderReport;
 
     AdapterProbeTransformer(
             AdapterMode mode,
             AdapterTargetRegistry registry,
             List<String> candidatePrefixes,
             AdapterReport report) {
-        this(mode, registry, candidatePrefixes, report, null, null, null, null);
+        this(mode, registry, candidatePrefixes, report, null, null, null, null, null);
     }
 
     AdapterProbeTransformer(
@@ -32,7 +34,7 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             List<String> candidatePrefixes,
             AdapterReport report,
             CodeLoaderSignatureReport codeLoaderReport) {
-        this(mode, registry, candidatePrefixes, report, codeLoaderReport, null, null, null);
+        this(mode, registry, candidatePrefixes, report, codeLoaderReport, null, null, null, null);
     }
 
     AdapterProbeTransformer(
@@ -42,7 +44,7 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             AdapterReport report,
             CodeLoaderSignatureReport codeLoaderReport,
             AudioDecoderSignatureReport audioDecoderReport) {
-        this(mode, registry, candidatePrefixes, report, codeLoaderReport, audioDecoderReport, null, null);
+        this(mode, registry, candidatePrefixes, report, codeLoaderReport, audioDecoderReport, null, null, null);
     }
 
     AdapterProbeTransformer(
@@ -53,7 +55,7 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             CodeLoaderSignatureReport codeLoaderReport,
             AudioDecoderSignatureReport audioDecoderReport,
             SoundLoaderContractReport soundLoaderReport) {
-        this(mode, registry, candidatePrefixes, report, codeLoaderReport, audioDecoderReport, soundLoaderReport, null);
+        this(mode, registry, candidatePrefixes, report, codeLoaderReport, audioDecoderReport, soundLoaderReport, null, null);
     }
 
     AdapterProbeTransformer(
@@ -64,7 +66,8 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             CodeLoaderSignatureReport codeLoaderReport,
             AudioDecoderSignatureReport audioDecoderReport,
             SoundLoaderContractReport soundLoaderReport,
-            BytecodeShapeReport textureLoaderReport) {
+            BytecodeShapeReport textureLoaderReport,
+            BytecodeShapeReport janinoLoaderReport) {
         this.mode = Objects.requireNonNull(mode, "mode");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.candidatePrefixes = List.copyOf(candidatePrefixes);
@@ -73,6 +76,7 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
         this.audioDecoderReport = audioDecoderReport;
         this.soundLoaderReport = soundLoaderReport;
         this.textureLoaderReport = textureLoaderReport;
+        this.janinoLoaderReport = janinoLoaderReport;
     }
 
     @Override
@@ -87,10 +91,16 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
         boolean audioCandidate = audioDecoderReport != null && audioDecoderReport.interested(className);
         boolean soundCandidate = soundLoaderReport != null && soundLoaderReport.interested(className);
         boolean textureCandidate = textureLoaderReport != null && TEXTURE_LOADER.equals(className);
+        boolean janinoCandidate = janinoLoaderReport != null && JANINO_LOADER.equals(className);
         if (mode == AdapterMode.OFF
                 || className == null
                 || classfileBuffer == null
-                || (!adapterCandidate && !codeCandidate && !audioCandidate && !soundCandidate && !textureCandidate)) {
+                || (!adapterCandidate
+                && !codeCandidate
+                && !audioCandidate
+                && !soundCandidate
+                && !textureCandidate
+                && !janinoCandidate)) {
             return null;
         }
         try {
@@ -100,6 +110,7 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
                     || audioCandidate
                     || soundCandidate
                     || textureCandidate
+                    || janinoCandidate
                     || targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
             AdapterSourceIdentity source = AdapterSourceIdentity.capture(loader, protectionDomain, hashSource);
             if (adapterCandidate) {
@@ -116,6 +127,9 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             }
             if (textureCandidate) {
                 textureLoaderReport.observed(signature, source, classfileBuffer);
+            }
+            if (janinoCandidate) {
+                janinoLoaderReport.observed(signature, source, classfileBuffer);
             }
             for (AdapterTarget target : targets) {
                 AdapterTarget.Match match = target.match(signature, source);
