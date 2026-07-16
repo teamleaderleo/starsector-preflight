@@ -2,6 +2,7 @@ package dev.starsector.preflight.synthetic;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -10,10 +11,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.tools.Diagnostic;
-import javax.tools.DiagnosticCollector;
+import javax.tools.DiagnosticListener;
 import javax.tools.ForwardingJavaFileManager;
 import javax.tools.JavaCompiler;
 import javax.tools.JavaFileManager;
@@ -35,9 +37,12 @@ final class SyntheticJdkSourceCompiler {
     private static final int MAX_SOURCES = 10_000;
     private static final int MAX_SOURCE_BYTES = 4 * 1024 * 1024;
     private static final long MAX_TOTAL_SOURCE_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_CLASSES = 50_000;
+    private static final int MAX_CLASS_NAME_CHARS = 4_096;
     private static final int MAX_CLASS_BYTES = 4 * 1024 * 1024;
     private static final long MAX_TOTAL_CLASS_BYTES = 256L * 1024L * 1024L;
-    private static final int MAX_DIAGNOSTIC_CHARS = 16 * 1024;
+    private static final int MAX_DIAGNOSTICS = 256;
+    static final int MAX_DIAGNOSTIC_CHARS = 16 * 1024;
 
     private SyntheticJdkSourceCompiler() {
     }
@@ -70,7 +75,7 @@ final class SyntheticJdkSourceCompiler {
             units.add(new SourceObject(className, text));
         }
 
-        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+        BoundedDiagnostics diagnostics = new BoundedDiagnostics();
         try (StandardJavaFileManager standard = compiler.getStandardFileManager(
                 diagnostics,
                 Locale.ROOT,
@@ -84,13 +89,16 @@ final class SyntheticJdkSourceCompiler {
                     null,
                     units).call();
             if (!Boolean.TRUE.equals(success)) {
-                throw new IOException("Synthetic Java compilation failed: " + diagnostics(diagnostics));
+                throw new IOException("Synthetic Java compilation failed: " + diagnostics.text());
             }
             return manager.snapshot();
         }
     }
 
     private static String className(String logicalPath) throws IOException {
+        if (logicalPath == null || logicalPath.length() > MAX_CLASS_NAME_CHARS) {
+            throw new IOException("Synthetic Java source path is outside its character limit");
+        }
         String normalized = logicalPath.replace('\\', '/');
         int slash = normalized.lastIndexOf('/');
         String file = slash >= 0 ? normalized.substring(slash + 1) : normalized;
@@ -100,21 +108,52 @@ final class SyntheticJdkSourceCompiler {
         return "synthetic.generated." + file.substring(0, file.length() - 5);
     }
 
-    private static String diagnostics(DiagnosticCollector<JavaFileObject> diagnostics) {
-        StringBuilder text = new StringBuilder();
-        for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
-            if (text.length() >= MAX_DIAGNOSTIC_CHARS) break;
-            if (!text.isEmpty()) text.append(" | ");
-            text.append(diagnostic.getKind())
-                    .append(':')
-                    .append(diagnostic.getLineNumber())
-                    .append(':')
-                    .append(diagnostic.getMessage(Locale.ROOT));
+    private static final class BoundedDiagnostics implements DiagnosticListener<JavaFileObject> {
+        private static final int CONTENT_LIMIT = MAX_DIAGNOSTIC_CHARS - 3;
+
+        private final StringBuilder text = new StringBuilder(Math.min(CONTENT_LIMIT, 1024));
+        private int count;
+        private boolean truncated;
+
+        @Override
+        public void report(Diagnostic<? extends JavaFileObject> diagnostic) {
+            if (truncated) return;
+            if (count >= MAX_DIAGNOSTICS) {
+                truncated = true;
+                return;
+            }
+            count++;
+            if (!text.isEmpty()) append(" | ");
+            if (diagnostic == null) {
+                append("UNKNOWN");
+                return;
+            }
+            append(diagnostic.getKind().name());
+            append(":");
+            append(Long.toString(diagnostic.getLineNumber()));
+            append(":");
+            if (!truncated) append(diagnostic.getMessage(Locale.ROOT));
         }
-        if (text.length() > MAX_DIAGNOSTIC_CHARS) {
-            return text.substring(0, MAX_DIAGNOSTIC_CHARS) + "...";
+
+        private void append(String value) {
+            if (truncated) return;
+            String actual = value == null ? "" : value;
+            int remaining = CONTENT_LIMIT - text.length();
+            if (remaining <= 0) {
+                truncated = true;
+                return;
+            }
+            if (actual.length() <= remaining) {
+                text.append(actual);
+            } else {
+                text.append(actual, 0, remaining);
+                truncated = true;
+            }
         }
-        return text.toString();
+
+        private String text() {
+            return truncated ? text + "..." : text.toString();
+        }
     }
 
     private static final class SourceObject extends SimpleJavaFileObject {
@@ -132,21 +171,29 @@ final class SyntheticJdkSourceCompiler {
     }
 
     private static final class ClassObject extends SimpleJavaFileObject {
-        private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        private final BoundedOutput bytes;
+        private boolean opened;
 
-        private ClassObject(String className, Kind kind) {
+        private ClassObject(
+                String className,
+                Kind kind,
+                OutputBudget totalBudget) {
             super(URI.create("memory:///" + className.replace('.', '/') + kind.extension), kind);
+            this.bytes = new BoundedOutput(MAX_CLASS_BYTES, totalBudget);
         }
 
         @Override
-        public ByteArrayOutputStream openOutputStream() {
+        public OutputStream openOutputStream() throws IOException {
+            if (opened) throw new IOException("Generated class output was opened more than once");
+            opened = true;
             return bytes;
         }
 
         private byte[] toByteArray() throws IOException {
+            if (!opened) throw new IOException("Generated class output was never opened");
             byte[] result = bytes.toByteArray();
-            if (result.length == 0 || result.length > MAX_CLASS_BYTES) {
-                throw new IOException("Generated class bytes are outside the per-class limit");
+            if (result.length == 0) {
+                throw new IOException("Generated class output is empty");
             }
             return result;
         }
@@ -155,6 +202,7 @@ final class SyntheticJdkSourceCompiler {
     private static final class MemoryFileManager
             extends ForwardingJavaFileManager<StandardJavaFileManager> {
         private final Map<String, ClassObject> outputs = new LinkedHashMap<>();
+        private final OutputBudget totalBudget = new OutputBudget(MAX_TOTAL_CLASS_BYTES);
 
         private MemoryFileManager(StandardJavaFileManager delegate) {
             super(delegate);
@@ -166,13 +214,21 @@ final class SyntheticJdkSourceCompiler {
                 String className,
                 JavaFileObject.Kind kind,
                 javax.tools.FileObject sibling) throws IOException {
-            if (!className.matches("(?:[A-Za-z_$][A-Za-z0-9_$]*\\.)*[A-Za-z_$][A-Za-z0-9_$]*")) {
+            if (kind != JavaFileObject.Kind.CLASS) {
+                throw new IOException("Unexpected generated output kind: " + kind);
+            }
+            if (className == null
+                    || className.length() > MAX_CLASS_NAME_CHARS
+                    || !className.matches("(?:[A-Za-z_$][A-Za-z0-9_$]*\\.)*[A-Za-z_$][A-Za-z0-9_$]*")) {
                 throw new IOException("Invalid generated binary name: " + className);
+            }
+            if (outputs.size() >= MAX_CLASSES) {
+                throw new IOException("Generated class count exceeds its limit");
             }
             if (outputs.containsKey(className)) {
                 throw new IOException("Duplicate generated binary name: " + className);
             }
-            ClassObject output = new ClassObject(className, kind);
+            ClassObject output = new ClassObject(className, kind, totalBudget);
             outputs.put(className, output);
             return output;
         }
@@ -183,13 +239,82 @@ final class SyntheticJdkSourceCompiler {
             for (Map.Entry<String, ClassObject> entry : outputs.entrySet()) {
                 byte[] bytes = entry.getValue().toByteArray();
                 total = Math.addExact(total, bytes.length);
-                if (total > MAX_TOTAL_CLASS_BYTES) {
-                    throw new IOException("Generated class bundle exceeds its byte limit");
-                }
                 sorted.put(entry.getKey(), bytes);
             }
             if (sorted.isEmpty()) throw new IOException("Compiler returned no generated classes");
+            if (total != totalBudget.totalBytes()) {
+                throw new IOException("Generated class accounting mismatch");
+            }
             return Collections.unmodifiableMap(sorted);
+        }
+    }
+
+    static final class OutputBudget {
+        private final long maxBytes;
+        private long totalBytes;
+
+        OutputBudget(long maxBytes) {
+            if (maxBytes < 0) throw new IllegalArgumentException("maxBytes must be nonnegative");
+            this.maxBytes = maxBytes;
+        }
+
+        synchronized void reserve(int bytes) throws IOException {
+            if (bytes < 0 || bytes > maxBytes - totalBytes) {
+                throw new IOException("Generated class bundle exceeds its byte limit");
+            }
+            totalBytes += bytes;
+        }
+
+        synchronized long totalBytes() {
+            return totalBytes;
+        }
+    }
+
+    static final class BoundedOutput extends OutputStream {
+        private final int maxBytes;
+        private final OutputBudget totalBudget;
+        private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        private boolean closed;
+
+        BoundedOutput(int maxBytes, OutputBudget totalBudget) {
+            if (maxBytes < 0) throw new IllegalArgumentException("maxBytes must be nonnegative");
+            this.maxBytes = maxBytes;
+            this.totalBudget = Objects.requireNonNull(totalBudget, "totalBudget");
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureOpen();
+            reserve(1);
+            bytes.write(value);
+        }
+
+        @Override
+        public void write(byte[] source, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, source.length);
+            ensureOpen();
+            reserve(length);
+            bytes.write(source, offset, length);
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+
+        byte[] toByteArray() {
+            return bytes.toByteArray();
+        }
+
+        private void reserve(int length) throws IOException {
+            if (length > maxBytes - bytes.size()) {
+                throw new IOException("Generated class bytes exceed the per-class limit");
+            }
+            totalBudget.reserve(length);
+        }
+
+        private void ensureOpen() throws IOException {
+            if (closed) throw new IOException("Generated class output is closed");
         }
     }
 }
