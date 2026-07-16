@@ -1,0 +1,65 @@
+name: Audio codec fixture tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Run Ogg/Vorbis golden fixture tests
+        shell: bash
+        run: |
+          set +e
+          log=audio-codec-fixtures-maven.log
+          : > "$log"
+          python - <<'PY' >> "$log" 2>&1
+          from hashlib import sha256
+          from pathlib import Path
+
+          root = Path("preflight-core/src/test/resources/audio/ogg-v1")
+          manifest = root / "encoded-ogg-parts.sha256"
+          for line_number, raw in enumerate(manifest.read_text(encoding="utf-8").splitlines(), 1):
+              digest, length, name = raw.split()
+              content = (root / name).read_bytes()
+              actual = sha256(content).hexdigest()
+              if len(content) != int(length) or actual != digest:
+                  raise SystemExit(
+                      f"encoded Ogg part mismatch at line {line_number}: {name}; "
+                      f"expected {length} bytes {digest}, got {len(content)} bytes {actual}"
+                  )
+              print(f"verified encoded Ogg part: {name}")
+          PY
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            mvn --batch-mode --no-transfer-progress \
+              -pl preflight-core -am \
+              -Dtest=OggVorbisGoldenFixtureTest \
+              -Dsurefire.failIfNoSpecifiedTests=false \
+              test >> "$log" 2>&1
+            status=$?
+          fi
+          cat "$log"
+          exit "$status"
+      - name: Upload focused logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-codec-fixtures-${{ matrix.os }}
+          path: audio-codec-fixtures-maven.log
+          if-no-files-found: error
