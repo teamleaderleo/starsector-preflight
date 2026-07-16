@@ -31,6 +31,8 @@ class SyntheticAppCdsCrossProcessTest {
 
         assertEquals("SUPPORTED", stringField(json, "status"));
         assertEquals("true", rawField(json, "supported"));
+        assertTrue(longField(json, "javaExecutableBytes") > 0);
+        assertEquals(64, stringField(json, "javaExecutableSha256").length());
         assertEquals(0, longField(json, "generationExitCode"));
         assertEquals(0, longField(json, "consumptionExitCode"));
         assertEquals("false", rawField(json, "outputTruncated"));
@@ -42,6 +44,8 @@ class SyntheticAppCdsCrossProcessTest {
         assertTrue(json.contains(AppCdsCapabilityDetector.ARCHIVE_AT_EXIT_PREFIX));
         assertTrue(json.contains(AppCdsCapabilityDetector.SHARED_ARCHIVE_PREFIX));
 
+        assertEquals(0, longField(json, "copiedJavaCreationArgumentCount"));
+        assertEquals(0, longField(json, "copiedJavaConsumptionArgumentCount"));
         assertEquals("ERROR", stringField(json, "missingExecutableStatus"));
         assertEquals(0, longField(json, "missingCreationArgumentCount"));
         assertEquals(0, longField(json, "missingConsumptionArgumentCount"));
