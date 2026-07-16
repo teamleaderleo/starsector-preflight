@@ -23,7 +23,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Handle;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -40,13 +39,7 @@ import org.objectweb.asm.tree.analysis.BasicInterpreter;
 import org.objectweb.asm.tree.analysis.BasicValue;
 import org.objectweb.asm.tree.analysis.Frame;
 
-/**
- * Bounded read-only evidence for the exact Starsector sound-loader wrapper classes.
- *
- * <p>The report preserves the original class bytes and excludes bytecode listings, class bytes,
- * decoded audio, asset contents, and literal strings. Every retained collection and string is
- * bounded, deterministic, and explicit about truncation.</p>
- */
+/** Bounded read-only evidence for the exact Starsector sound-loader wrapper classes. */
 final class SoundLoaderContractReport {
     static final int IDENTITY_LIMIT = 64;
     static final int METHOD_LIMIT = 1_024;
@@ -58,7 +51,7 @@ final class SoundLoaderContractReport {
     static final int FLOW_POINT_LIMIT = 512;
     static final int FRAME_VALUE_LIMIT = 128;
     static final int DIAGNOSTIC_LIMIT = 100;
-    static final int TEXT_LIMIT = 4_096;
+    static final int TEXT_LIMIT = 65_535;
     private static final int SOURCE_SUFFIX_LIMIT = 1_024;
 
     private static final Set<String> TARGETS = Set.of(
@@ -104,7 +97,8 @@ final class SoundLoaderContractReport {
                         .thenComparing(ClassSignature.Method::descriptor)
                         .thenComparingInt(ClassSignature.Method::access))
                 .limit(METHOD_LIMIT)
-                .map(method -> new MethodIdentity(method.name(), method.descriptor(), method.access()))
+                .map(method -> new MethodIdentity(
+                        bounded(method.name()), bounded(method.descriptor()), method.access()))
                 .toList();
 
         StructuralAnalysis structural;
@@ -113,7 +107,8 @@ final class SoundLoaderContractReport {
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
         } catch (Throwable error) {
-            String detail = "Could not analyze sound-loader class " + signature.internalName() + ": " + message(error);
+            String detail = "Could not analyze sound-loader class "
+                    + bounded(signature.internalName()) + ": " + message(error);
             diagnostic(detail);
             structural = StructuralAnalysis.failed(detail);
         }
@@ -121,8 +116,8 @@ final class SoundLoaderContractReport {
         SourceSuffix suffix = sourceSuffix(source.normalizedSource());
         Entry entry = new Entry(
                 key.typedKey(),
-                signature.internalName(),
-                signature.sha256(),
+                bounded(signature.internalName()),
+                bounded(signature.sha256()),
                 signature.majorVersion(),
                 signature.methods().size(),
                 methods,
@@ -143,7 +138,7 @@ final class SoundLoaderContractReport {
     }
 
     synchronized void contained(String detail, Throwable error) {
-        diagnostic(detail + ": " + message(error));
+        diagnostic(bounded(detail) + ": " + message(error));
     }
 
     synchronized void write() throws IOException {
@@ -176,10 +171,13 @@ final class SoundLoaderContractReport {
         root.put("structuralMethodLimitPerIdentity", STRUCTURAL_METHOD_LIMIT);
         root.put("fieldLimitPerMethod", FIELD_LIMIT);
         root.put("callLimitPerMethod", CALL_LIMIT);
+        root.put("sameClassCallLimitPerMethod", CALL_LIMIT);
+        root.put("constructorCallLimitPerMethod", CALL_LIMIT);
         root.put("tryCatchLimitPerMethod", TRY_CATCH_LIMIT);
         root.put("stringConstantLimitPerMethod", STRING_CONSTANT_LIMIT);
         root.put("flowPointLimitPerMethod", FLOW_POINT_LIMIT);
         root.put("frameValueLimit", FRAME_VALUE_LIMIT);
+        root.put("textLimit", TEXT_LIMIT);
         root.put("retainedIdentities", entries.size());
         root.put("entriesTruncated", entriesTruncated);
         root.put("entries", entries.values().stream().map(Entry::toMap).toList());
@@ -205,7 +203,7 @@ final class SoundLoaderContractReport {
         return "sound-loader-source-loader-v1:" + HexFormat.of().formatHex(digest.digest());
     }
 
-    private static StructuralAnalysis analyze(String owner, byte[] classfileBuffer) throws AnalyzerException {
+    private static StructuralAnalysis analyze(String owner, byte[] classfileBuffer) {
         ClassNode classNode = new ClassNode(Opcodes.ASM9);
         new ClassReader(classfileBuffer).accept(classNode, ClassReader.SKIP_DEBUG);
         List<MethodNode> ordered = new ArrayList<>(classNode.methods);
@@ -227,14 +225,11 @@ final class SoundLoaderContractReport {
 
     private static MethodStructure analyzeMethod(String owner, MethodNode method) {
         IdentityHashMap<AbstractInsnNode, Integer> indexes = instructionIndexes(method);
-        TreeMap<String, FieldAccess> fields = new TreeMap<>();
-        TreeMap<String, CallEdge> calls = new TreeMap<>();
-        TreeMap<String, CallEdge> sameClassCalls = new TreeMap<>();
-        TreeMap<String, CallEdge> constructors = new TreeMap<>();
-        TreeMap<String, RedactedString> strings = new TreeMap<>();
-        boolean fieldsTruncated = false;
-        boolean callsTruncated = false;
-        boolean stringsTruncated = false;
+        BoundedMap<FieldAccess> fields = new BoundedMap<>(FIELD_LIMIT);
+        BoundedMap<CallEdge> calls = new BoundedMap<>(CALL_LIMIT);
+        BoundedMap<CallEdge> sameClassCalls = new BoundedMap<>(CALL_LIMIT);
+        BoundedMap<CallEdge> constructors = new BoundedMap<>(CALL_LIMIT);
+        BoundedMap<RedactedString> strings = new BoundedMap<>(STRING_CONSTANT_LIMIT);
         boolean callsPrimarySeam = false;
         boolean consumesSoundF = Type.getReturnType(method.desc).getDescriptor().equals("Lsound/F;");
 
@@ -244,84 +239,68 @@ final class SoundLoaderContractReport {
             if (instruction instanceof FieldInsnNode field) {
                 FieldAccess access = new FieldAccess(
                         field.getOpcode(),
-                        field.owner,
-                        field.name,
-                        field.desc,
+                        bounded(field.owner),
+                        bounded(field.name),
+                        bounded(field.desc),
                         field.getOpcode() == Opcodes.PUTFIELD || field.getOpcode() == Opcodes.PUTSTATIC);
-                String key = access.key();
-                if (fields.size() < FIELD_LIMIT || fields.containsKey(key)) {
-                    fields.putIfAbsent(key, access);
-                } else {
-                    fieldsTruncated = true;
-                }
+                fields.put(access.key(), access);
                 if (field.owner.equals("sound/F") || field.desc.contains("Lsound/F;")) consumesSoundF = true;
             } else if (instruction instanceof MethodInsnNode call) {
                 CallEdge edge = new CallEdge(
-                        call.getOpcode(), call.owner, call.name, call.desc, call.itf,
+                        call.getOpcode(),
+                        bounded(call.owner),
+                        bounded(call.name),
+                        bounded(call.desc),
+                        call.itf,
                         call.name.equals("<init>"));
                 String key = edge.key();
-                if (calls.size() < CALL_LIMIT || calls.containsKey(key)) {
-                    calls.putIfAbsent(key, edge);
-                } else {
-                    callsTruncated = true;
-                }
-                if (owner.equals(call.owner)) sameClassCalls.putIfAbsent(key, edge);
-                if (call.name.equals("<init>")) constructors.putIfAbsent(key, edge);
+                calls.put(key, edge);
+                if (owner.equals(call.owner)) sameClassCalls.put(key, edge);
+                if (call.name.equals("<init>")) constructors.put(key, edge);
                 if (PRIMARY_SEAM.matches(call.owner, call.name, call.desc)) callsPrimarySeam = true;
                 if (descriptorMentionsSoundF(call.desc) || call.owner.equals("sound/F")) consumesSoundF = true;
             } else if (instruction instanceof InvokeDynamicInsnNode dynamic) {
                 CallEdge edge = new CallEdge(
                         Opcodes.INVOKEDYNAMIC,
                         "<dynamic>",
-                        dynamic.name,
-                        dynamic.desc,
+                        bounded(dynamic.name),
+                        bounded(dynamic.desc),
                         false,
                         false);
-                String key = edge.key() + "@" + handle(dynamic.bsm);
-                if (calls.size() < CALL_LIMIT || calls.containsKey(key)) {
-                    calls.putIfAbsent(key, edge);
-                } else {
-                    callsTruncated = true;
-                }
+                calls.put(edge.key(), edge);
                 if (descriptorMentionsSoundF(dynamic.desc)) consumesSoundF = true;
             } else if (instruction instanceof LdcInsnNode ldc && ldc.cst instanceof String literal) {
                 RedactedString redacted = new RedactedString(
-                        literal.length(),
-                        sha256(literal.getBytes(StandardCharsets.UTF_8)));
-                String key = redacted.length() + "@" + redacted.sha256();
-                if (strings.size() < STRING_CONSTANT_LIMIT || strings.containsKey(key)) {
-                    strings.putIfAbsent(key, redacted);
-                } else {
-                    stringsTruncated = true;
-                }
+                        literal.length(), sha256(literal.getBytes(StandardCharsets.UTF_8)));
+                strings.put(redacted.key(), redacted);
             }
         }
 
         TryCatchResult tryCatches = tryCatchRegions(method, indexes);
         FlowResult flow = analyzeFlow(owner, method, indexes);
-        boolean primary = PRIMARY_SEAM.matches(owner, method.name, method.desc);
-        boolean consumerCandidate = callsPrimarySeam || consumesSoundF;
         return new MethodStructure(
-                method.name,
-                method.desc,
+                bounded(method.name),
+                bounded(method.desc),
                 method.access,
-                primary,
-                consumerCandidate,
+                PRIMARY_SEAM.matches(owner, method.name, method.desc),
+                callsPrimarySeam || consumesSoundF,
                 method.maxStack,
                 method.maxLocals,
                 executableInstructionCount(method),
-                List.copyOf(fields.values()),
-                List.copyOf(calls.values()),
-                List.copyOf(sameClassCalls.values()),
-                List.copyOf(constructors.values()),
+                fields.values(),
+                calls.values(),
+                sameClassCalls.values(),
+                constructors.values(),
                 tryCatches.regions(),
-                List.copyOf(strings.values()),
+                strings.values(),
                 flow.points(),
                 flow.error(),
-                fieldsTruncated,
-                callsTruncated,
+                fields.truncated(),
+                calls.truncated(),
+                sameClassCalls.truncated(),
+                constructors.truncated(),
                 tryCatches.truncated(),
-                stringsTruncated,
+                strings.truncated(),
                 flow.truncated());
     }
 
@@ -363,7 +342,7 @@ final class SoundLoaderContractReport {
                     index(indexes, block.start),
                     index(indexes, block.end),
                     index(indexes, block.handler),
-                    block.type == null ? "<all>" : block.type));
+                    bounded(block.type == null ? "<all>" : block.type)));
         }
         regions.sort(Comparator.comparingInt(TryCatchRegion::startInstructionIndex)
                 .thenComparingInt(TryCatchRegion::endInstructionIndex)
@@ -380,8 +359,7 @@ final class SoundLoaderContractReport {
             return new FlowResult(List.of(), "Method has no bytecode body", false);
         }
         try {
-            Analyzer<BasicValue> analyzer = new Analyzer<>(new BasicInterpreter());
-            Frame<BasicValue>[] frames = analyzer.analyze(owner, method);
+            Frame<BasicValue>[] frames = new Analyzer<>(new BasicInterpreter()).analyze(owner, method);
             List<FlowPoint> points = new ArrayList<>();
             boolean truncated = false;
             for (AbstractInsnNode instruction = method.instructions.getFirst();
@@ -392,15 +370,21 @@ final class SoundLoaderContractReport {
                     truncated = true;
                     break;
                 }
-                int index = index(indexes, instruction);
-                Frame<BasicValue> frame = index >= 0 && index < frames.length ? frames[index] : null;
+                int instructionIndex = index(indexes, instruction);
+                Frame<BasicValue> frame = instructionIndex >= 0 && instructionIndex < frames.length
+                        ? frames[instructionIndex]
+                        : null;
+                FrameValues locals = frameValues(frame, true);
+                FrameValues stack = frameValues(frame, false);
                 points.add(new FlowPoint(
-                        index,
+                        instructionIndex,
                         instruction.getOpcode(),
                         flowKind(instruction),
                         flowTarget(instruction),
-                        frameValues(frame, true),
-                        frameValues(frame, false)));
+                        locals.values(),
+                        locals.truncated(),
+                        stack.values(),
+                        stack.truncated()));
             }
             return new FlowResult(List.copyOf(points), "", truncated);
         } catch (AnalyzerException | RuntimeException error) {
@@ -416,8 +400,7 @@ final class SoundLoaderContractReport {
             if (call.owner.startsWith("com/jcraft/jogg/") || call.owner.startsWith("com/jcraft/jorbis/")) {
                 return true;
             }
-            Type returnType = Type.getReturnType(call.desc);
-            if (returnType.getDescriptor().equals("Lsound/F;")) return true;
+            if (Type.getReturnType(call.desc).getDescriptor().equals("Lsound/F;")) return true;
             return call.name.equals("<init>") && argumentsContainSoundF(call.desc);
         }
         int opcode = instruction.getOpcode();
@@ -446,16 +429,16 @@ final class SoundLoaderContractReport {
 
     private static String flowTarget(AbstractInsnNode instruction) {
         if (instruction instanceof FieldInsnNode field) {
-            return field.owner + "." + field.name + field.desc;
+            return bounded(field.owner + "." + field.name + field.desc);
         }
         if (instruction instanceof MethodInsnNode call) {
-            return call.owner + "." + call.name + call.desc;
+            return bounded(call.owner + "." + call.name + call.desc);
         }
         return "";
     }
 
-    private static List<String> frameValues(Frame<BasicValue> frame, boolean locals) {
-        if (frame == null) return List.of();
+    private static FrameValues frameValues(Frame<BasicValue> frame, boolean locals) {
+        if (frame == null) return new FrameValues(List.of(), false);
         int count = locals ? frame.getLocals() : frame.getStackSize();
         int retained = Math.min(count, FRAME_VALUE_LIMIT);
         List<String> result = new ArrayList<>(retained);
@@ -463,7 +446,7 @@ final class SoundLoaderContractReport {
             BasicValue value = locals ? frame.getLocal(i) : frame.getStack(i);
             result.add(frameValue(value));
         }
-        return List.copyOf(result);
+        return new FrameValues(List.copyOf(result), count > retained);
     }
 
     private static String frameValue(BasicValue value) {
@@ -471,7 +454,7 @@ final class SoundLoaderContractReport {
         if (value == BasicValue.UNINITIALIZED_VALUE) return "<uninitialized>";
         if (value == BasicValue.RETURNADDRESS_VALUE) return "<return-address>";
         Type type = value.getType();
-        return type == null ? bounded(value.toString()) : bounded(type.getDescriptor());
+        return bounded(type == null ? value.toString() : type.getDescriptor());
     }
 
     private static boolean descriptorMentionsSoundF(String descriptor) {
@@ -499,24 +482,22 @@ final class SoundLoaderContractReport {
         }
     }
 
-    private synchronized void diagnostic(String detail) {
-        String value = bounded(detail);
+    private void diagnostic(String detail) {
         if (diagnostics.size() >= DIAGNOSTIC_LIMIT) {
             diagnosticsTruncated = true;
         } else {
-            diagnostics.add(value);
+            diagnostics.add(bounded(detail));
         }
     }
 
     private static SourceSuffix sourceSuffix(String normalizedSource) {
         String source = text(normalizedSource).replace('\\', '/');
         String lower = source.toLowerCase(Locale.ROOT);
-        String[] markers = {"contents/resources/java/", "starsector-core/", "mods/"};
         String value = "";
-        for (String marker : markers) {
-            int index = lower.lastIndexOf(marker);
-            if (index >= 0) {
-                value = source.substring(index);
+        for (String marker : List.of("contents/resources/java/", "starsector-core/", "mods/")) {
+            int markerIndex = lower.lastIndexOf(marker);
+            if (markerIndex >= 0) {
+                value = source.substring(markerIndex);
                 break;
             }
         }
@@ -526,12 +507,6 @@ final class SoundLoaderContractReport {
         }
         if (value.length() <= SOURCE_SUFFIX_LIMIT) return new SourceSuffix(value, false);
         return new SourceSuffix(value.substring(value.length() - SOURCE_SUFFIX_LIMIT), true);
-    }
-
-    private static String handle(Handle handle) {
-        if (handle == null) return "";
-        return handle.getTag() + "@" + handle.getOwner() + "." + handle.getName() + handle.getDesc()
-                + "@" + handle.isInterface();
     }
 
     private static int index(Map<AbstractInsnNode, Integer> indexes, AbstractInsnNode instruction) {
@@ -599,6 +574,33 @@ final class SoundLoaderContractReport {
             moved = true;
         } finally {
             if (!moved) Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static final class BoundedMap<T> {
+        private final int limit;
+        private final TreeMap<String, T> values = new TreeMap<>();
+        private boolean truncated;
+
+        private BoundedMap(int limit) {
+            this.limit = limit;
+        }
+
+        void put(String key, T value) {
+            if (values.containsKey(key)) return;
+            if (values.size() >= limit) {
+                truncated = true;
+                return;
+            }
+            values.put(key, value);
+        }
+
+        List<T> values() {
+            return List.copyOf(values.values());
+        }
+
+        boolean truncated() {
+            return truncated;
         }
     }
 
@@ -730,6 +732,8 @@ final class SoundLoaderContractReport {
             String flowAnalysisError,
             boolean fieldAccessesTruncated,
             boolean callsTruncated,
+            boolean sameClassCallsTruncated,
+            boolean constructorCallsTruncated,
             boolean tryCatchRegionsTruncated,
             boolean stringConstantsTruncated,
             boolean flowPointsTruncated) {
@@ -753,6 +757,8 @@ final class SoundLoaderContractReport {
             values.put("flowAnalysisError", flowAnalysisError.isBlank() ? null : flowAnalysisError);
             values.put("fieldAccessesTruncated", fieldAccessesTruncated);
             values.put("callsTruncated", callsTruncated);
+            values.put("sameClassCallsTruncated", sameClassCallsTruncated);
+            values.put("constructorCallsTruncated", constructorCallsTruncated);
             values.put("tryCatchRegionsTruncated", tryCatchRegionsTruncated);
             values.put("stringConstantsTruncated", stringConstantsTruncated);
             values.put("flowPointsTruncated", flowPointsTruncated);
@@ -815,6 +821,10 @@ final class SoundLoaderContractReport {
     }
 
     private record RedactedString(int length, String sha256) {
+        String key() {
+            return length + "@" + sha256;
+        }
+
         Map<String, Object> toMap() {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("length", length);
@@ -829,7 +839,9 @@ final class SoundLoaderContractReport {
             String kind,
             String target,
             List<String> locals,
-            List<String> stack) {
+            boolean localsTruncated,
+            List<String> stack,
+            boolean stackTruncated) {
         Map<String, Object> toMap() {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("instructionIndex", instructionIndex);
@@ -837,7 +849,9 @@ final class SoundLoaderContractReport {
             values.put("kind", kind);
             values.put("target", target.isBlank() ? null : target);
             values.put("locals", locals);
+            values.put("localsTruncated", localsTruncated);
             values.put("stack", stack);
+            values.put("stackTruncated", stackTruncated);
             return values;
         }
     }
@@ -855,6 +869,9 @@ final class SoundLoaderContractReport {
     }
 
     private record FlowResult(List<FlowPoint> points, String error, boolean truncated) {
+    }
+
+    private record FrameValues(List<String> values, boolean truncated) {
     }
 
     private record SourceSuffix(String value, boolean truncated) {
