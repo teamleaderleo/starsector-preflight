@@ -136,9 +136,21 @@ final class BytecodeShapeReport {
         root.put("format", "starsector-preflight-bytecode-shape-v1");
         root.put("targetId", target.id());
         root.put("automaticRewriteGenerated", false);
-        root.put("requiresHumanReview", true);
+        root.put("originalClassBytesRetained", true);
         root.put("classBytesIncluded", false);
+        root.put("bytecodeListingsIncluded", false);
         root.put("stringConstantsIncluded", false);
+        root.put("transformationPlanGenerated", false);
+        root.put("transformRegistered", false);
+        root.put("cacheReadsEnabled", false);
+        root.put("cacheWritesEnabled", false);
+        root.put("requiresHumanReview", true);
+        root.put("methodLimit", METHOD_LIMIT);
+        root.put("fieldLimitPerMethod", FIELD_LIMIT);
+        root.put("callLimitPerMethod", CALL_LIMIT);
+        root.put("constantLimitPerMethod", CONSTANT_LIMIT);
+        root.put("flowPointLimitPerMethod", FLOW_POINT_LIMIT);
+        root.put("frameValueLimit", FRAME_VALUE_LIMIT);
         root.put("exactIdentityObserved", exactIdentityObserved);
         root.put("captureFailed", captureFailed);
         root.put("captured", shape != null);
@@ -184,6 +196,8 @@ final class BytecodeShapeReport {
                 source.codeSource(),
                 source.normalizedSource(),
                 source.sourceKind(),
+                source.sourceSha256(),
+                source.sourceHashProblem(),
                 source.loaderClass(),
                 source.loaderName(),
                 List.copyOf(methods),
@@ -212,6 +226,7 @@ final class BytecodeShapeReport {
         TreeMap<String, ConstantShape> constants = new TreeMap<>();
         boolean fieldsTruncated = false;
         boolean callsTruncated = false;
+        boolean internalCallsTruncated = false;
         boolean constantsTruncated = false;
 
         for (AbstractInsnNode instruction : instructions) {
@@ -238,7 +253,11 @@ final class BytecodeShapeReport {
                     callsTruncated = true;
                 }
                 if (owner.equals(call.owner)) {
-                    internalCalls.putIfAbsent(key, edge);
+                    if (internalCalls.size() < CALL_LIMIT) {
+                        internalCalls.putIfAbsent(key, edge);
+                    } else if (!internalCalls.containsKey(key)) {
+                        internalCallsTruncated = true;
+                    }
                 }
             } else if (instruction instanceof InvokeDynamicInsnNode dynamic) {
                 String key = "indy@" + dynamic.name + dynamic.desc + "@" + handle(dynamic.bsm);
@@ -291,6 +310,7 @@ final class BytecodeShapeReport {
                 flow.error(),
                 fieldsTruncated,
                 callsTruncated,
+                internalCallsTruncated,
                 constantsTruncated,
                 flow.truncated());
     }
@@ -591,6 +611,8 @@ final class BytecodeShapeReport {
             String codeSource,
             String normalizedSource,
             String sourceKind,
+            String sourceSha256,
+            String sourceHashProblem,
             String loaderClass,
             String loaderName,
             List<MethodShape> methods,
@@ -604,6 +626,8 @@ final class BytecodeShapeReport {
             values.put("codeSource", codeSource);
             values.put("normalizedSource", normalizedSource);
             values.put("sourceKind", sourceKind);
+            values.put("sourceSha256", sourceSha256.isBlank() ? null : sourceSha256);
+            values.put("sourceHashProblem", sourceHashProblem.isBlank() ? null : sourceHashProblem);
             values.put("loaderClass", loaderClass);
             values.put("loaderName", loaderName);
             values.put("methods", methods.stream().map(MethodShape::toMap).toList());
@@ -631,6 +655,7 @@ final class BytecodeShapeReport {
             String flowAnalysisError,
             boolean fieldAccessesTruncated,
             boolean callsTruncated,
+            boolean internalCallsTruncated,
             boolean constantsTruncated,
             boolean flowPointsTruncated) {
         Map<String, Object> toMap() {
@@ -652,6 +677,7 @@ final class BytecodeShapeReport {
             values.put("flowAnalysisError", flowAnalysisError.isBlank() ? null : flowAnalysisError);
             values.put("fieldAccessesTruncated", fieldAccessesTruncated);
             values.put("callsTruncated", callsTruncated);
+            values.put("internalCallsTruncated", internalCallsTruncated);
             values.put("constantsTruncated", constantsTruncated);
             values.put("flowPointsTruncated", flowPointsTruncated);
             return values;
