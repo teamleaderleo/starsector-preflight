@@ -24,6 +24,7 @@ class AdapterAgentIT {
         Path recording = temporaryDirectory.resolve("startup.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
         Path codeReport = temporaryDirectory.resolve("adapter-code-loader-signatures.json");
+        Path janinoReport = temporaryDirectory.resolve("adapter-janino-loader-contract.json");
         Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
         Path soundReport = temporaryDirectory.resolve("adapter-sound-loader-contract.json");
         Path textureReport = temporaryDirectory.resolve("adapter-texture-loader-contract.json");
@@ -39,6 +40,7 @@ class AdapterAgentIT {
         assertTrue(Files.isRegularFile(recording), result.output());
         assertTrue(Files.isRegularFile(adapterReport), result.output());
         assertTrue(Files.isRegularFile(codeReport), result.output());
+        assertTrue(Files.isRegularFile(janinoReport), result.output());
         assertTrue(Files.isRegularFile(audioReport), result.output());
         assertTrue(Files.isRegularFile(soundReport), result.output());
         assertTrue(Files.isRegularFile(textureReport), result.output());
@@ -54,6 +56,16 @@ class AdapterAgentIT {
         assertTrue(codeJson.contains("\"retainedIdentities\":0"), codeJson);
         assertTrue(codeJson.contains("\"liveTransformationEligible\":false"), codeJson);
         assertTrue(codeJson.contains("\"requiresHumanReview\":true"), codeJson);
+
+        String janinoJson = Files.readString(janinoReport);
+        assertTrue(janinoJson.contains("starsector-preflight-bytecode-shape-v1"), janinoJson);
+        assertTrue(janinoJson.contains("installed-janino-complete-map-shape-v1"), janinoJson);
+        assertTrue(janinoJson.contains("\"captured\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"classBytesIncluded\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"transformationPlanGenerated\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"cacheReadsEnabled\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"cacheWritesEnabled\":false"), janinoJson);
+        assertTrue(janinoJson.contains("\"requiresHumanReview\":true"), janinoJson);
 
         String audioJson = Files.readString(audioReport);
         assertTrue(audioJson.contains("starsector-preflight-audio-decoder-signatures-v1"), audioJson);
@@ -100,6 +112,7 @@ class AdapterAgentIT {
         Path recording = temporaryDirectory.resolve("profile-only.jfr");
         Path adapterReport = temporaryDirectory.resolve("adapter.json");
         Path codeReport = temporaryDirectory.resolve("adapter-code-loader-signatures.json");
+        Path janinoReport = temporaryDirectory.resolve("adapter-janino-loader-contract.json");
         Path audioReport = temporaryDirectory.resolve("adapter-audio-decoder-signatures.json");
         Path soundReport = temporaryDirectory.resolve("adapter-sound-loader-contract.json");
         Path textureReport = temporaryDirectory.resolve("adapter-texture-loader-contract.json");
@@ -113,6 +126,7 @@ class AdapterAgentIT {
         assertTrue(Files.isRegularFile(recording), result.output());
         assertFalse(Files.exists(adapterReport), result.output());
         assertFalse(Files.exists(codeReport), result.output());
+        assertFalse(Files.exists(janinoReport), result.output());
         assertFalse(Files.exists(audioReport), result.output());
         assertFalse(Files.exists(soundReport), result.output());
         assertFalse(Files.exists(textureReport), result.output());
