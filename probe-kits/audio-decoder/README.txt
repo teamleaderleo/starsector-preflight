@@ -24,8 +24,13 @@ also open Terminal in the folder and run:
   chmod +x run-audio-decoder-probe-macos.command
   ./run-audio-decoder-probe-macos.command
 
-Preflight normally discovers /Applications/Starsector.app automatically. If it
-does not, run:
+The runner first checks the normal macOS Starsector application locations. If it
+cannot find the application there, it opens an application picker. The runner
+always changes into its own kit directory before starting Java, so a Terminal
+session that begins in your home folder will not cause Preflight to scan protected
+folders under ~/Library.
+
+You can still provide the path explicitly:
 
   ./run-audio-decoder-probe-macos.command --game "/Applications/Starsector.app"
 

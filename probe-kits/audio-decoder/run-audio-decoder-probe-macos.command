@@ -3,6 +3,8 @@ set -u
 set -o pipefail
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$HERE" || exit 2
+
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="$HERE/audio-decoder-probe-$STAMP"
 RESULTS="$HERE/audio-decoder-probe-results-$STAMP"
@@ -19,8 +21,49 @@ if ! command -v java >/dev/null 2>&1; then
     exit 2
 fi
 
+LAUNCH_ARGS=("$@")
+HAS_EXPLICIT_PATH=false
+for ARG in "$@"; do
+    case "$ARG" in
+        --game|--launcher)
+            HAS_EXPLICIT_PATH=true
+            ;;
+    esac
+done
+
+if [ "$HAS_EXPLICIT_PATH" = false ]; then
+    for CANDIDATE in \
+        "/Applications/Starsector.app" \
+        "/Applications/starsector.app" \
+        "$HOME/Applications/Starsector.app" \
+        "$HOME/Applications/starsector.app" \
+        "$HOME/Games/Starsector.app"; do
+        if [ -d "$CANDIDATE" ]; then
+            LAUNCH_ARGS=(--game "$CANDIDATE" "${LAUNCH_ARGS[@]}")
+            HAS_EXPLICIT_PATH=true
+            break
+        fi
+    done
+fi
+
+if [ "$HAS_EXPLICIT_PATH" = false ] && command -v osascript >/dev/null 2>&1; then
+    SELECTED_APP=$(osascript <<'APPLESCRIPT'
+try
+    POSIX path of (choose application with prompt "Select your Starsector application")
+on error number -128
+    return ""
+end try
+APPLESCRIPT
+)
+    if [ -n "$SELECTED_APP" ]; then
+        SELECTED_APP=${SELECTED_APP%/}
+        LAUNCH_ARGS=(--game "$SELECTED_APP" "${LAUNCH_ARGS[@]}")
+        HAS_EXPLICIT_PATH=true
+    fi
+fi
+
 printf '%s\n' "Starting the read-only Starsector audio-decoder probe."
-printf '%s\n' "Preflight will discover and launch the existing Starsector application."
+printf '%s\n' "Preflight will launch the existing Starsector application selected above."
 printf '%s\n' "No class transformation plan or audio-cache activation is included."
 printf '%s\n' "Run data: $OUT"
 printf '\n%s\n' "During the run:"
@@ -28,10 +71,10 @@ printf '%s\n' "  1. Reach the main menu and let the music play for about 30 seco
 printf '%s\n' "  2. Load a representative save or start a campaign."
 printf '%s\n' "  3. Trigger several UI or combat sound effects."
 printf '%s\n' "  4. Exit Starsector normally."
-printf '\n%s\n' "Optional launch arguments: $*"
+printf '\n%s\n' "Resolved launch arguments: ${LAUNCH_ARGS[*]}"
 printf '\n'
 
-java -jar "$JAR" run --adapter-probe --trace-dir "$OUT" "$@" 2>&1 | tee "$CONSOLE"
+java -jar "$JAR" run --adapter-probe --trace-dir "$OUT" "${LAUNCH_ARGS[@]}" 2>&1 | tee "$CONSOLE"
 STATUS=${PIPESTATUS[0]}
 
 mkdir -p "$RESULTS"
@@ -65,7 +108,7 @@ cp "$CONSOLE" "$RESULTS/probe-console.log"
         printf 'unknown'
     fi
     printf '\ncreatedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf 'java=' 
+    printf 'java='
     java -version 2>&1 | head -n 1
     printf 'preflightExitCode=%s\n' "$STATUS"
     printf 'fullRunDirectory=%s\n' "$OUT"
