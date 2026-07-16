@@ -11,6 +11,7 @@ on:
       - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticLauncher.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
+      - 'preflight-cli/src/test/java/org/newdawn/slick/openal/OggDecoder.java'
       - 'preflight-cli/pom.xml'
       - 'pom.xml'
   push:
@@ -23,6 +24,7 @@ on:
       - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticLauncher.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
+      - 'preflight-cli/src/test/java/org/newdawn/slick/openal/OggDecoder.java'
       - 'preflight-cli/pom.xml'
       - 'pom.xml'
   workflow_dispatch:
@@ -49,13 +51,13 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run adapter signature, source, code-loader, ranking, and packaged-agent tests
+      - name: Run adapter signature, source, decoder, code-loader, ranking, and packaged-agent tests
         shell: bash
         run: |
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-agent,preflight-cli -am \
-            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
+            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,AudioDecoderSignatureReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
             -Dit.test=AdapterAgentIT \
             -Dsurefire.failIfNoSpecifiedTests=false \
             verify > adapter-gate-maven.log 2>&1

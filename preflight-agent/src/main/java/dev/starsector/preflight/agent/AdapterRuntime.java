@@ -25,7 +25,13 @@ final class AdapterRuntime {
                 options.candidatePrefixes());
         CodeLoaderSignatureReport codeLoaderReport = new CodeLoaderSignatureReport(
                 sibling(options.adapterReport(), "code-loader-signatures.json"));
-        Session session = new Session(report, codeLoaderReport, options.adapterMode() != AdapterMode.OFF);
+        AudioDecoderSignatureReport audioDecoderReport = new AudioDecoderSignatureReport(
+                sibling(options.adapterReport(), "audio-decoder-signatures.json"));
+        Session session = new Session(
+                report,
+                codeLoaderReport,
+                audioDecoderReport,
+                options.adapterMode() != AdapterMode.OFF);
         if (options.adapterMode() == AdapterMode.OFF) {
             return session;
         }
@@ -48,7 +54,8 @@ final class AdapterRuntime {
                     registry,
                     options.candidatePrefixes(),
                     report,
-                    codeLoaderReport), false);
+                    codeLoaderReport,
+                    audioDecoderReport), false);
             report.transformerInstalled(registry.targets().size());
             if (registry.targets().isEmpty()) {
                 report.diagnostic("No adapter targets are allowlisted; probe-only observation remains safe");
@@ -101,15 +108,18 @@ final class AdapterRuntime {
     static final class Session implements AutoCloseable {
         private final AdapterReport report;
         private final CodeLoaderSignatureReport codeLoaderReport;
+        private final AudioDecoderSignatureReport audioDecoderReport;
         private final boolean writeReport;
         private final AtomicBoolean closed = new AtomicBoolean();
 
         private Session(
                 AdapterReport report,
                 CodeLoaderSignatureReport codeLoaderReport,
+                AudioDecoderSignatureReport audioDecoderReport,
                 boolean writeReport) {
             this.report = report;
             this.codeLoaderReport = codeLoaderReport;
+            this.audioDecoderReport = audioDecoderReport;
             this.writeReport = writeReport;
         }
 
@@ -127,6 +137,11 @@ final class AdapterRuntime {
                 codeLoaderReport.write();
             } catch (IOException error) {
                 System.err.println("[Preflight] Failed to write code-loader signature report: " + error.getMessage());
+            }
+            try {
+                audioDecoderReport.write();
+            } catch (IOException error) {
+                System.err.println("[Preflight] Failed to write audio-decoder signature report: " + error.getMessage());
             }
         }
     }

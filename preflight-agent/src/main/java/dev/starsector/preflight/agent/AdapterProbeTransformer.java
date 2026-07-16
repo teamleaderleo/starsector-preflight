@@ -12,13 +12,14 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
     private final List<String> candidatePrefixes;
     private final AdapterReport report;
     private final CodeLoaderSignatureReport codeLoaderReport;
+    private final AudioDecoderSignatureReport audioDecoderReport;
 
     AdapterProbeTransformer(
             AdapterMode mode,
             AdapterTargetRegistry registry,
             List<String> candidatePrefixes,
             AdapterReport report) {
-        this(mode, registry, candidatePrefixes, report, null);
+        this(mode, registry, candidatePrefixes, report, null, null);
     }
 
     AdapterProbeTransformer(
@@ -27,11 +28,22 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             List<String> candidatePrefixes,
             AdapterReport report,
             CodeLoaderSignatureReport codeLoaderReport) {
+        this(mode, registry, candidatePrefixes, report, codeLoaderReport, null);
+    }
+
+    AdapterProbeTransformer(
+            AdapterMode mode,
+            AdapterTargetRegistry registry,
+            List<String> candidatePrefixes,
+            AdapterReport report,
+            CodeLoaderSignatureReport codeLoaderReport,
+            AudioDecoderSignatureReport audioDecoderReport) {
         this.mode = Objects.requireNonNull(mode, "mode");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.candidatePrefixes = List.copyOf(candidatePrefixes);
         this.report = Objects.requireNonNull(report, "report");
         this.codeLoaderReport = codeLoaderReport;
+        this.audioDecoderReport = audioDecoderReport;
     }
 
     @Override
@@ -43,22 +55,28 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
             byte[] classfileBuffer) {
         boolean adapterCandidate = adapterCandidate(className);
         boolean codeCandidate = codeLoaderReport != null && codeLoaderReport.interested(className);
+        boolean audioCandidate = audioDecoderReport != null && audioDecoderReport.interested(className);
         if (mode == AdapterMode.OFF
                 || className == null
                 || classfileBuffer == null
-                || (!adapterCandidate && !codeCandidate)) {
+                || (!adapterCandidate && !codeCandidate && !audioCandidate)) {
             return null;
         }
         try {
             ClassSignature signature = ClassSignature.parse(classfileBuffer);
             List<AdapterTarget> targets = registry.forClass(signature.internalName());
-            boolean hashSource = codeCandidate || targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
+            boolean hashSource = codeCandidate
+                    || audioCandidate
+                    || targets.stream().anyMatch(AdapterTarget::requiresSourceHash);
             AdapterSourceIdentity source = AdapterSourceIdentity.capture(loader, protectionDomain, hashSource);
             if (adapterCandidate) {
                 report.observed(signature, source);
             }
             if (codeCandidate) {
                 codeLoaderReport.observed(signature, source);
+            }
+            if (audioCandidate) {
+                audioDecoderReport.observed(signature, source);
             }
             for (AdapterTarget target : targets) {
                 AdapterTarget.Match match = target.match(signature, source);
@@ -85,8 +103,12 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
         } catch (Throwable error) {
             if (adapterCandidate) {
                 report.malformed(className, error);
-            } else if (codeLoaderReport != null) {
+            }
+            if (codeCandidate) {
                 codeLoaderReport.contained("Could not retain code-loader identity " + className, error);
+            }
+            if (audioCandidate) {
+                audioDecoderReport.contained("Could not retain audio-decoder identity " + className, error);
             }
         }
         return null;

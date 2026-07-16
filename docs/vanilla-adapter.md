@@ -39,9 +39,13 @@ profile.json
 run.json
 adapter.json
 adapter-analysis.json
+adapter-code-loader-signatures.json
+adapter-audio-decoder-signatures.json
 ```
 
 `adapter-analysis.json` is generated automatically after the child process exits. It joins exact classes observed by the agent with methods that appeared on JFR stacks during image reads.
+
+`adapter-code-loader-signatures.json` retains exact bounded Janino and compiler-loader identities. `adapter-audio-decoder-signatures.json` retains exact bounded JOrbis, Jogg, and Slick OpenAL identities that were actually loaded. Both are evidence reports only; neither creates an allowlist or enables a cache path. See [audio decoder evidence collection](audio-decoder-evidence.md) for the real-install protocol.
 
 Use an explicit installation or launcher when automatic discovery needs help:
 
@@ -148,7 +152,7 @@ source-suffix starsector-core/starfarer_obf.jar
 loader-class jdk/internal/loader/ClassLoaders$AppClassLoader
 ```
 
-Archive hashing is performed only when a target declares `source-sha256`. A missing, unreadable, non-file, oversized, or changed source archive fails closed. The hash result is cached by real path, size, and modification time within the process.
+Archive hashing is performed only when a target or specialized evidence report requests it. A missing, unreadable, non-file, oversized, or changed source archive fails closed. The hash result is cached by real path, size, and modification time within the process.
 
 An exact class hash without the required live source bindings is rejected before the transformation registry is consulted. A copied identical class in another mod, JAR, or classloader therefore remains unmodified.
 
@@ -158,7 +162,7 @@ See `docs/adapter-targets.example.txt` for the complete line-oriented format.
 
 Synthetic fixtures can verify parsing, matching, source binding, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
 
-1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, code sources, classloaders, and the combined candidate report automatically.
-2. Validate a target-specific rewrite against that build and a representative mod profile before enabling it by default.
+1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, code sources, classloaders, compiler identities, and loaded audio-decoder identities automatically.
+2. Validate a target-specific rewrite or decoder adapter against that build and a representative mod profile before enabling it by default.
 
 You do not need to provide or point Preflight at the installation before step 1. The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, source-bound, and covered by a global kill switch.
