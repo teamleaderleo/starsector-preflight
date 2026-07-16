@@ -128,6 +128,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VALIDATION_STATE: ${{ needs.tiny.result == 'success' && needs.medium.result == 'success' && 'success' || 'failure' }}
+          TINY_RESULT: ${{ needs.tiny.result }}
+          MEDIUM_RESULT: ${{ needs.medium.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
           curl --fail-with-body --silent --show-error \
@@ -136,5 +139,5 @@ jobs:
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            --data "{\"state\":\"${VALIDATION_STATE}\",\"context\":\"synthetic-production-cache-validation\",\"description\":\"Focused production-cache validation ${VALIDATION_STATE}\"}" \
+            --data "{\"state\":\"${VALIDATION_STATE}\",\"context\":\"synthetic-production-cache-validation\",\"description\":\"tiny=${TINY_RESULT} medium=${MEDIUM_RESULT}\",\"target_url\":\"${RUN_URL}\"}" \
             --output /dev/null
