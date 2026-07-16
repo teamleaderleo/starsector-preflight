@@ -3,13 +3,32 @@ name: Audio codec fixture tests
 on:
   push:
     branches: [main]
+    paths:
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/OggVorbisIdentification.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/OggVorbisGoldenFixtureTest.java'
+      - 'preflight-core/src/test/resources/audio/ogg-v1/**'
+      - 'preflight-core/pom.xml'
+      - 'pom.xml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/OggVorbisIdentification.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/OggVorbisGoldenFixtureTest.java'
+      - 'preflight-core/src/test/resources/audio/ogg-v1/**'
+      - 'preflight-core/pom.xml'
+      - 'pom.xml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   focused:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -63,3 +82,4 @@ jobs:
           name: audio-codec-fixtures-${{ matrix.os }}
           path: audio-codec-fixtures-maven.log
           if-no-files-found: error
+          retention-days: 7

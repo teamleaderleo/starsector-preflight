@@ -2,14 +2,41 @@ name: Vanilla adapter gate tests
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'preflight-agent/**'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/AgentInjection.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/CommandLine.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/RunCommand.java'
+      - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticLauncher.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
+      - 'preflight-cli/pom.xml'
+      - 'pom.xml'
   push:
     branches: [main]
+    paths:
+      - 'preflight-agent/**'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/AgentInjection.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/CommandLine.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/RunCommand.java'
+      - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticLauncher.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
+      - 'preflight-cli/pom.xml'
+      - 'pom.xml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   focused:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
