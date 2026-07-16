@@ -1,4 +1,4 @@
-STARSECTOR PREFLIGHT — REAL-INSTALL AUDIO DECODER PROBE KIT
+STARSECTOR PREFLIGHT — REAL-INSTALL AUDIO AND SOUND-LOADER PROBE KIT
 
 What this kit does
 ------------------
@@ -6,9 +6,23 @@ This is a self-contained read-only probe for macOS. The verified preflight.jar i
 included in the downloaded kit. You do not need to clone the repository, install
 Maven, or build anything before running the probe.
 
-The probe records exact loaded JOrbis, Jogg, and Slick OpenAL class identities,
-method descriptors, source archive hashes, and defining classloaders. It retains
-the original class bytes and does not enable Ogg/Vorbis prepared-audio caching.
+The probe records exact loaded JOrbis and Jogg class identities, method
+descriptors, source archive hashes, and defining classloaders. It also records a
+separate bounded contract report for these exact Starsector wrapper classes:
+
+  sound/J
+  sound/F
+  sound/ooOO
+  sound/D
+  sound/Sound
+  sound/void
+  com/fs/starfarer/loading/A
+
+For the primary sound/J.o00000(InputStream) -> sound/F seam and its observed
+consumers, the report includes bounded field accesses, call and constructor
+edges, exception regions, and selected ASM dataflow frames. Literal strings are
+stored only as length plus SHA-256. The original class bytes remain active.
+Prepared-audio writes and live audio transformations remain disabled.
 
 Run the probe
 -------------
@@ -49,8 +63,11 @@ Upload that generated results ZIP. Do not upload this kit ZIP again.
 
 The upload ZIP contains only the bounded JSON reports, a console log, and probe
 metadata. It excludes startup.jfr, Starsector binaries, mod JARs, game assets,
-and saves. The complete local run directory remains beside the script in case a
-later review specifically needs the JFR recording.
+decoded sound data, and saves. The complete local run directory remains beside
+the script in case a later review specifically needs the JFR recording.
+
+Human review remains required before the installed-JOrbis equivalence harness or
+any target-specific prepared-audio adapter can begin.
 
 Optional source checkout
 ------------------------
