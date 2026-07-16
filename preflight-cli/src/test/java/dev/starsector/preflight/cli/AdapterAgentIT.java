@@ -51,7 +51,9 @@ class AdapterAgentIT {
         String codeJson = Files.readString(codeReport);
         assertTrue(codeJson.contains("starsector-preflight-code-loader-signatures-v1"), codeJson);
         assertTrue(codeJson.contains("org/codehaus/janino/JavaSourceClassLoader"), codeJson);
-        assertTrue(codeJson.contains("\"originalClassBytesRetained\":true"), codeJson);
+        assertTrue(codeJson.contains("\"retainedIdentities\":0"), codeJson);
+        assertTrue(codeJson.contains("\"liveTransformationEligible\":false"), codeJson);
+        assertTrue(codeJson.contains("\"requiresHumanReview\":true"), codeJson);
 
         String audioJson = Files.readString(audioReport);
         assertTrue(audioJson.contains("starsector-preflight-audio-decoder-signatures-v1"), audioJson);
@@ -86,6 +88,7 @@ class AdapterAgentIT {
         String textureJson = Files.readString(textureReport);
         assertTrue(textureJson.contains("starsector-preflight-bytecode-shape-v1"), textureJson);
         assertTrue(textureJson.contains("vanilla-texture-loader-upload-shape-v1"), textureJson);
+        assertTrue(textureJson.contains("\"captured\":false"), textureJson);
         assertTrue(textureJson.contains("\"classBytesIncluded\":false"), textureJson);
         assertTrue(textureJson.contains("\"stringConstantsIncluded\":false"), textureJson);
         assertTrue(textureJson.contains("\"automaticRewriteGenerated\":false"), textureJson);
