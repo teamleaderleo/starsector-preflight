@@ -2,14 +2,54 @@ name: Synthetic production cache tests
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feature/synthetic-production-cache-workload-v1
+    paths:
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/GeneratedBytecode*.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/GeneratedBytecode*.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticJdkSourceCompiler.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticProductionCacheWorker.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticWavePreparedAudio.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticProductionCacheCrossProcessTest.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticWavePreparedAudioTest.java'
+      - 'preflight-core/pom.xml'
+      - 'preflight-synthetic-startup/pom.xml'
+      - 'pom.xml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/synthetic-production-caches.yml'
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/GeneratedBytecode*.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/GeneratedBytecode*.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticJdkSourceCompiler.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticProductionCacheWorker.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticWavePreparedAudio.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticExtended*.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticProductionCacheCrossProcessTest.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticWavePreparedAudioTest.java'
+      - 'preflight-core/pom.xml'
+      - 'preflight-synthetic-startup/pom.xml'
+      - 'pom.xml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tiny:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -41,8 +81,10 @@ jobs:
           name: synthetic-production-caches-tiny-${{ matrix.os }}
           path: synthetic-production-caches-tiny.log
           if-no-files-found: error
+          retention-days: 7
 
   medium:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,3 +113,4 @@ jobs:
           name: synthetic-production-caches-medium-ubuntu
           path: synthetic-production-caches-medium.log
           if-no-files-found: error
+          retention-days: 7
