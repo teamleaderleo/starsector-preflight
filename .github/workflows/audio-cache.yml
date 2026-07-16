@@ -3,13 +3,36 @@ name: Prepared audio cache tests
 on:
   push:
     branches: [main]
+    paths:
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticPreparedAudio*.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticPreparedAudio*.java'
+      - 'preflight-core/pom.xml'
+      - 'preflight-synthetic-startup/pom.xml'
+      - 'pom.xml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'preflight-core/src/main/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-core/src/test/java/dev/starsector/preflight/core/PreparedAudio*.java'
+      - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticPreparedAudio*.java'
+      - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticPreparedAudio*.java'
+      - 'preflight-core/pom.xml'
+      - 'preflight-synthetic-startup/pom.xml'
+      - 'pom.xml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   focused:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -41,3 +64,4 @@ jobs:
           name: prepared-audio-${{ matrix.os }}
           path: prepared-audio-maven.log
           if-no-files-found: error
+          retention-days: 7
