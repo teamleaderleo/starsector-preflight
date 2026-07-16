@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -31,12 +32,16 @@ final class AdapterRuntime {
                 sibling(options.adapterReport(), "sound-loader-contract.json"));
         BytecodeShapeReport textureLoaderReport = new BytecodeShapeReport(
                 sibling(options.adapterReport(), "texture-loader-contract.json"));
+        BytecodeShapeReport janinoLoaderReport = new BytecodeShapeReport(
+                sibling(options.adapterReport(), "janino-loader-contract.json"),
+                janinoTarget());
         Session session = new Session(
                 report,
                 codeLoaderReport,
                 audioDecoderReport,
                 soundLoaderReport,
                 textureLoaderReport,
+                janinoLoaderReport,
                 options.adapterMode() != AdapterMode.OFF);
         if (options.adapterMode() == AdapterMode.OFF) {
             return session;
@@ -63,7 +68,8 @@ final class AdapterRuntime {
                     codeLoaderReport,
                     audioDecoderReport,
                     soundLoaderReport,
-                    textureLoaderReport), false);
+                    textureLoaderReport,
+                    janinoLoaderReport), false);
             report.transformerInstalled(registry.targets().size());
             if (registry.targets().isEmpty()) {
                 report.diagnostic("No adapter targets are allowlisted; probe-only observation remains safe");
@@ -80,6 +86,24 @@ final class AdapterRuntime {
         String property = properties.getProperty("preflight.adapter.disabled");
         String environmentValue = environment.get("PREFLIGHT_DISABLE_ADAPTER");
         return truthy(property) || truthy(environmentValue);
+    }
+
+    private static BytecodeShapeReport.CaptureTarget janinoTarget() {
+        return new BytecodeShapeReport.CaptureTarget(
+                "installed-janino-complete-map-shape-v1",
+                "org/codehaus/janino/JavaSourceClassLoader",
+                "6b0eea7994ab4c314f1bc7cdefaa99b66897d500c2cad6fd2d97cd08b134c4b8",
+                "STARSECTOR_CORE",
+                "janino.jar",
+                "jdk/internal/loader/ClassLoaders$AppClassLoader",
+                "app",
+                List.of(
+                        new BytecodeShapeReport.MethodKey(
+                                "generateBytecodes", "(Ljava/lang/String;)Ljava/util/Map;"),
+                        new BytecodeShapeReport.MethodKey(
+                                "defineBytecode", "(Ljava/lang/String;[B)Ljava/lang/Class;"),
+                        new BytecodeShapeReport.MethodKey(
+                                "findClass", "(Ljava/lang/String;)Ljava/lang/Class;")));
     }
 
     private static AdapterTargetRegistry loadRegistry(Path path, AdapterReport report) throws IOException {
@@ -119,6 +143,7 @@ final class AdapterRuntime {
         private final AudioDecoderSignatureReport audioDecoderReport;
         private final SoundLoaderContractReport soundLoaderReport;
         private final BytecodeShapeReport textureLoaderReport;
+        private final BytecodeShapeReport janinoLoaderReport;
         private final boolean writeReport;
         private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -128,12 +153,14 @@ final class AdapterRuntime {
                 AudioDecoderSignatureReport audioDecoderReport,
                 SoundLoaderContractReport soundLoaderReport,
                 BytecodeShapeReport textureLoaderReport,
+                BytecodeShapeReport janinoLoaderReport,
                 boolean writeReport) {
             this.report = report;
             this.codeLoaderReport = codeLoaderReport;
             this.audioDecoderReport = audioDecoderReport;
             this.soundLoaderReport = soundLoaderReport;
             this.textureLoaderReport = textureLoaderReport;
+            this.janinoLoaderReport = janinoLoaderReport;
             this.writeReport = writeReport;
         }
 
@@ -166,6 +193,11 @@ final class AdapterRuntime {
                 textureLoaderReport.write();
             } catch (IOException error) {
                 System.err.println("[Preflight] Failed to write texture-loader contract report: " + error.getMessage());
+            }
+            try {
+                janinoLoaderReport.write();
+            } catch (IOException error) {
+                System.err.println("[Preflight] Failed to write Janino-loader contract report: " + error.getMessage());
             }
         }
     }
