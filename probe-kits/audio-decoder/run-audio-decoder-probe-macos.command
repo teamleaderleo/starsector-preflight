@@ -61,7 +61,7 @@ APPLESCRIPT
     fi
 fi
 
-printf '%s\n' "Starting the read-only Starsector audio-decoder probe."
+printf '%s\n' "Starting the read-only Starsector audio and sound-loader contract probe."
 printf '%s\n' "Preflight will launch the existing Starsector application selected above."
 printf '%s\n' "No class transformation plan or audio-cache activation is included."
 printf '%s\n' "Run data: $OUT"
@@ -81,6 +81,7 @@ MISSING="$RESULTS/MISSING_FILES.txt"
 : > "$MISSING"
 
 FILES=(
+    adapter-sound-loader-contract.json
     adapter-audio-decoder-signatures.json
     adapter-code-loader-signatures.json
     adapter.json
@@ -126,6 +127,20 @@ if [ -f "$AUDIO" ]; then
     fi
 else
     printf '\n%s\n' "WARNING: the audio-decoder signature report was not created."
+fi
+
+SOUND="$OUT/adapter-sound-loader-contract.json"
+if [ -f "$SOUND" ]; then
+    if grep -Eq '"retainedIdentities":[[:space:]]*[1-9][0-9]*' "$SOUND"; then
+        printf '%s\n' "Confirmed: at least one exact sound-loader contract identity was retained."
+    else
+        printf '%s\n' "NOTE: no exact sound-loader contract identity was retained. Upload the result ZIP anyway."
+    fi
+    if grep -Eq '"entriesTruncated":[[:space:]]*true' "$SOUND"; then
+        printf '%s\n' "WARNING: the sound-loader contract report was truncated."
+    fi
+else
+    printf '%s\n' "WARNING: the sound-loader contract report was not created."
 fi
 
 if command -v ditto >/dev/null 2>&1; then
