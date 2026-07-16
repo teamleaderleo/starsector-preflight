@@ -34,10 +34,11 @@ class AppCdsCapabilityDetectorTest {
         assertEquals(64, result.proofArchiveSha256().length());
 
         Path applicationArchive = temporaryDirectory.resolve("application.jsa");
+        Path expectedCreationArchive = temporaryDirectory.toRealPath().resolve("application.jsa");
         assertEquals(
                 List.of(
                         AppCdsCapabilityDetector.XSHARE_ON,
-                        AppCdsCapabilityDetector.ARCHIVE_AT_EXIT_PREFIX + applicationArchive.toAbsolutePath().normalize()),
+                        AppCdsCapabilityDetector.ARCHIVE_AT_EXIT_PREFIX + expectedCreationArchive),
                 result.archiveCreationArguments(applicationArchive));
 
         Files.write(applicationArchive, new byte[] {1});
