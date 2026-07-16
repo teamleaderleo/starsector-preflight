@@ -27,8 +27,8 @@ jobs:
         run: |
           set +e
           mvn --batch-mode --no-transfer-progress \
-            -pl preflight-core -am \
-            -Dtest=PreparedAudioCacheTest \
+            -pl preflight-core,preflight-synthetic-startup -am \
+            -Dtest=PreparedAudioCacheTest,SyntheticPreparedAudioCrossProcessTest \
             -Dsurefire.failIfNoSpecifiedTests=false \
             test > prepared-audio-maven.log 2>&1
           status=$?
