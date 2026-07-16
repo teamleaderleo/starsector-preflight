@@ -62,6 +62,7 @@ class AdapterAgentIT {
         assertTrue(soundJson.contains("\"primarySeam\":true"), soundJson);
         assertTrue(soundJson.contains("\"consumerCandidate\":true"), soundJson);
         assertTrue(soundJson.contains("\"kind\":\"jogg-jorbis-call\""), soundJson);
+        assertTrue(soundJson.contains("\"kind\":\"call-returning-sound-f\""), soundJson);
         assertTrue(soundJson.contains("\"kind\":\"constructor-consuming-sound-f\""), soundJson);
         assertTrue(soundJson.contains("\"originalClassBytesRetained\":true"), soundJson);
         assertTrue(soundJson.contains("\"transformationPlanGenerated\":false"), soundJson);
