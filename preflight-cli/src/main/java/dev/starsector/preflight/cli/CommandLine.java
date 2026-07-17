@@ -1,6 +1,7 @@
 package dev.starsector.preflight.cli;
 
 import dev.starsector.preflight.agent.AdapterMode;
+import dev.starsector.preflight.agent.TextureAdapterMode;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,7 @@ record CommandLine(
         Path textureCacheDirectory,
         Path textureManifest,
         Path textureIndex,
+        TextureAdapterMode textureAdapterMode,
         List<String> forwardedArgs) {
     static CommandLine parse(String[] args, int offset) {
         Path game = null;
@@ -31,6 +33,8 @@ record CommandLine(
         Path textureCacheDirectory = null;
         Path textureManifest = null;
         Path textureIndex = null;
+        TextureAdapterMode textureAdapterMode = TextureAdapterMode.COMPATIBILITY;
+        boolean textureModeSpecified = false;
         List<String> forwarded = new ArrayList<>();
         for (int i = offset; i < args.length; i++) {
             String arg = args[i];
@@ -57,6 +61,11 @@ record CommandLine(
                 case "--texture-cache-dir" -> textureCacheDirectory = Path.of(requireValue(args, ++i, arg));
                 case "--texture-manifest" -> textureManifest = Path.of(requireValue(args, ++i, arg));
                 case "--texture-index" -> textureIndex = Path.of(requireValue(args, ++i, arg));
+                case "--texture-mode" -> {
+                    textureAdapterMode = TextureAdapterMode.valueOf(
+                            requireValue(args, ++i, arg).trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_'));
+                    textureModeSpecified = true;
+                }
                 case "--" -> {
                     for (int j = i + 1; j < args.length; j++) {
                         forwarded.add(args[j]);
@@ -77,7 +86,13 @@ record CommandLine(
                     "--texture-cache-dir, --texture-manifest, and --texture-index must be supplied together");
         }
         if (textureOptions == 3 && adapterMode != AdapterMode.ENABLED) {
-            throw new IllegalArgumentException("Texture compatibility options require --adapter");
+            throw new IllegalArgumentException("Texture adapter options require --adapter");
+        }
+        if (textureModeSpecified && adapterMode != AdapterMode.ENABLED) {
+            throw new IllegalArgumentException("--texture-mode requires --adapter");
+        }
+        if (textureModeSpecified && textureOptions != 3) {
+            throw new IllegalArgumentException("--texture-mode requires the complete texture cache context");
         }
         return new CommandLine(
                 game,
@@ -91,6 +106,7 @@ record CommandLine(
                 textureCacheDirectory,
                 textureManifest,
                 textureIndex,
+                textureAdapterMode,
                 List.copyOf(forwarded));
     }
 
