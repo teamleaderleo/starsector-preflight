@@ -73,6 +73,41 @@ class BenchmarkCommandTest {
         assertTrue(output.contains("\"baselineProbes\":2000"), output);
     }
 
+    @Test
+    void recordsBoundedScenarioTelemetryThroughCli() throws Exception {
+        Path result = temporaryDirectory.resolve("results").resolve("benchmark.json");
+        String output = capture(() -> PreflightCli.run(new String[] {
+                "benchmark", "scenario",
+                "--run-id", "run-20260717-100000",
+                "--scenario-id", "campaign-combat-v1",
+                "--mode", "enabled-warm-hit",
+                "--iteration", "3",
+                "--profile-fingerprint", "ab".repeat(32),
+                "--process-start", "2026-07-17T10:00:00Z",
+                "--main-menu-ready", "2026-07-17T10:00:12Z",
+                "--campaign-ready", "2026-07-17T10:01:02Z",
+                "--first-combat-ready", "2026-07-17T10:01:32Z",
+                "--exit-code", "0",
+                "--adapter-counter", "texture.hits=17",
+                "--adapter-counter", "texture.misses=2",
+                "--cache-counter", "entries=15",
+                "--cache-counter", "bytes=4096",
+                "--disable-reason", "none",
+                "--output", result.toString()
+        }));
+
+        assertTrue(output.contains(result.toAbsolutePath().normalize().toString()), output);
+        String json = Files.readString(result);
+        assertTrue(json.contains("\"schema\":\"starsector-preflight-benchmark-scenario\""), json);
+        assertTrue(json.contains("\"mode\":\"enabled-warm-hit\""), json);
+        assertTrue(json.contains("\"processToMainMenuMs\":12000"), json);
+        assertTrue(json.contains("\"mainMenuToCampaignReadyMs\":50000"), json);
+        assertTrue(json.contains("\"campaignToFirstCombatReadyMs\":30000"), json);
+        assertTrue(json.contains("\"adapterCounters\":{\"texture.hits\":17,\"texture.misses\":2}"), json);
+        assertTrue(json.contains("\"cacheCounters\":{\"bytes\":4096,\"entries\":15}"), json);
+        assertTrue(json.contains("\"exit\":{\"code\":0,\"successful\":true}"), json);
+    }
+
     private static ResourceIndex.Provider provider(int root, String relative, Path file) throws Exception {
         return new ResourceIndex.Provider(
                 root,
