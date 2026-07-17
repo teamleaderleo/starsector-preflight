@@ -22,6 +22,7 @@ class AgentOptionsTest {
         assertNull(options.textureCacheDirectory());
         assertNull(options.textureManifest());
         assertNull(options.textureIndex());
+        assertEquals(TextureAdapterMode.COMPATIBILITY, options.textureAdapterMode());
     }
 
     @Test
@@ -50,9 +51,10 @@ class AgentOptionsTest {
     }
 
     @Test
-    void parsesTextureCacheManifestAndIndexPaths() {
+    void parsesTextureCacheManifestIndexAndPreparedPixelMode() {
         AgentOptions options = AgentOptions.parse(
                 "adapter=enabled"
+                        + ",textureMode=prepared-pixels"
                         + ",textureCache64=" + encoded("build/cache")
                         + ",textureManifest64=" + encoded("build/cache/manifests/profile.spfm")
                         + ",textureIndex64=" + encoded("build/cache/indexes/profile.spfi"));
@@ -60,6 +62,7 @@ class AgentOptionsTest {
         assertEquals(Path.of("build/cache"), options.textureCacheDirectory());
         assertEquals(Path.of("build/cache/manifests/profile.spfm"), options.textureManifest());
         assertEquals(Path.of("build/cache/indexes/profile.spfi"), options.textureIndex());
+        assertEquals(TextureAdapterMode.PREPARED_PIXELS, options.textureAdapterMode());
     }
 
     @Test
@@ -67,6 +70,7 @@ class AgentOptionsTest {
         assertThrows(IllegalArgumentException.class, () -> AgentOptions.parse("dest"));
         assertThrows(IllegalArgumentException.class, () -> AgentOptions.parse("adapter=probe,adapter=enabled"));
         assertThrows(IllegalArgumentException.class, () -> AgentOptions.parse("adapter=maybe"));
+        assertThrows(IllegalArgumentException.class, () -> AgentOptions.parse("textureMode=unknown"));
     }
 
     private static String encoded(String value) {

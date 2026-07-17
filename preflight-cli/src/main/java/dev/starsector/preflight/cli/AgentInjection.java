@@ -1,6 +1,7 @@
 package dev.starsector.preflight.cli;
 
 import dev.starsector.preflight.agent.AdapterMode;
+import dev.starsector.preflight.agent.TextureAdapterMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
@@ -11,7 +12,17 @@ final class AgentInjection {
     }
 
     static String append(String existing, Path agentJar, Path destination) {
-        return append(existing, agentJar, destination, AdapterMode.OFF, null, null, null, null, null);
+        return append(
+                existing,
+                agentJar,
+                destination,
+                AdapterMode.OFF,
+                null,
+                null,
+                null,
+                null,
+                null,
+                TextureAdapterMode.COMPATIBILITY);
     }
 
     static String append(
@@ -30,7 +41,8 @@ final class AgentInjection {
                 adapterTargets,
                 null,
                 null,
-                null);
+                null,
+                TextureAdapterMode.COMPATIBILITY);
     }
 
     static String append(
@@ -43,6 +55,30 @@ final class AgentInjection {
             Path textureCacheDirectory,
             Path textureManifest,
             Path textureIndex) {
+        return append(
+                existing,
+                agentJar,
+                destination,
+                adapterMode,
+                adapterReport,
+                adapterTargets,
+                textureCacheDirectory,
+                textureManifest,
+                textureIndex,
+                TextureAdapterMode.COMPATIBILITY);
+    }
+
+    static String append(
+            String existing,
+            Path agentJar,
+            Path destination,
+            AdapterMode adapterMode,
+            Path adapterReport,
+            Path adapterTargets,
+            Path textureCacheDirectory,
+            Path textureManifest,
+            Path textureIndex,
+            TextureAdapterMode textureAdapterMode) {
         String current = existing == null ? "" : existing.trim();
         String lower = current.toLowerCase(Locale.ROOT);
         if (lower.contains("-javaagent:") && lower.contains("preflight")) {
@@ -52,7 +88,9 @@ final class AgentInjection {
         StringBuilder arguments = new StringBuilder("dest64=")
                 .append(encodedPath(destination))
                 .append(",adapter=")
-                .append(adapterMode.optionValue());
+                .append(adapterMode.optionValue())
+                .append(",textureMode=")
+                .append(textureAdapterMode.optionValue());
         appendPath(arguments, "adapterReport64", adapterReport);
         appendPath(arguments, "targets64", adapterTargets);
         appendPath(arguments, "textureCache64", textureCacheDirectory);

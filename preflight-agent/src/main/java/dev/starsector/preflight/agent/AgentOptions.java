@@ -18,6 +18,7 @@ record AgentOptions(
         Path textureCacheDirectory,
         Path textureManifest,
         Path textureIndex,
+        TextureAdapterMode textureAdapterMode,
         List<String> candidatePrefixes) {
     private static final List<String> DEFAULT_CANDIDATE_PREFIXES = List.of(
             "com/fs/starfarer/",
@@ -62,6 +63,7 @@ record AgentOptions(
         Path textureCacheDirectory = decodedPath(values, "textureCache64");
         Path textureManifest = decodedPath(values, "textureManifest64");
         Path textureIndex = decodedPath(values, "textureIndex64");
+        TextureAdapterMode textureAdapterMode = TextureAdapterMode.parse(values.get("textureMode"));
         return new AgentOptions(
                 destination,
                 settings,
@@ -71,6 +73,7 @@ record AgentOptions(
                 textureCacheDirectory,
                 textureManifest,
                 textureIndex,
+                textureAdapterMode,
                 DEFAULT_CANDIDATE_PREFIXES);
     }
 

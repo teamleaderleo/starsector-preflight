@@ -54,7 +54,8 @@ final class RunCommand {
                 options.adapterTargets(),
                 options.textureCacheDirectory(),
                 options.textureManifest(),
-                options.textureIndex());
+                options.textureIndex(),
+                options.textureAdapterMode());
 
         List<String> command = new ArrayList<>(target.command());
         command.addAll(options.forwardedArgs());
@@ -147,6 +148,7 @@ final class RunCommand {
             System.out.println("  adapter targets: " + options.adapterTargets().toAbsolutePath().normalize());
         }
         if (options.textureManifest() != null) {
+            System.out.println("  texture mode: " + options.textureAdapterMode());
             System.out.println("  texture cache: " + options.textureCacheDirectory().toAbsolutePath().normalize());
             System.out.println("  texture manifest: " + options.textureManifest().toAbsolutePath().normalize());
             System.out.println("  texture index: " + options.textureIndex().toAbsolutePath().normalize());
@@ -217,6 +219,7 @@ final class RunCommand {
         values.put("adapterReport", adapterReport);
         values.put("adapterAnalysis", Files.isRegularFile(adapterAnalysis) ? adapterAnalysis : null);
         values.put("adapterTargets", options.adapterTargets());
+        values.put("textureAdapterMode", options.textureAdapterMode());
         values.put("textureCacheDirectory", options.textureCacheDirectory());
         values.put("textureManifest", options.textureManifest());
         values.put("textureIndex", options.textureIndex());

@@ -22,13 +22,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Fail-open runtime used by the exact-gated TextureLoader compatibility pilot.
- *
- * <p>A validated hit reconstructs a decoded image from an existing SPFT payload. Every other result
- * returns {@code null}; the transformed Starsector method then invokes its renamed original body
- * directly.</p>
- */
+/** Shared fail-open cache lookup plus the decoded-image compatibility consumer. */
 public final class TextureCompatibilityRuntime {
     static final String PLAN_ID = "texture-compatibility-v1";
     static final int MAX_MANIFEST_ENTRIES = 100_000;
@@ -104,6 +98,32 @@ public final class TextureCompatibilityRuntime {
 
     /** Returns a verified cache-backed image, or {@code null} so the caller can run the original method. */
     public static BufferedImage load(String logicalPath) {
+        PreparedTexture texture = lookup(logicalPath);
+        if (texture == null) {
+            return null;
+        }
+        try {
+            if (texture.originalWidth() != texture.uploadWidth()
+                    || texture.originalHeight() != texture.uploadHeight()
+                    || Math.multiplyExact((long) texture.originalWidth(), texture.originalHeight())
+                    > MAX_RECONSTRUCTED_PIXELS) {
+                declined(FallbackReason.UNSUPPORTED_TEXTURE);
+                return null;
+            }
+            BufferedImage image = reconstruct(texture);
+            hit(texture.pixelBytes());
+            return image;
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
+        } catch (Throwable error) {
+            internalFailure();
+            declined(FallbackReason.INTERNAL_ERROR);
+            return null;
+        }
+    }
+
+    /** Shared exact lookup used by independently selectable texture consumers. */
+    static PreparedTexture lookup(String logicalPath) {
         TELEMETRY.attempt();
         State current = state;
         if (!current.ready || current.circuitBreaker.get()) {
@@ -164,32 +184,37 @@ public final class TextureCompatibilityRuntime {
                 TELEMETRY.fallback(FallbackReason.BLOB_IDENTITY_MISMATCH);
                 return null;
             }
-            if (texture.originalWidth() != texture.uploadWidth()
-                    || texture.originalHeight() != texture.uploadHeight()
-                    || Math.multiplyExact((long) texture.originalWidth(), texture.originalHeight())
-                    > MAX_RECONSTRUCTED_PIXELS) {
-                TELEMETRY.fallback(FallbackReason.UNSUPPORTED_TEXTURE);
-                return null;
-            }
-
-            BufferedImage image = reconstruct(texture);
-            TELEMETRY.hit(texture.pixelBytes());
-            return image;
+            return texture;
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
         } catch (Throwable error) {
-            int failures = current.internalErrors.incrementAndGet();
-            TELEMETRY.internalError();
-            if (failures >= MAX_INTERNAL_ERRORS && current.circuitBreaker.compareAndSet(false, true)) {
-                TELEMETRY.disabled(DisableReason.CIRCUIT_BREAKER);
-            }
+            internalFailure();
             TELEMETRY.fallback(FallbackReason.INTERNAL_ERROR);
             return null;
         }
     }
 
+    static void hit(long bytes) {
+        TELEMETRY.hit(bytes);
+    }
+
+    static void declined(FallbackReason reason) {
+        TELEMETRY.fallback(reason);
+    }
+
+    static void internalFailure() {
+        State current = state;
+        int failures = current.internalErrors.incrementAndGet();
+        TELEMETRY.internalError();
+        if (failures >= MAX_INTERNAL_ERRORS && current.circuitBreaker.compareAndSet(false, true)) {
+            TELEMETRY.disabled(DisableReason.CIRCUIT_BREAKER);
+        }
+    }
+
     static Map<String, Object> telemetry() {
-        return TELEMETRY.snapshot(ready());
+        Map<String, Object> values = new LinkedHashMap<>(TELEMETRY.snapshot(ready()));
+        values.put("preparedPixels", TexturePreparedPixelRuntime.telemetry());
+        return Map.copyOf(values);
     }
 
     private static boolean matches(TextureManifest.Entry entry, PreparedTexture texture) {
@@ -266,6 +291,8 @@ public final class TextureCompatibilityRuntime {
         BLOB_MISSING,
         BLOB_CORRUPT,
         BLOB_IDENTITY_MISMATCH,
+        DIRECT_MEMORY_LIMIT,
+        PREPARED_PIXEL_BRIDGE,
         INTERNAL_ERROR
     }
 
