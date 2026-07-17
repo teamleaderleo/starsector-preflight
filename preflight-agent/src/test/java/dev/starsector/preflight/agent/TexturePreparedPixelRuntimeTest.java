@@ -60,6 +60,7 @@ class TexturePreparedPixelRuntimeTest {
         Map<String, Object> active = TexturePreparedPixelRuntime.telemetry();
         assertEquals(2L, active.get("hits"));
         assertEquals(2, active.get("activeBuffers"));
+        assertEquals(0, active.get("pendingBuffers"));
         assertEquals(24L, active.get("activeDirectBytes"));
         assertEquals(24L, active.get("peakDirectBytes"));
         assertEquals(24L, active.get("bytesBypassed"));
@@ -74,8 +75,8 @@ class TexturePreparedPixelRuntimeTest {
 
         Map<String, Object> cache = TextureCompatibilityRuntime.telemetry();
         assertEquals(1L, cache.get("attempts"));
-        assertEquals(2L, cache.get("hits"));
-        assertEquals(24L, cache.get("bytesServed"));
+        assertEquals(1L, cache.get("hits"));
+        assertEquals(12L, cache.get("bytesServed"));
     }
 
     private Fixture fixture() throws Exception {
