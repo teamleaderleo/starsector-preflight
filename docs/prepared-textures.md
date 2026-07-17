@@ -143,10 +143,27 @@ checksum:   SHA-256 of the payload
 
 The writer uses a sibling temporary file and atomic replacement where supported. The reader validates size bounds, payload length, checksum, transformation, codec, dimensions, channel count, expected pixel length, and trailing data before constructing the texture.
 
-## Runtime boundary
+## Runtime consumers
 
-The exact-gated vanilla compatibility pilot consumes an active resource index and its matching texture manifest. A validated hit reads an `.spft` file and reconstructs a `BufferedImage` at the reviewed decoded-image seam. Starsector continues through its original texture-object creation, pixel conversion, OpenGL upload, cleanup, and lifetime path.
+Both live consumers use the exact-reviewed `TextureLoader` class, archive, method, source, and loader identity. A launch selects one mode:
 
-The pilot verifies the winning provider's current encoded SHA-256 before reading a blob. It also verifies the blob checksum, source hash, transformation, dimensions, channels, and pixel length. Version 1 runtime hits accept identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, and internal failures execute the original image loader.
+- `compatibility` reconstructs a `BufferedImage` at the private decoded-image seam. Starsector retains its original pixel conversion, OpenGL upload, cleanup, and texture lifetime.
+- `prepared-pixels` carries the verified SPFT payload to the lower `BufferedImage -> ByteBuffer` seam. A hit supplies bottom-up upload bytes and all three stored derived colors, bypassing ImageIO decode, raster traversal, vertical reversal, RGB/RGBA conversion, transparent-texel normalization, and color calculation. Starsector retains its original texture allocation, OpenGL upload, cleanup, flags, filtering, mipmaps, and texture lifetime.
 
-The compatibility pilot proves targeting, lookup, invalidation, fallback, corruption quarantine, and image equivalence. The later prepared-pixel stage will bind the lower `BufferedImage -> ByteBuffer` seam so a hit bypasses decode and pixel conversion while preserving original OpenGL work and texture lifetime.
+Launch the lower consumer with explicit artifacts:
+
+```bash
+java -jar preflight.jar run \
+  --game "/path/to/Starsector.app" \
+  --adapter \
+  --texture-mode prepared-pixels \
+  --texture-cache-dir "/path/to/cache" \
+  --texture-manifest "/path/to/cache/manifests/<fingerprint>.spfm" \
+  --texture-index "/path/to/cache/indexes/<fingerprint>.spfi"
+```
+
+The prepared-pixel rewrite additionally requires the reviewed conversion pattern: one raster-reading conversion method, exactly three distinct `java.awt.Color` writes on the texture object, and the reviewed static ByteBuffer cleanup method. An ambiguous pattern leaves the class untouched.
+
+Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. Version 1 accepts identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original decode and conversion methods once.
+
+Prepared direct-buffer ownership is bounded to 32 MiB per texture, 64 MiB active bytes, and 1,024 active buffers. The existing Starsector cleanup method always runs. Preflight releases its identity-tracked accounting in a `finally` path after that original cleanup call.
