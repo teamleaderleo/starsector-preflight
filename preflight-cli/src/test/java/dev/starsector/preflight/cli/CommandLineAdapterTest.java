@@ -17,8 +17,17 @@ class CommandLineAdapterTest {
         assertEquals(AdapterMode.PROBE, probe.adapterMode());
         assertEquals(Path.of("targets.txt"), probe.adapterTargets());
 
-        CommandLine enabled = CommandLine.parse(new String[] {"run", "--adapter"}, 1);
+        CommandLine enabled = CommandLine.parse(new String[] {
+                "run",
+                "--adapter",
+                "--texture-cache-dir", "cache",
+                "--texture-manifest", "cache/manifests/profile.spfm",
+                "--texture-index", "cache/indexes/profile.spfi"
+        }, 1);
         assertEquals(AdapterMode.ENABLED, enabled.adapterMode());
+        assertEquals(Path.of("cache"), enabled.textureCacheDirectory());
+        assertEquals(Path.of("cache/manifests/profile.spfm"), enabled.textureManifest());
+        assertEquals(Path.of("cache/indexes/profile.spfi"), enabled.textureIndex());
     }
 
     @Test
@@ -29,5 +38,23 @@ class CommandLineAdapterTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> CommandLine.parse(new String[] {"run", "--adapter-targets", "targets.txt"}, 1));
+    }
+
+    @Test
+    void rejectsPartialTextureConfigurationAndProbeMode() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {
+                        "run", "--adapter", "--texture-cache-dir", "cache"
+                }, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {
+                        "run",
+                        "--adapter-probe",
+                        "--texture-cache-dir", "cache",
+                        "--texture-manifest", "cache/manifests/profile.spfm",
+                        "--texture-index", "cache/indexes/profile.spfi"
+                }, 1));
     }
 }
