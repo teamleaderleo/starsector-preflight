@@ -15,7 +15,7 @@ on:
       - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
       - 'preflight-cli/src/test/java/sound/**'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
-      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*TextureCompatibility*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Texture*.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
       - 'preflight-cli/src/test/java/org/newdawn/slick/openal/OggDecoder.java'
       - 'preflight-cli/pom.xml'
@@ -34,7 +34,7 @@ on:
       - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
       - 'preflight-cli/src/test/java/sound/**'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
-      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*TextureCompatibility*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Texture*.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
       - 'preflight-cli/src/test/java/org/newdawn/slick/openal/OggDecoder.java'
       - 'preflight-cli/pom.xml'
@@ -69,14 +69,14 @@ jobs:
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-agent,preflight-cli -am \
-            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,TextureCompatibilityRuntimeTest,TextureCompatibilityPlanTest,TextureCompatibilityTargetTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
-            -Dit.test=AdapterAgentIT,TextureCompatibilityAgentIT \
+            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,TextureCompatibilityRuntimeTest,TextureCompatibilityPlanTest,TexturePreparedPixelRuntimeTest,TexturePreparedPixelPlanTest,TextureCompatibilityTargetTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
+            -Dit.test=AdapterAgentIT,TextureCompatibilityAgentIT,TexturePreparedPixelAgentIT \
             -Dsurefire.failIfNoSpecifiedTests=false \
             verify > adapter-gate-maven.log 2>&1
           status=$?
           find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> adapter-gate-maven.log
           find . -path '*/target/failsafe-reports/*.txt' -type f -print -exec cat {} \; >> adapter-gate-maven.log
-          tail -n 300 adapter-gate-maven.log
+          tail -n 340 adapter-gate-maven.log
           exit "$status"
       - name: Upload focused logs
         if: always()
