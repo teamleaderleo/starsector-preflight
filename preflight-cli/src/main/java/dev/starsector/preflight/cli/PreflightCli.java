@@ -45,6 +45,7 @@ public final class PreflightCli {
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
             case "index" -> IndexCommand.execute(args, 1);
             case "texture" -> textureCommand(args);
+            case "audio" -> audioCommand(args);
             case "classpath" -> ClasspathCommand.execute(args, 1);
             case "benchmark" -> BenchmarkCommand.execute(args, 1);
             case "analyze" -> AnalysisCommand.execute(args, 1);
@@ -65,6 +66,14 @@ public final class PreflightCli {
             return TextureManifestCommand.execute(args, 2);
         }
         return TextureCommand.execute(args, 1);
+    }
+
+    private static int audioCommand(String[] args) throws Exception {
+        if (args.length > 1 && "jorbis-equivalence".equals(args[1])) {
+            return InstalledJorbisEquivalenceCommand.execute(args, 2);
+        }
+        throw new IllegalArgumentException(
+                "Expected: audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
     }
 
     private static int requirePathCommand(String[] args, String name, PathCommand command) throws Exception {
@@ -138,6 +147,7 @@ public final class PreflightCli {
         System.err.println("  preflight texture manifest inspect <manifest.spfm>");
         System.err.println("  preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]");
         System.err.println("  preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]");
+        System.err.println("  preflight audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
         System.err.println("  preflight classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]");
         System.err.println("  preflight classpath index build [--game <path>] [--launcher <path>] [--cache-dir <path>]");
         System.err.println("  preflight classpath index inspect <profile.spfc>");
