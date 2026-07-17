@@ -19,6 +19,9 @@ class AgentOptionsTest {
         assertEquals(AdapterMode.OFF, options.adapterMode());
         assertEquals(Path.of("build/adapter.json"), options.adapterReport());
         assertNull(options.adapterTargets());
+        assertNull(options.textureCacheDirectory());
+        assertNull(options.textureManifest());
+        assertNull(options.textureIndex());
     }
 
     @Test
@@ -44,6 +47,19 @@ class AgentOptionsTest {
         assertEquals(
                 List.of("com/fs/starfarer/", "com/fs/graphics/"),
                 options.candidatePrefixes());
+    }
+
+    @Test
+    void parsesTextureCacheManifestAndIndexPaths() {
+        AgentOptions options = AgentOptions.parse(
+                "adapter=enabled"
+                        + ",textureCache64=" + encoded("build/cache")
+                        + ",textureManifest64=" + encoded("build/cache/manifests/profile.spfm")
+                        + ",textureIndex64=" + encoded("build/cache/indexes/profile.spfi"));
+
+        assertEquals(Path.of("build/cache"), options.textureCacheDirectory());
+        assertEquals(Path.of("build/cache/manifests/profile.spfm"), options.textureManifest());
+        assertEquals(Path.of("build/cache/indexes/profile.spfi"), options.textureIndex());
     }
 
     @Test

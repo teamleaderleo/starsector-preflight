@@ -11,7 +11,7 @@ final class AgentInjection {
     }
 
     static String append(String existing, Path agentJar, Path destination) {
-        return append(existing, agentJar, destination, AdapterMode.OFF, null, null);
+        return append(existing, agentJar, destination, AdapterMode.OFF, null, null, null, null, null);
     }
 
     static String append(
@@ -21,6 +21,28 @@ final class AgentInjection {
             AdapterMode adapterMode,
             Path adapterReport,
             Path adapterTargets) {
+        return append(
+                existing,
+                agentJar,
+                destination,
+                adapterMode,
+                adapterReport,
+                adapterTargets,
+                null,
+                null,
+                null);
+    }
+
+    static String append(
+            String existing,
+            Path agentJar,
+            Path destination,
+            AdapterMode adapterMode,
+            Path adapterReport,
+            Path adapterTargets,
+            Path textureCacheDirectory,
+            Path textureManifest,
+            Path textureIndex) {
         String current = existing == null ? "" : existing.trim();
         String lower = current.toLowerCase(Locale.ROOT);
         if (lower.contains("-javaagent:") && lower.contains("preflight")) {
@@ -31,17 +53,22 @@ final class AgentInjection {
                 .append(encodedPath(destination))
                 .append(",adapter=")
                 .append(adapterMode.optionValue());
-        if (adapterReport != null) {
-            arguments.append(",adapterReport64=").append(encodedPath(adapterReport));
-        }
-        if (adapterTargets != null) {
-            arguments.append(",targets64=").append(encodedPath(adapterTargets));
-        }
+        appendPath(arguments, "adapterReport64", adapterReport);
+        appendPath(arguments, "targets64", adapterTargets);
+        appendPath(arguments, "textureCache64", textureCacheDirectory);
+        appendPath(arguments, "textureManifest64", textureManifest);
+        appendPath(arguments, "textureIndex64", textureIndex);
         String option = "-javaagent:"
                 + quoteJvmOptionValue(agentJar.toAbsolutePath().normalize().toString())
                 + "="
                 + arguments;
         return current.isEmpty() ? option : current + " " + option;
+    }
+
+    private static void appendPath(StringBuilder arguments, String key, Path value) {
+        if (value != null) {
+            arguments.append(',').append(key).append('=').append(encodedPath(value));
+        }
     }
 
     private static String encodedPath(Path value) {

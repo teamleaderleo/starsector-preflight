@@ -1,5 +1,6 @@
 package dev.starsector.preflight.agent;
 
+import dev.starsector.preflight.core.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -46,6 +47,7 @@ final class AdapterReport {
     private long exactMatches;
     private long sourceBindingRejected;
     private long transformationEligible;
+    private long transformationDeclined;
     private long transformationsApplied;
     private long containedFailures;
     private boolean candidateTruncated;
@@ -151,7 +153,13 @@ final class AdapterReport {
     synchronized void eligible(AdapterTarget target) {
         transformationEligible++;
         diagnostic("Exact source-bound target " + target.id() + " matched, but plan " + target.planId()
-                + " is not registered in this build; original bytes retained");
+                + " is unavailable for this session; original bytes retained");
+    }
+
+    synchronized void declined(AdapterTarget target) {
+        transformationDeclined++;
+        diagnostic("Transformation plan " + target.planId() + " declined " + target.internalClassName()
+                + "; original bytes retained");
     }
 
     synchronized void transformed(AdapterTarget target) {
@@ -228,12 +236,14 @@ final class AdapterReport {
         numberField(output, "exactMatches", exactMatches);
         numberField(output, "sourceBindingRejected", sourceBindingRejected);
         numberField(output, "transformationEligible", transformationEligible);
+        numberField(output, "transformationDeclined", transformationDeclined);
         numberField(output, "transformationsApplied", transformationsApplied);
         numberField(output, "containedFailures", containedFailures);
-        booleanField(output, "liveTransformationPlansRegistered", false);
+        booleanField(output, "liveTransformationPlansRegistered", AdapterTransformationRegistry.anyPlanCompiled());
         booleanField(output, "candidateTruncated", candidateTruncated);
         booleanField(output, "diagnosticsTruncated", diagnosticsTruncated);
         booleanField(output, "evaluationsTruncated", evaluationsTruncated);
+        key(output, "textureCompatibility").append(Json.value(TextureCompatibilityRuntime.telemetry())).append(',');
 
         key(output, "rankedCandidates").append('[');
         for (int i = 0; i < rankedCandidates.size(); i++) {

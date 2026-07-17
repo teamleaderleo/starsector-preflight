@@ -20,7 +20,7 @@ The runtime adapter has three modes:
 - `PROBE` — observes candidate game classes and writes their class, source, loader, and method identities. It always retains the original class bytes.
 - `ENABLED` — permits an exact allowlisted target to reach a registered transformation plan. Unknown builds, partial matches, missing source bindings, missing plans, malformed classes, and all transformer errors retain the original bytes.
 
-This build ships with zero live transformation plans. `ENABLED` therefore remains observational until a reviewed target-specific plan is added.
+The reviewed `TextureLoader` compatibility pilot is the first compiled plan. It remains inactive unless `ENABLED` mode receives a validated texture cache, manifest, and matching resource index.
 
 ## Wrapper commands
 
@@ -54,7 +54,7 @@ java -jar preflight.jar run --game "/path/to/Starsector.app" --adapter-probe
 java -jar preflight.jar run --launcher "/path/to/starsector" --adapter-probe
 ```
 
-`--adapter` selects `ENABLED` mode. Until a supported transformation plan is present, exact target matches are reported and the original bytes remain active.
+`--adapter` selects `ENABLED` mode. Exact target matching and runtime configuration still decide whether a class changes.
 
 A custom allowlist file may be supplied with:
 
@@ -62,56 +62,77 @@ A custom allowlist file may be supplied with:
 java -jar preflight.jar run --adapter --adapter-targets targets.txt
 ```
 
-## Ranked candidates
+## TextureLoader compatibility pilot
 
-`adapter.json` contains two candidate views:
-
-- `candidates` — a compact alphabetical list of the best retained identities.
-- `rankedCandidates` — up to 50 likely image or texture integration points ordered by a deterministic relevance score.
-
-A candidate identity includes:
-
-- internal class name and exact classfile SHA-256
-- raw and normalized code-source location
-- source kind: Starsector core, Fast Rendering, mod, other, or unknown
-- classloader class and optional loader name
-- optional source archive SHA-256 when a target explicitly requests it
-- static relevance and exact method descriptors
-
-Identical class bytes loaded from two JARs or classloaders remain separate candidates. They are not collapsed merely because the class name and bytes match.
-
-Ranking uses class names, method names, JVM descriptors, and code-source ownership. Signals include texture/image/sprite terminology, image decoding, pixel-buffer and OpenGL types, upload/mipmap methods, and whether the class came from Starsector core, Fast Rendering, or a mod.
-
-Ranking narrows the review set. It never generates or activates an allowlist automatically, and it does not prove a method is safe to rewrite.
-
-## Combined probe analysis
-
-`adapter-analysis.json` combines:
-
-- every retained agent identity and its exact class SHA-256
-- code-source and classloader identity
-- richer static relevance evidence from `adapter.json`
-- image-read behavioral methods from `summary.json`
-- separate static, behavioral, and combined scores
-- exact method descriptors and bounded image-path samples
-- behavior-only classes that did not overlap an agent candidate
-
-The behavioral join uses exact internal class names because JFR stack frames do not always expose source and loader identity. When one class name maps to multiple retained source/loader identities, the report preserves every variant and lists the class under `ambiguousBehavioralClassNames`. Human review must choose the correct identity.
-
-The report explicitly records:
+The pilot intercepts the exact reviewed decoded-image method:
 
 ```text
-automaticAllowlistGenerated: false
-liveTransformationEligible: false
-requiresHumanReview: true
-sourceIdentityPreserved: true
+com/fs/graphics/TextureLoader.Ô00000(Ljava/lang/String;)Ljava/awt/image/BufferedImage;
 ```
 
-Analyze existing reports manually with:
+It activates only when all reviewed identities match:
+
+```text
+class SHA-256:   d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50
+archive SHA-256: 10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708
+source kind:     STARSECTOR_CORE
+source suffix:   contents/resources/java/fs.common_obf.jar
+loader class:    jdk/internal/loader/ClassLoaders$AppClassLoader
+loader name:     app
+```
+
+The target also requires the complete manually reviewed nine-method descriptor set recorded by the texture contract report. The target is compiled by hand; probe output never creates it automatically.
+
+Build a texture cache first. The build command prints the exact index and manifest paths:
 
 ```bash
-java -jar preflight.jar analyze probe adapter.json summary.json --json adapter-analysis.json
+java -jar preflight.jar texture build \
+  --game "/path/to/Starsector.app" \
+  --cache-dir "$HOME/.starsector-preflight/cache" \
+  --paths-file startup-images.txt
 ```
+
+Run the pilot with those exact files:
+
+```bash
+java -jar preflight.jar run \
+  --game "/path/to/Starsector.app" \
+  --adapter \
+  --texture-cache-dir "$HOME/.starsector-preflight/cache" \
+  --texture-manifest "$HOME/.starsector-preflight/cache/manifests/PROFILE.spfm" \
+  --texture-index "$HOME/.starsector-preflight/cache/resource-indexes/PROFILE.spfi"
+```
+
+A full build may place the index under `indexes/` while a subset build uses `resource-indexes/`. Use the paths printed by the build result.
+
+Before transformer installation, the pilot verifies:
+
+- cache, manifest, and index paths remain inside the supplied cache directory;
+- manifest and resource-index fingerprints match;
+- every indexed provider still matches its recorded size and modification time;
+- manifest and provider counts remain within fixed ceilings.
+
+For each image request, a hit additionally verifies:
+
+- normalized logical path and winning provider;
+- current encoded source SHA-256;
+- prepared blob checksum, source identity, transformation, dimensions, channels, and pixel length;
+- identity transformation and equal original/upload dimensions;
+- a fixed reconstructed-pixel ceiling.
+
+A valid hit reconstructs a compatible `BufferedImage` from the existing bottom-up SPFT pixel payload. The remainder of Starsector's original texture-object, OpenGL upload, cleanup, and lifetime path stays active.
+
+The transformer renames the reviewed original method body inside the same class and calls it directly on every cache miss, changed source, stale index, corrupt artifact, unsupported texture, ambiguity, circuit-breaker state, or internal error. Original exceptions from that original method propagate unchanged. Corrupt or identity-mismatched blobs are quarantined up to a fixed per-session limit.
+
+`adapter.json` contains bounded texture telemetry:
+
+- attempts, hits, misses, and fallbacks;
+- bytes served;
+- corruption and quarantine counts;
+- internal-error count and circuit-breaker state;
+- fixed fallback and disable-reason counters.
+
+Synthetic tests prove exact identity acceptance/rejection, decoded-pixel equivalence, cold miss, warm hit, changed source, corrupt fallback, kill switch, and packaged child-JVM behavior. A real installation test becomes useful once a prepared working-set manifest contains images requested during a normal launch.
 
 ## Kill switch
 
@@ -133,7 +154,7 @@ Every target includes class identity:
 - required method names and JVM descriptors
 - a transformation plan ID
 
-A target is eligible for a future live plan only when it also includes all required source bindings:
+A target is eligible for a live plan only when it also includes all required source bindings:
 
 - `source-kind`
 - a portable `source-suffix`
@@ -160,9 +181,9 @@ See `docs/adapter-targets.example.txt` for the complete line-oriented format.
 
 ## When a real Starsector installation is required
 
-Synthetic fixtures can verify parsing, matching, source binding, ranking, report generation, concurrency, fallback behavior, and packaged-agent operation. A real installation becomes necessary for two steps:
+Synthetic fixtures verify parsing, matching, source binding, report generation, concurrency, fallback behavior, corruption handling, bytecode rewriting, and packaged-agent operation. A real installation is used for two validation steps:
 
-1. Run one read-only `--adapter-probe` launch against the exact Starsector build. Preflight will collect JFR behavior, class signatures, code sources, classloaders, compiler identities, and loaded audio-decoder identities automatically.
-2. Validate a target-specific rewrite or decoder adapter against that build and a representative mod profile before enabling it by default.
+1. Confirm the reviewed exact class/archive/source/loader identity on the supported Starsector build.
+2. Run the opt-in compatibility pilot with a representative prepared working set, inspect hit/fallback telemetry, confirm startup/campaign/combat/save/exit behavior, and complete repeated OFF-versus-ENABLED measurements.
 
-You do not need to provide or point Preflight at the installation before step 1. The probe step is read-only. The first live rewrite will remain opt-in, exact-version-gated, source-bound, and covered by a global kill switch.
+The pilot remains exact-version-gated, source-bound, opt-in, and covered by the global kill switch. No performance result follows from the synthetic tests alone.

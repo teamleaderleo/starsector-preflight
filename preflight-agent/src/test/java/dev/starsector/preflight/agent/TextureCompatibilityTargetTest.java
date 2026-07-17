@@ -1,0 +1,92 @@
+package dev.starsector.preflight.agent;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class TextureCompatibilityTargetTest {
+    @Test
+    void exactReviewedIdentityMatchesAndEverySingleIdentityChangeRejects() {
+        AdapterTarget target = AdapterTargetRegistry.textureCompatibilityTarget();
+        ClassSignature exactClass = signature(target, target.sha256(), target.requiredMethods());
+        AdapterSourceIdentity exactSource = source(
+                target.sourceKind(),
+                "/Applications/Starsector.app/Contents/Resources/Java/fs.common_obf.jar",
+                target.sourceSha256(),
+                target.loaderClass(),
+                target.loaderName());
+
+        assertEquals(TextureCompatibilityRuntime.PLAN_ID, target.planId());
+        assertEquals(9, target.requiredMethods().size());
+        assertTrue(target.match(exactClass, exactSource).exact());
+
+        assertFalse(target.match(signature(target, "0".repeat(64), target.requiredMethods()), exactSource).exact());
+        assertFalse(target.match(signature(
+                target,
+                target.sha256(),
+                target.requiredMethods().subList(0, target.requiredMethods().size() - 1)), exactSource).exact());
+        assertFalse(target.match(exactClass, source(
+                "MOD",
+                exactSource.normalizedSource(),
+                exactSource.sourceSha256(),
+                exactSource.loaderClass(),
+                exactSource.loaderName())).exact());
+        assertFalse(target.match(exactClass, source(
+                exactSource.sourceKind(),
+                "/tmp/fs.common_obf.jar",
+                exactSource.sourceSha256(),
+                exactSource.loaderClass(),
+                exactSource.loaderName())).exact());
+        assertFalse(target.match(exactClass, source(
+                exactSource.sourceKind(),
+                exactSource.normalizedSource(),
+                "f".repeat(64),
+                exactSource.loaderClass(),
+                exactSource.loaderName())).exact());
+        assertFalse(target.match(exactClass, source(
+                exactSource.sourceKind(),
+                exactSource.normalizedSource(),
+                exactSource.sourceSha256(),
+                "example/Loader",
+                exactSource.loaderName())).exact());
+        assertFalse(target.match(exactClass, source(
+                exactSource.sourceKind(),
+                exactSource.normalizedSource(),
+                exactSource.sourceSha256(),
+                exactSource.loaderClass(),
+                "other")).exact());
+    }
+
+    private static ClassSignature signature(
+            AdapterTarget target,
+            String hash,
+            List<AdapterTarget.RequiredMethod> methods) {
+        return new ClassSignature(
+                target.internalClassName(),
+                hash,
+                61,
+                0,
+                methods.stream()
+                        .map(method -> new ClassSignature.Method(method.name(), method.descriptor(), 0))
+                        .toList());
+    }
+
+    private static AdapterSourceIdentity source(
+            String kind,
+            String normalized,
+            String hash,
+            String loaderClass,
+            String loaderName) {
+        return new AdapterSourceIdentity(
+                "file:" + normalized,
+                normalized,
+                kind,
+                hash,
+                "",
+                loaderClass,
+                loaderName);
+    }
+}

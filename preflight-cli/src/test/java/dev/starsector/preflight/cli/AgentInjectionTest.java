@@ -39,6 +39,25 @@ class AgentInjectionTest {
     }
 
     @Test
+    void includesTextureCacheManifestAndIndexPaths() {
+        String value = AgentInjection.append(
+                "",
+                Path.of("preflight.jar"),
+                Path.of("startup.jfr"),
+                AdapterMode.ENABLED,
+                Path.of("adapter.json"),
+                null,
+                Path.of("cache"),
+                Path.of("cache", "manifests", "profile.spfm"),
+                Path.of("cache", "indexes", "profile.spfi"));
+
+        assertTrue(value.contains("adapter=enabled"));
+        assertTrue(value.contains("textureCache64="));
+        assertTrue(value.contains("textureManifest64="));
+        assertTrue(value.contains("textureIndex64="));
+    }
+
+    @Test
     void quotesAgentPathsContainingSpaces() {
         Path agent = Path.of("preflight build", "preflight.jar").toAbsolutePath().normalize();
         String value = AgentInjection.append(

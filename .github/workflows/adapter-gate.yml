@@ -8,11 +8,14 @@ on:
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/AgentInjection.java'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/CommandLine.java'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/RunCommand.java'
+      - 'preflight-cli/src/test/java/com/fs/graphics/**'
       - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticLauncher.java'
+      - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticTextureLauncher.java'
       - 'preflight-cli/src/test/java/com/fs/starfarer/loading/A.java'
       - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
       - 'preflight-cli/src/test/java/sound/**'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*TextureCompatibility*.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
       - 'preflight-cli/src/test/java/org/newdawn/slick/openal/OggDecoder.java'
       - 'preflight-cli/pom.xml'
@@ -24,11 +27,14 @@ on:
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/AgentInjection.java'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/CommandLine.java'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/RunCommand.java'
+      - 'preflight-cli/src/test/java/com/fs/graphics/**'
       - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticLauncher.java'
+      - 'preflight-cli/src/test/java/com/fs/starfarer/SyntheticTextureLauncher.java'
       - 'preflight-cli/src/test/java/com/fs/starfarer/loading/A.java'
       - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
       - 'preflight-cli/src/test/java/sound/**'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*Adapter*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/*TextureCompatibility*.java'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/AgentInjectionTest.java'
       - 'preflight-cli/src/test/java/org/newdawn/slick/openal/OggDecoder.java'
       - 'preflight-cli/pom.xml'
@@ -63,14 +69,14 @@ jobs:
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-agent,preflight-cli -am \
-            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
-            -Dit.test=AdapterAgentIT \
+            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,TextureCompatibilityRuntimeTest,TextureCompatibilityPlanTest,TextureCompatibilityTargetTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
+            -Dit.test=AdapterAgentIT,TextureCompatibilityAgentIT \
             -Dsurefire.failIfNoSpecifiedTests=false \
             verify > adapter-gate-maven.log 2>&1
           status=$?
           find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> adapter-gate-maven.log
           find . -path '*/target/failsafe-reports/*.txt' -type f -print -exec cat {} \; >> adapter-gate-maven.log
-          tail -n 260 adapter-gate-maven.log
+          tail -n 300 adapter-gate-maven.log
           exit "$status"
       - name: Upload focused logs
         if: always()
