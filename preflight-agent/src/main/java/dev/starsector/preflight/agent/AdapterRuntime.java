@@ -20,6 +20,7 @@ final class AdapterRuntime {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(instrumentation, "instrumentation");
         TextureCompatibilityRuntime.beginSession();
+        TexturePreparedPixelRuntime.beginSession();
         AdapterReport report = new AdapterReport(
                 options.adapterMode(),
                 options.adapterReport(),
@@ -64,8 +65,9 @@ final class AdapterRuntime {
         try {
             registry = loadRegistry(options.adapterTargets(), report);
             if (options.adapterMode() == AdapterMode.ENABLED) {
-                registry = registry.withTextureCompatibilityTarget();
-                report.diagnostic("Loaded the compiled exact TextureLoader compatibility target");
+                registry = registry.withTextureTarget(options.textureAdapterMode());
+                report.diagnostic("Loaded the compiled exact TextureLoader "
+                        + options.textureAdapterMode().optionValue() + " target");
             }
         } catch (IOException | RuntimeException error) {
             report.contained("Could not load adapter target registry", error);
