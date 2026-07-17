@@ -77,6 +77,11 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(1L, cache.get("attempts"));
         assertEquals(1L, cache.get("hits"));
         assertEquals(12L, cache.get("bytesServed"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reportedPrepared = (Map<String, Object>) cache.get("preparedPixels");
+        assertEquals(2L, reportedPrepared.get("hits"));
+        assertEquals(2L, reportedPrepared.get("conversionCallsBypassed"));
+        assertEquals(0, reportedPrepared.get("activeBuffers"));
     }
 
     private Fixture fixture() throws Exception {
