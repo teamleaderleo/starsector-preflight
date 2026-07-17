@@ -14,6 +14,9 @@ record CommandLine(
         boolean scan,
         AdapterMode adapterMode,
         Path adapterTargets,
+        Path textureCacheDirectory,
+        Path textureManifest,
+        Path textureIndex,
         List<String> forwardedArgs) {
     static CommandLine parse(String[] args, int offset) {
         Path game = null;
@@ -25,6 +28,9 @@ record CommandLine(
         AdapterMode adapterMode = AdapterMode.OFF;
         boolean adapterModeSpecified = false;
         Path adapterTargets = null;
+        Path textureCacheDirectory = null;
+        Path textureManifest = null;
+        Path textureIndex = null;
         List<String> forwarded = new ArrayList<>();
         for (int i = offset; i < args.length; i++) {
             String arg = args[i];
@@ -48,6 +54,9 @@ record CommandLine(
                     adapterModeSpecified = true;
                 }
                 case "--adapter-targets" -> adapterTargets = Path.of(requireValue(args, ++i, arg));
+                case "--texture-cache-dir" -> textureCacheDirectory = Path.of(requireValue(args, ++i, arg));
+                case "--texture-manifest" -> textureManifest = Path.of(requireValue(args, ++i, arg));
+                case "--texture-index" -> textureIndex = Path.of(requireValue(args, ++i, arg));
                 case "--" -> {
                     for (int j = i + 1; j < args.length; j++) {
                         forwarded.add(args[j]);
@@ -60,6 +69,16 @@ record CommandLine(
         if (adapterTargets != null && adapterMode == AdapterMode.OFF) {
             throw new IllegalArgumentException("--adapter-targets requires --adapter-probe or --adapter");
         }
+        int textureOptions = (textureCacheDirectory == null ? 0 : 1)
+                + (textureManifest == null ? 0 : 1)
+                + (textureIndex == null ? 0 : 1);
+        if (textureOptions != 0 && textureOptions != 3) {
+            throw new IllegalArgumentException(
+                    "--texture-cache-dir, --texture-manifest, and --texture-index must be supplied together");
+        }
+        if (textureOptions == 3 && adapterMode != AdapterMode.ENABLED) {
+            throw new IllegalArgumentException("Texture compatibility options require --adapter");
+        }
         return new CommandLine(
                 game,
                 launcher,
@@ -69,6 +88,9 @@ record CommandLine(
                 scan,
                 adapterMode,
                 adapterTargets,
+                textureCacheDirectory,
+                textureManifest,
+                textureIndex,
                 List.copyOf(forwarded));
     }
 
