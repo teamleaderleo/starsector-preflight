@@ -150,6 +150,7 @@ final class AdapterProbeTransformer implements ClassFileTransformer {
                     report.transformed(target);
                     return transformed;
                 }
+                report.declined(target);
             }
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
