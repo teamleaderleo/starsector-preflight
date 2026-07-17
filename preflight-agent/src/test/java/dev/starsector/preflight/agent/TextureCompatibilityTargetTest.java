@@ -11,6 +11,24 @@ class TextureCompatibilityTargetTest {
     @Test
     void exactReviewedIdentityMatchesAndEverySingleIdentityChangeRejects() {
         AdapterTarget target = AdapterTargetRegistry.textureCompatibilityTarget();
+        assertExactIdentity(target, TextureCompatibilityRuntime.PLAN_ID);
+    }
+
+    @Test
+    void preparedPixelPlanUsesTheSameReviewedIdentityWithSeparatePlanId() {
+        AdapterTarget compatibility = AdapterTargetRegistry.textureCompatibilityTarget();
+        AdapterTarget prepared = AdapterTargetRegistry.texturePreparedPixelTarget();
+
+        assertExactIdentity(prepared, TexturePreparedPixelRuntime.PLAN_ID);
+        assertEquals(compatibility.internalClassName(), prepared.internalClassName());
+        assertEquals(compatibility.sha256(), prepared.sha256());
+        assertEquals(compatibility.requiredMethods(), prepared.requiredMethods());
+        assertEquals(compatibility.sourceSha256(), prepared.sourceSha256());
+        assertFalse(compatibility.id().equals(prepared.id()));
+        assertFalse(compatibility.planId().equals(prepared.planId()));
+    }
+
+    private static void assertExactIdentity(AdapterTarget target, String planId) {
         ClassSignature exactClass = signature(target, target.sha256(), target.requiredMethods());
         AdapterSourceIdentity exactSource = source(
                 target.sourceKind(),
@@ -19,7 +37,7 @@ class TextureCompatibilityTargetTest {
                 target.loaderClass(),
                 target.loaderName());
 
-        assertEquals(TextureCompatibilityRuntime.PLAN_ID, target.planId());
+        assertEquals(planId, target.planId());
         assertEquals(9, target.requiredMethods().size());
         assertTrue(target.match(exactClass, exactSource).exact());
 
