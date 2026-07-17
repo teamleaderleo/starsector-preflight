@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -29,23 +31,11 @@ class TexturePreparedPixelPlanTest {
         assertNotNull(method(node, "preflight$original$cleanupBuffer", TexturePreparedPixelPlan.CLEANUP_DESCRIPTOR));
 
         MethodNode convert = method(node, TexturePreparedPixelPlan.CONVERT_METHOD, TexturePreparedPixelPlan.CONVERT_DESCRIPTOR);
-        List<FieldInsnNode> writes = convert.instructions.stream()
-                .filter(FieldInsnNode.class::isInstance)
-                .map(FieldInsnNode.class::cast)
-                .filter(field -> field.getOpcode() == Opcodes.PUTFIELD)
-                .toList();
-        assertEquals(List.of("derived0", "derived1", "derived2"), writes.stream().map(field -> field.name).toList());
-        assertTrue(convert.instructions.stream()
-                .filter(MethodInsnNode.class::isInstance)
-                .map(MethodInsnNode.class::cast)
-                .anyMatch(call -> call.owner.contains("TexturePreparedPixelRuntime$PreparedPixel")
-                        && "buffer".equals(call.name)));
+        assertEquals(List.of("derived0", "derived1", "derived2"), fieldWrites(convert));
+        assertTrue(hasCall(convert, "TexturePreparedPixelRuntime$PreparedPixel", "buffer"));
 
         MethodNode cleanup = method(node, TexturePreparedPixelPlan.CLEANUP_METHOD, TexturePreparedPixelPlan.CLEANUP_DESCRIPTOR);
-        assertTrue(cleanup.instructions.stream()
-                .filter(MethodInsnNode.class::isInstance)
-                .map(MethodInsnNode.class::cast)
-                .anyMatch(call -> "release".equals(call.name)));
+        assertTrue(hasCall(cleanup, "TexturePreparedPixelRuntime", "release"));
         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(transformed), transformed));
     }
 
@@ -56,6 +46,31 @@ class TexturePreparedPixelPlanTest {
 
         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(twoColors), twoColors));
         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(noRasterRead), noRasterRead));
+    }
+
+    private static List<String> fieldWrites(MethodNode method) {
+        List<String> writes = new ArrayList<>();
+        for (AbstractInsnNode instruction = method.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (instruction instanceof FieldInsnNode field && field.getOpcode() == Opcodes.PUTFIELD) {
+                writes.add(field.name);
+            }
+        }
+        return List.copyOf(writes);
+    }
+
+    private static boolean hasCall(MethodNode method, String ownerFragment, String name) {
+        for (AbstractInsnNode instruction = method.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (instruction instanceof MethodInsnNode call
+                    && call.owner.contains(ownerFragment)
+                    && name.equals(call.name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static ClassNode read(byte[] bytes) {
