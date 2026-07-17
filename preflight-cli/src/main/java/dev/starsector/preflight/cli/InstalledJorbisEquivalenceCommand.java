@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -67,7 +66,11 @@ final class InstalledJorbisEquivalenceCommand {
                 .redirectErrorStream(true)
                 .start();
         ByteArrayOutputStream childOutput = new ByteArrayOutputStream();
-        Thread reader = Thread.ofPlatform().daemon().start(() -> copyBounded(process.getInputStream(), childOutput));
+        Thread reader = new Thread(
+                () -> copyBounded(process.getInputStream(), childOutput),
+                "Preflight-JOrbis-Child-Output");
+        reader.setDaemon(true);
+        reader.start();
         boolean completed = process.waitFor(CHILD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         if (!completed) {
             process.destroyForcibly();
@@ -123,10 +126,7 @@ final class InstalledJorbisEquivalenceCommand {
                 if (count > 0) output.write(buffer, 0, count);
             }
         } catch (IOException error) {
-            try {
-                output.write(("\n[child-output-error] " + error.getMessage()).getBytes(StandardCharsets.UTF_8));
-            } catch (IOException ignored) {
-            }
+            output.writeBytes(("\n[child-output-error] " + error.getMessage()).getBytes(StandardCharsets.UTF_8));
         }
     }
 
