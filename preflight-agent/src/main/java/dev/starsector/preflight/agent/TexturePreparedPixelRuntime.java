@@ -20,6 +20,7 @@ public final class TexturePreparedPixelRuntime {
     private static final Telemetry TELEMETRY = new Telemetry();
     private static long activeBytes;
     private static long peakBytes;
+    private static int pendingBuffers;
 
     private TexturePreparedPixelRuntime() {
     }
@@ -29,6 +30,7 @@ public final class TexturePreparedPixelRuntime {
             ACTIVE.clear();
             activeBytes = 0;
             peakBytes = 0;
+            pendingBuffers = 0;
         }
         TELEMETRY.reset();
     }
@@ -83,6 +85,7 @@ public final class TexturePreparedPixelRuntime {
             buffer.put(texture.pixels());
             buffer.flip();
             synchronized (LOCK) {
+                pendingBuffers--;
                 ACTIVE.put(buffer, bytes);
                 registered = true;
             }
@@ -141,22 +144,30 @@ public final class TexturePreparedPixelRuntime {
         long currentBytes;
         long maximumBytes;
         int currentBuffers;
+        int currentPending;
         synchronized (LOCK) {
             currentBytes = activeBytes;
             maximumBytes = peakBytes;
             currentBuffers = ACTIVE.size();
+            currentPending = pendingBuffers;
         }
-        return TELEMETRY.snapshot(currentBytes, maximumBytes, currentBuffers, ready());
+        return TELEMETRY.snapshot(
+                currentBytes,
+                maximumBytes,
+                currentBuffers,
+                currentPending,
+                ready());
     }
 
     private static boolean reserve(int bytes) {
         synchronized (LOCK) {
             if (bytes <= 0
                     || bytes > MAX_TEXTURE_BYTES
-                    || ACTIVE.size() >= MAX_ACTIVE_BUFFERS
+                    || ACTIVE.size() + pendingBuffers >= MAX_ACTIVE_BUFFERS
                     || activeBytes > MAX_ACTIVE_DIRECT_BYTES - bytes) {
                 return false;
             }
+            pendingBuffers++;
             activeBytes += bytes;
             peakBytes = Math.max(peakBytes, activeBytes);
             return true;
@@ -165,6 +176,9 @@ public final class TexturePreparedPixelRuntime {
 
     private static void undoReservation(int bytes) {
         synchronized (LOCK) {
+            if (pendingBuffers > 0) {
+                pendingBuffers--;
+            }
             activeBytes -= bytes;
             if (activeBytes < 0) {
                 activeBytes = 0;
@@ -264,6 +278,7 @@ public final class TexturePreparedPixelRuntime {
                 long activeDirectBytes,
                 long peakDirectBytes,
                 int activeBuffers,
+                int pendingBuffers,
                 boolean ready) {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("planId", PLAN_ID);
@@ -282,6 +297,7 @@ public final class TexturePreparedPixelRuntime {
             values.put("activeDirectBytes", activeDirectBytes);
             values.put("peakDirectBytes", peakDirectBytes);
             values.put("activeBuffers", activeBuffers);
+            values.put("pendingBuffers", pendingBuffers);
             values.put("imageDecodesBypassed", hits);
             values.put("conversionCallsBypassed", hits);
             values.put("derivedColorCalculationsBypassed", hits);
