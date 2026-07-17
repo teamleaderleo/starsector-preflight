@@ -19,6 +19,7 @@ final class AdapterRuntime {
     static Session start(AgentOptions options, Instrumentation instrumentation) {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(instrumentation, "instrumentation");
+        TextureCompatibilityRuntime.beginSession();
         AdapterReport report = new AdapterReport(
                 options.adapterMode(),
                 options.adapterReport(),
@@ -47,14 +48,26 @@ final class AdapterRuntime {
             return session;
         }
         if (killSwitch(System.getenv(), System.getProperties())) {
+            TextureCompatibilityRuntime.disable(TextureCompatibilityRuntime.DisableReason.KILL_SWITCH);
             report.killSwitch("Adapter kill switch is active; no transformer installed");
             return session;
+        }
+
+        if (options.adapterMode() == AdapterMode.ENABLED) {
+            TextureCompatibilityRuntime.configure(
+                    options.textureCacheDirectory(),
+                    options.textureManifest(),
+                    options.textureIndex());
         }
 
         AdapterTargetRegistry registry;
         try {
             registry = loadRegistry(options.adapterTargets(), report);
-        } catch (IOException error) {
+            if (options.adapterMode() == AdapterMode.ENABLED) {
+                registry = registry.withTextureCompatibilityTarget();
+                report.diagnostic("Loaded the compiled exact TextureLoader compatibility target");
+            }
+        } catch (IOException | RuntimeException error) {
             report.contained("Could not load adapter target registry", error);
             return session;
         }
