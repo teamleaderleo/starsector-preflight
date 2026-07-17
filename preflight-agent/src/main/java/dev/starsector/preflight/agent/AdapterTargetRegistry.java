@@ -37,6 +37,54 @@ final class AdapterTargetRegistry {
         return new AdapterTargetRegistry(List.of());
     }
 
+    static AdapterTarget textureCompatibilityTarget() {
+        return new AdapterTarget(
+                "vanilla-texture-loader-0.98a-rc8-compatibility",
+                "com/fs/graphics/TextureLoader",
+                "d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50",
+                TextureCompatibilityRuntime.PLAN_ID,
+                List.of(
+                        new AdapterTarget.RequiredMethod(
+                                "o00000",
+                                "(Ljava/awt/image/BufferedImage;Lcom/fs/graphics/Object;)Ljava/nio/ByteBuffer;"),
+                        new AdapterTarget.RequiredMethod(
+                                "o00000", "(Ljava/lang/String;Ljava/awt/image/BufferedImage;)V"),
+                        new AdapterTarget.RequiredMethod(
+                                "Ò00000",
+                                "(Ljava/lang/String;Ljava/awt/image/BufferedImage;)Lcom/fs/graphics/Object;"),
+                        new AdapterTarget.RequiredMethod(
+                                "Ô00000", "(Ljava/lang/String;)Ljava/awt/image/BufferedImage;"),
+                        new AdapterTarget.RequiredMethod(
+                                "o00000", "(Ljava/awt/image/BufferedImage;IIII)Lcom/fs/graphics/Object;"),
+                        new AdapterTarget.RequiredMethod(
+                                "o00000", "(Ljava/nio/ByteBuffer;Ljava/lang/String;)V"),
+                        new AdapterTarget.RequiredMethod(
+                                "Ò00000", "(Ljava/lang/String;)Ljava/nio/ByteBuffer;"),
+                        new AdapterTarget.RequiredMethod(
+                                "o00000",
+                                "(Lcom/fs/graphics/Object;Ljava/lang/String;IIIIZ)Lcom/fs/graphics/Object;"),
+                        new AdapterTarget.RequiredMethod(
+                                "o00000", "(Ljava/lang/String;)Lcom/fs/graphics/Object;")),
+                "STARSECTOR_CORE",
+                "contents/resources/java/fs.common_obf.jar",
+                "10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708",
+                "jdk/internal/loader/ClassLoaders$AppClassLoader",
+                "app");
+    }
+
+    AdapterTargetRegistry withTextureCompatibilityTarget() {
+        AdapterTarget builtIn = textureCompatibilityTarget();
+        for (AdapterTarget target : targets) {
+            if (target.id().equals(builtIn.id())) {
+                throw new IllegalArgumentException("Duplicate target ID: " + builtIn.id());
+            }
+        }
+        List<AdapterTarget> combined = new ArrayList<>(targets.size() + 1);
+        combined.addAll(targets);
+        combined.add(builtIn);
+        return new AdapterTargetRegistry(combined);
+    }
+
     static AdapterTargetRegistry load(Path path) throws IOException {
         Objects.requireNonNull(path, "path");
         Path absolute = path.toAbsolutePath().normalize();
