@@ -145,6 +145,8 @@ The writer uses a sibling temporary file and atomic replacement where supported.
 
 ## Runtime boundary
 
-A vanilla or Fast Rendering adapter can read an `.spft` file, create an image or direct byte buffer, and proceed toward texture upload. OpenGL object creation, upload, and mipmap generation still occur in the running process.
+The exact-gated vanilla compatibility pilot consumes an active resource index and its matching texture manifest. A validated hit reads an `.spft` file and reconstructs a `BufferedImage` at the reviewed decoded-image seam. Starsector continues through its original texture-object creation, pixel conversion, OpenGL upload, cleanup, and lifetime path.
 
-The runtime path treats any missing, stale, corrupt, unsupported, or incompatible blob as a cache miss and uses the original image loader.
+The pilot verifies the winning provider's current encoded SHA-256 before reading a blob. It also verifies the blob checksum, source hash, transformation, dimensions, channels, and pixel length. Version 1 runtime hits accept identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, and internal failures execute the original image loader.
+
+The compatibility pilot proves targeting, lookup, invalidation, fallback, corruption quarantine, and image equivalence. The later prepared-pixel stage will bind the lower `BufferedImage -> ByteBuffer` seam so a hit bypasses decode and pixel conversion while preserving original OpenGL work and texture lifetime.
