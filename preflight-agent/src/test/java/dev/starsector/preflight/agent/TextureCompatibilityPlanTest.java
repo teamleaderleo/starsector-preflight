@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -32,10 +34,14 @@ class TextureCompatibilityPlanTest {
         assertNotNull(fallback);
         assertTrue((fallback.access & Opcodes.ACC_PRIVATE) != 0);
         assertTrue((fallback.access & Opcodes.ACC_SYNTHETIC) != 0);
-        List<MethodInsnNode> calls = wrapper.instructions.stream()
-                .filter(MethodInsnNode.class::isInstance)
-                .map(MethodInsnNode.class::cast)
-                .toList();
+        List<MethodInsnNode> calls = new ArrayList<>();
+        for (AbstractInsnNode instruction = wrapper.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (instruction instanceof MethodInsnNode call) {
+                calls.add(call);
+            }
+        }
         assertEquals(2, calls.size());
         assertEquals("dev/starsector/preflight/agent/TextureCompatibilityRuntime", calls.get(0).owner);
         assertEquals("load", calls.get(0).name);
