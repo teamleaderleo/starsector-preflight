@@ -51,7 +51,10 @@ final class RunCommand {
                 recording,
                 options.adapterMode(),
                 adapterReport,
-                options.adapterTargets());
+                options.adapterTargets(),
+                options.textureCacheDirectory(),
+                options.textureManifest(),
+                options.textureIndex());
 
         List<String> command = new ArrayList<>(target.command());
         command.addAll(options.forwardedArgs());
@@ -143,6 +146,11 @@ final class RunCommand {
         if (options.adapterTargets() != null) {
             System.out.println("  adapter targets: " + options.adapterTargets().toAbsolutePath().normalize());
         }
+        if (options.textureManifest() != null) {
+            System.out.println("  texture cache: " + options.textureCacheDirectory().toAbsolutePath().normalize());
+            System.out.println("  texture manifest: " + options.textureManifest().toAbsolutePath().normalize());
+            System.out.println("  texture index: " + options.textureIndex().toAbsolutePath().normalize());
+        }
         System.out.println("  command:  " + renderCommand(command));
         System.out.println("  JAVA_TOOL_OPTIONS: " + javaToolOptions);
         for (String diagnostic : discovery.diagnostics()) {
@@ -209,6 +217,9 @@ final class RunCommand {
         values.put("adapterReport", adapterReport);
         values.put("adapterAnalysis", Files.isRegularFile(adapterAnalysis) ? adapterAnalysis : null);
         values.put("adapterTargets", options.adapterTargets());
+        values.put("textureCacheDirectory", options.textureCacheDirectory());
+        values.put("textureManifest", options.textureManifest());
+        values.put("textureIndex", options.textureIndex());
         values.put("adapterKillSwitchProperty", "preflight.adapter.disabled");
         values.put("adapterKillSwitchEnvironment", "PREFLIGHT_DISABLE_ADAPTER");
         Files.writeString(path, Json.object(values) + System.lineSeparator());
