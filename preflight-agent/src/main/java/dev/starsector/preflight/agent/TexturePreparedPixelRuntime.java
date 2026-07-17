@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Runtime bridge for upload-ready SPFT pixels with bounded direct-buffer ownership. */
 public final class TexturePreparedPixelRuntime {
@@ -99,7 +100,9 @@ public final class TexturePreparedPixelRuntime {
                     texture.channels(),
                     bytes);
             TELEMETRY.hit(bytes);
-            TextureCompatibilityRuntime.hit(bytes);
+            if (carrier.creditSharedHit()) {
+                TextureCompatibilityRuntime.hit(bytes);
+            }
             return result;
         } catch (ThreadDeath | VirtualMachineError fatal) {
             if (!registered) {
@@ -209,11 +212,16 @@ public final class TexturePreparedPixelRuntime {
     private static final class CarrierImage extends BufferedImage {
         private final String logicalPath;
         private final PreparedTexture texture;
+        private final AtomicBoolean sharedHitCredited = new AtomicBoolean();
 
         private CarrierImage(String logicalPath, PreparedTexture texture) {
             super(1, 1, texture.channels() == 4 ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
             this.logicalPath = logicalPath;
             this.texture = texture;
+        }
+
+        private boolean creditSharedHit() {
+            return sharedHitCredited.compareAndSet(false, true);
         }
 
         @Override
