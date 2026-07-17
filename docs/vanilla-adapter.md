@@ -14,13 +14,18 @@ The process-local environment disappears when the child exits. Preflight does no
 
 ## Modes
 
-The runtime adapter has three modes:
+The runtime adapter has three activation modes:
 
 - `OFF` — default. JFR profiling may run, but no adapter transformer is installed and no `adapter.json` file is written.
 - `PROBE` — observes candidate game classes and writes their class, source, loader, and method identities. It always retains the original class bytes.
-- `ENABLED` — permits an exact allowlisted target to reach a registered transformation plan. Unknown builds, partial matches, missing source bindings, missing plans, malformed classes, and all transformer errors retain the original bytes.
+- `ENABLED` — permits an exact allowlisted target to reach a registered transformation plan. Unknown builds, partial matches, missing source bindings, missing plans, malformed classes, and transformer errors retain the original bytes.
 
-The reviewed `TextureLoader` compatibility pilot is the first compiled plan. It remains inactive unless `ENABLED` mode receives a validated texture cache, manifest, and matching resource index.
+`ENABLED` accepts one texture consumer per launch:
+
+- `compatibility` — reconstructed decoded images; original Starsector pixel conversion stays active.
+- `prepared-pixels` — upload-ready pixels and stored colors; original Starsector OpenGL upload and lifetime stay active.
+
+The texture plans remain inactive unless `ENABLED` receives a validated texture cache, manifest, and matching resource index.
 
 ## Wrapper commands
 
@@ -62,17 +67,12 @@ A custom allowlist file may be supplied with:
 java -jar preflight.jar run --adapter --adapter-targets targets.txt
 ```
 
-## TextureLoader compatibility pilot
+## Exact TextureLoader target
 
-The pilot intercepts the exact reviewed decoded-image method:
-
-```text
-com/fs/graphics/TextureLoader.Ô00000(Ljava/lang/String;)Ljava/awt/image/BufferedImage;
-```
-
-It activates only when all reviewed identities match:
+Both texture consumers activate only when all reviewed identities match:
 
 ```text
+class:           com/fs/graphics/TextureLoader
 class SHA-256:   d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50
 archive SHA-256: 10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708
 source kind:     STARSECTOR_CORE
@@ -92,47 +92,118 @@ java -jar preflight.jar texture build \
   --paths-file startup-images.txt
 ```
 
-Run the pilot with those exact files:
+A full build may place the index under `indexes/` while a subset build uses `resource-indexes/`. Use the paths printed by the build result.
+
+## Compatibility consumer
+
+The compatibility consumer intercepts the reviewed decoded-image method:
+
+```text
+com/fs/graphics/TextureLoader.Ô00000(Ljava/lang/String;)Ljava/awt/image/BufferedImage;
+```
+
+Launch it with the default texture mode:
 
 ```bash
 java -jar preflight.jar run \
   --game "/path/to/Starsector.app" \
   --adapter \
+  --texture-mode compatibility \
   --texture-cache-dir "$HOME/.starsector-preflight/cache" \
   --texture-manifest "$HOME/.starsector-preflight/cache/manifests/PROFILE.spfm" \
   --texture-index "$HOME/.starsector-preflight/cache/resource-indexes/PROFILE.spfi"
 ```
 
-A full build may place the index under `indexes/` while a subset build uses `resource-indexes/`. Use the paths printed by the build result.
+A valid hit reconstructs a compatible `BufferedImage` from the existing bottom-up SPFT pixel payload. Starsector continues through its original texture-object creation, pixel conversion, OpenGL upload, cleanup, and lifetime path.
 
-Before transformer installation, the pilot verifies:
+The transformer retains the reviewed original decode body inside the same class and calls it directly on every unsuccessful cache path. Original exceptions propagate unchanged.
+
+## Prepared-pixel consumer
+
+The lower consumer also binds:
+
+```text
+com/fs/graphics/TextureLoader.o00000(
+  Ljava/awt/image/BufferedImage;
+  Lcom/fs/graphics/Object;
+)Ljava/nio/ByteBuffer;
+
+com/fs/graphics/TextureLoader.o00000(
+  Ljava/nio/ByteBuffer;
+  Ljava/lang/String;
+)V
+```
+
+Launch it explicitly:
+
+```bash
+java -jar preflight.jar run \
+  --game "/path/to/Starsector.app" \
+  --adapter \
+  --texture-mode prepared-pixels \
+  --texture-cache-dir "$HOME/.starsector-preflight/cache" \
+  --texture-manifest "$HOME/.starsector-preflight/cache/manifests/PROFILE.spfm" \
+  --texture-index "$HOME/.starsector-preflight/cache/resource-indexes/PROFILE.spfi"
+```
+
+The bytecode plan additionally requires a reviewed conversion pattern: a raster read, exactly three distinct `java.awt.Color` writes on `com/fs/graphics/Object`, and the static ByteBuffer cleanup descriptor. Missing or ambiguous evidence declines transformation.
+
+A valid hit supplies a fresh direct ByteBuffer containing the stored bottom-up SPFT bytes and writes the three stored derived colors. It bypasses ImageIO decode, raster traversal, row reversal, RGB/RGBA conversion, transparent-texel normalization, and derived-color calculation. Starsector retains its original texture allocation, OpenGL upload, filtering, mipmaps, cleanup call, flags, and texture lifetime.
+
+The plan retains the original decode, conversion, and cleanup bodies under private synthetic names. Misses and unsupported cases call original decode and conversion once. Original cleanup always executes, and Preflight releases its buffer accounting afterward, including the exceptional path. Original exceptions propagate.
+
+Prepared direct-buffer ownership is bounded:
+
+- 32 MiB maximum per texture;
+- 64 MiB maximum active and pending bytes;
+- 1,024 maximum active and pending buffers;
+- identity-tracked release at the existing cleanup seam.
+
+## Validation and telemetry
+
+Before transformer installation, the texture runtime verifies:
 
 - cache, manifest, and index paths remain inside the supplied cache directory;
 - manifest and resource-index fingerprints match;
 - every indexed provider still matches its recorded size and modification time;
 - manifest and provider counts remain within fixed ceilings.
 
-For each image request, a hit additionally verifies:
+For each image request, it additionally verifies:
 
 - normalized logical path and winning provider;
 - current encoded source SHA-256;
 - prepared blob checksum, source identity, transformation, dimensions, channels, and pixel length;
-- identity transformation and equal original/upload dimensions;
-- a fixed reconstructed-pixel ceiling.
+- identity transformation and equal original/upload dimensions.
 
-A valid hit reconstructs a compatible `BufferedImage` from the existing bottom-up SPFT pixel payload. The remainder of Starsector's original texture-object, OpenGL upload, cleanup, and lifetime path stays active.
+Changed sources, stale indexes, absent entries, corrupt or mismatched blobs, unsupported textures, direct-memory pressure, circuit-breaker state, and internal errors execute the retained original path. Corrupt or identity-mismatched blobs are quarantined up to a fixed per-session limit.
 
-The transformer renames the reviewed original method body inside the same class and calls it directly on every cache miss, changed source, stale index, corrupt artifact, unsupported texture, ambiguity, circuit-breaker state, or internal error. Original exceptions from that original method propagate unchanged. Corrupt or identity-mismatched blobs are quarantined up to a fixed per-session limit.
+`adapter.json` contains bounded shared texture telemetry:
 
-`adapter.json` contains bounded texture telemetry:
-
-- attempts, hits, misses, and fallbacks;
-- bytes served;
+- attempts, hits, misses, fallbacks, and bytes served;
 - corruption and quarantine counts;
 - internal-error count and circuit-breaker state;
 - fixed fallback and disable-reason counters.
 
-Synthetic tests prove exact identity acceptance/rejection, decoded-pixel equivalence, cold miss, warm hit, changed source, corrupt fallback, kill switch, and packaged child-JVM behavior. A real installation test becomes useful once a prepared working-set manifest contains images requested during a normal launch.
+Its nested `textureCompatibility.preparedPixels` object records:
+
+- carriers, direct attempts, hits, and fallbacks;
+- image-decode, conversion-call, and derived-color bypass counts;
+- bytes bypassed and released;
+- active, pending, and peak direct bytes;
+- active and pending buffers;
+- releases and internal errors.
+
+## Manual acceptance sequence
+
+A useful real-install check exists once the prepared manifest contains startup images:
+
+1. Launch with `--texture-mode compatibility` and complete main menu, campaign load, first combat, save, and clean exit.
+2. Launch with `--texture-mode prepared-pixels` and repeat the same route.
+3. Inspect `adapter.json` for one applied transformation, successful hits, zero active or pending buffers after clean exit, and contained fallback reasons.
+4. Repeat with the kill switch and confirm `transformationsApplied` remains zero.
+5. Run OFF-versus-ENABLED timing only after the normal-behavior checks succeed repeatedly.
+
+Synthetic tests prove exact identity acceptance/rejection, strict bytecode-pattern selection, direct pixel/color equivalence, cold miss, warm hit, changed source, corrupt fallback, buffer release, kill switch, and packaged child-JVM behavior across Linux, macOS, and Windows.
 
 ## Kill switch
 
@@ -181,9 +252,6 @@ See `docs/adapter-targets.example.txt` for the complete line-oriented format.
 
 ## When a real Starsector installation is required
 
-Synthetic fixtures verify parsing, matching, source binding, report generation, concurrency, fallback behavior, corruption handling, bytecode rewriting, and packaged-agent operation. A real installation is used for two validation steps:
+Synthetic fixtures verify parsing, matching, source binding, report generation, concurrency, fallback behavior, corruption handling, bytecode rewriting, direct-buffer ownership, and packaged-agent operation. A real installation confirms the supported build and normal game behavior under the selected texture plan.
 
-1. Confirm the reviewed exact class/archive/source/loader identity on the supported Starsector build.
-2. Run the opt-in compatibility pilot with a representative prepared working set, inspect hit/fallback telemetry, confirm startup/campaign/combat/save/exit behavior, and complete repeated OFF-versus-ENABLED measurements.
-
-The pilot remains exact-version-gated, source-bound, opt-in, and covered by the global kill switch. No performance result follows from the synthetic tests alone.
+The consumers remain exact-version-gated, source-bound, opt-in, and covered by the global kill switch. A performance result requires repeated successful OFF-versus-ENABLED runs.
