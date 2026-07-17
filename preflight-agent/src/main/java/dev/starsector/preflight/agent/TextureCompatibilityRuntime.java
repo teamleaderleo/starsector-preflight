@@ -212,7 +212,9 @@ public final class TextureCompatibilityRuntime {
     }
 
     static Map<String, Object> telemetry() {
-        return TELEMETRY.snapshot(ready());
+        Map<String, Object> values = new LinkedHashMap<>(TELEMETRY.snapshot(ready()));
+        values.put("preparedPixels", TexturePreparedPixelRuntime.telemetry());
+        return Map.copyOf(values);
     }
 
     private static boolean matches(TextureManifest.Entry entry, PreparedTexture texture) {
