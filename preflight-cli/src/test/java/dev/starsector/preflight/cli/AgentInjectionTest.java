@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.starsector.preflight.agent.AdapterMode;
+import dev.starsector.preflight.agent.TextureAdapterMode;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +21,7 @@ class AgentInjectionTest {
         assertEquals(1, occurrences(value, "-javaagent:"));
         assertTrue(value.contains("dest64="));
         assertTrue(value.contains("adapter=off"));
+        assertTrue(value.contains("textureMode=compatibility"));
     }
 
     @Test
@@ -39,7 +41,7 @@ class AgentInjectionTest {
     }
 
     @Test
-    void includesTextureCacheManifestAndIndexPaths() {
+    void includesPreparedPixelModeAndTexturePaths() {
         String value = AgentInjection.append(
                 "",
                 Path.of("preflight.jar"),
@@ -49,9 +51,11 @@ class AgentInjectionTest {
                 null,
                 Path.of("cache"),
                 Path.of("cache", "manifests", "profile.spfm"),
-                Path.of("cache", "indexes", "profile.spfi"));
+                Path.of("cache", "indexes", "profile.spfi"),
+                TextureAdapterMode.PREPARED_PIXELS);
 
         assertTrue(value.contains("adapter=enabled"));
+        assertTrue(value.contains("textureMode=prepared-pixels"));
         assertTrue(value.contains("textureCache64="));
         assertTrue(value.contains("textureManifest64="));
         assertTrue(value.contains("textureIndex64="));
