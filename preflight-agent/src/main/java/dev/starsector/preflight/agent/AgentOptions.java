@@ -15,6 +15,9 @@ record AgentOptions(
         AdapterMode adapterMode,
         Path adapterReport,
         Path adapterTargets,
+        Path textureCacheDirectory,
+        Path textureManifest,
+        Path textureIndex,
         List<String> candidatePrefixes) {
     private static final List<String> DEFAULT_CANDIDATE_PREFIXES = List.of(
             "com/fs/starfarer/",
@@ -56,12 +59,18 @@ record AgentOptions(
             adapterReport = destination.resolveSibling("adapter.json");
         }
         Path adapterTargets = decodedPath(values, "targets64");
+        Path textureCacheDirectory = decodedPath(values, "textureCache64");
+        Path textureManifest = decodedPath(values, "textureManifest64");
+        Path textureIndex = decodedPath(values, "textureIndex64");
         return new AgentOptions(
                 destination,
                 settings,
                 adapterMode,
                 adapterReport,
                 adapterTargets,
+                textureCacheDirectory,
+                textureManifest,
+                textureIndex,
                 DEFAULT_CANDIDATE_PREFIXES);
     }
 
