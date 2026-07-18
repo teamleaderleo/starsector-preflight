@@ -86,6 +86,11 @@ public final class PreflightCli {
         return command.run(Path.of(args[1]));
     }
 
+    private static int fingerprint(Path path) throws IOException {
+        System.out.println(ContentFingerprint.compute(path));
+        return 0;
+    }
+
     private static int summarizeCommand(String[] args) throws IOException {
         if (args.length < 2) {
             throw new IllegalArgumentException("Expected: summarize <recording.jfr> [--json <report.json>]");
