@@ -19,7 +19,7 @@ The launcher searches only below the explicit game root for a bounded set of `bi
 --java <path-to-game-java>
 ```
 
-It then builds the bounded observation classpath with the shaded Preflight JAR first and launches `SoundWrapperObservationChild` directly with the exact executable that passed `java -version` validation. It never reconstructs a second executable from the selected process's reported `java.home`.
+It then builds the bounded observation classpath with the shaded Preflight JAR first and launches `SoundWrapperObservationChild` directly with the exact executable that passed validation. Both validation and the child use Starsector's official bytecode-verification profile (`-noverify`, diagnostic options unlocked, and local/remote bytecode verification disabled), which is required by the exact proprietary wrapper classes. It never reconstructs a second executable from the selected process's reported `java.home`.
 
 The launcher adds these content-safe fields to the completed or incomplete report:
 
@@ -28,5 +28,8 @@ The launcher adds these content-safe fields to the completed or incomplete repor
 - `childJavaExecutableSha256`
 - `childJavaVersionOutputLength`
 - `childJavaVersionOutputSha256`
+- `childLaunchProfile`
+- `childLaunchJvmOptions`
+- `childBytecodeVerificationDisabled`
 
 The command remains evidence only. It rejects report paths inside the game installation, does not transform a game class, does not read or write prepared-audio cache entries, does not generate an allowlist, and does not enable live audio reuse.

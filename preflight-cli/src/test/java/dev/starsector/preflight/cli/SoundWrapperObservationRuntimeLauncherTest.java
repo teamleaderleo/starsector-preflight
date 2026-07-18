@@ -131,6 +131,9 @@ class SoundWrapperObservationRuntimeLauncherTest {
         assertTrue(json.contains("\"childJavaExecutableSha256\":\"" + "a".repeat(64) + "\""), json);
         assertTrue(json.contains("\"childJavaVersionOutputLength\":123"), json);
         assertTrue(json.contains("\"childJavaVersionOutputSha256\":\"" + "b".repeat(64) + "\""), json);
+        assertTrue(json.contains("\"childLaunchProfile\":\"starsector-bytecode-verification-disabled-v1\""), json);
+        assertTrue(json.contains("\"childLaunchJvmOptions\":[\"-noverify\""), json);
+        assertTrue(json.contains("\"childBytecodeVerificationDisabled\":true"), json);
         assertTrue(json.contains("\"observationComplete\":false"), json);
     }
 
