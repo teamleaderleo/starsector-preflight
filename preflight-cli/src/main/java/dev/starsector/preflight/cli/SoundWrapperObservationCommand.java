@@ -1,19 +1,14 @@
 package dev.starsector.preflight.cli;
 
 import dev.starsector.preflight.core.Hashes;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipFile;
 
 /** Runs the exact Starsector sound wrapper in an isolated evidence-only child JVM. */
@@ -22,19 +17,16 @@ final class SoundWrapperObservationCommand {
     private static final long MAX_CLASSPATH_BYTES = 1024L * 1024 * 1024;
     private static final int MAX_DISCOVERED_JARS = 512;
     private static final int MAX_CLASSPATH_JARS = 256;
-    private static final int MAX_CHILD_OUTPUT_BYTES = 1 * 1024 * 1024;
-    private static final Duration CHILD_TIMEOUT = Duration.ofMinutes(2);
 
     private SoundWrapperObservationCommand() {
     }
 
     static int execute(String[] args, int offset) throws Exception {
-        return execute(
-                Options.parse(args, offset),
-                InstalledJorbisEquivalenceCommand.JOGG_SHA256,
-                InstalledJorbisEquivalenceCommand.JORBIS_SHA256,
-                SelfJar.locate(),
-                "full");
+        Options options = Options.parse(args, offset);
+        return SoundWrapperObservationRuntimeLauncher.execute(
+                new SoundWrapperObservationRuntimeLauncher.Options(
+                        options.game(), options.jogg(), options.jorbis(), options.java(), options.output()),
+                SelfJar.locate());
     }
 
     static int execute(Options options, Path applicationJar, String fixtureProfile) throws Exception {
@@ -47,6 +39,21 @@ final class SoundWrapperObservationCommand {
     }
 
     static int execute(
+            Options options,
+            String expectedJoggSha256,
+            String expectedJorbisSha256,
+            Path applicationJar,
+            String fixtureProfile) throws Exception {
+        return SoundWrapperObservationRuntimeLauncher.execute(
+                new SoundWrapperObservationRuntimeLauncher.Options(
+                        options.game(), options.jogg(), options.jorbis(), options.java(), options.output()),
+                applicationJar,
+                expectedJoggSha256,
+                expectedJorbisSha256,
+                fixtureProfile);
+    }
+
+    static ObservationPlan prepare(
             Options options,
             String expectedJoggSha256,
             String expectedJorbisSha256,
@@ -66,71 +73,10 @@ final class SoundWrapperObservationCommand {
         Path soundArchive = findSoundArchive(game);
         String expectedSoundArchiveSha256 = Hashes.sha256(soundArchive);
         List<Path> classpath = classpath(application, soundArchive, jogg, jorbis);
-
-        Path output = options.output() == null
-                ? Files.createTempFile("preflight-sound-wrapper-observation-", ".json")
-                : options.output().toAbsolutePath().normalize();
-        boolean temporaryOutput = options.output() == null;
-        if (classpath.contains(output)) {
-            throw new IllegalArgumentException("Observation report path collides with an input JAR: " + output);
+        if (classpath.isEmpty() || !application.equals(classpath.get(0))) {
+            throw new IOException("Preflight application JAR must be first on the sound-wrapper classpath");
         }
-        if (output.getParent() != null) Files.createDirectories(output.getParent());
-        Files.deleteIfExists(output);
-
-        Path java = Path.of(System.getProperty("java.home"), "bin", executable("java"));
-        String joinedClasspath = classpath.stream()
-                .map(Path::toString)
-                .reduce((left, right) -> left + System.getProperty("path.separator") + right)
-                .orElseThrow();
-        List<String> command = List.of(
-                java.toString(),
-                "-cp",
-                joinedClasspath,
-                SoundWrapperObservationChild.class.getName(),
-                "--expected-sound-sha256",
-                expectedSoundArchiveSha256,
-                "--expected-jogg-sha256",
-                expectedJoggSha256,
-                "--expected-jorbis-sha256",
-                expectedJorbisSha256,
-                "--fixture-profile",
-                fixtureProfile,
-                "--output",
-                output.toString());
-
-        Process process = new ProcessBuilder(command)
-                .directory(soundArchive.getParent().toFile())
-                .redirectErrorStream(true)
-                .start();
-        ByteArrayOutputStream childOutput = new ByteArrayOutputStream();
-        Thread reader = new Thread(
-                () -> copyBounded(process.getInputStream(), childOutput),
-                "Preflight-Sound-Wrapper-Child-Output");
-        reader.setDaemon(true);
-        reader.start();
-        boolean completed = process.waitFor(CHILD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        if (!completed) {
-            process.destroyForcibly();
-            process.waitFor(10, TimeUnit.SECONDS);
-        }
-        reader.join(10_000);
-        String console = childOutput.toString(StandardCharsets.UTF_8);
-        if (!completed) {
-            throw new IOException("Sound-wrapper child exceeded " + CHILD_TIMEOUT + ": " + console);
-        }
-        int exit = process.exitValue();
-        if (!Files.isRegularFile(output)) {
-            throw new IOException("Sound-wrapper child did not write its report; exit=" + exit + ": " + console);
-        }
-        String json = Files.readString(output, StandardCharsets.UTF_8);
-        if (temporaryOutput) {
-            System.out.print(json);
-            Files.deleteIfExists(output);
-        } else {
-            System.out.println(output);
-        }
-        if (!console.isBlank()) System.err.print(console);
-        return exit;
+        return new ObservationPlan(game, soundArchive, expectedSoundArchiveSha256, classpath);
     }
 
     static Path findSoundArchive(Path game) throws IOException {
@@ -226,47 +172,39 @@ final class SoundWrapperObservationCommand {
         return path;
     }
 
-    private static void copyBounded(InputStream input, ByteArrayOutputStream output) {
-        byte[] buffer = new byte[8_192];
-        try (input) {
-            while (true) {
-                int count = input.read(buffer);
-                if (count < 0) return;
-                int remaining = MAX_CHILD_OUTPUT_BYTES - output.size();
-                if (remaining > 0) output.write(buffer, 0, Math.min(count, remaining));
-            }
-        } catch (IOException error) {
-            if (output.size() < MAX_CHILD_OUTPUT_BYTES) {
-                byte[] detail = ("\n[child-output-error] " + error.getMessage()).getBytes(StandardCharsets.UTF_8);
-                output.write(detail, 0, Math.min(detail.length, MAX_CHILD_OUTPUT_BYTES - output.size()));
-            }
+    record ObservationPlan(
+            Path game,
+            Path soundArchive,
+            String expectedSoundArchiveSha256,
+            List<Path> classpath) {
+    }
+
+    record Options(Path game, Path jogg, Path jorbis, Path java, Path output) {
+        Options(Path game, Path jogg, Path jorbis, Path output) {
+            this(game, jogg, jorbis, null, output);
         }
-    }
 
-    private static String executable(String name) {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? name + ".exe" : name;
-    }
-
-    record Options(Path game, Path jogg, Path jorbis, Path output) {
         static Options parse(String[] args, int offset) {
             Path game = null;
             Path jogg = null;
             Path jorbis = null;
+            Path java = null;
             Path output = null;
             for (int i = offset; i < args.length; i++) {
                 switch (args[i]) {
                     case "--game" -> game = Path.of(value(args, ++i, "--game"));
                     case "--jogg" -> jogg = Path.of(value(args, ++i, "--jogg"));
                     case "--jorbis" -> jorbis = Path.of(value(args, ++i, "--jorbis"));
+                    case "--java" -> java = Path.of(value(args, ++i, "--java"));
                     case "--output" -> output = Path.of(value(args, ++i, "--output"));
                     default -> throw new IllegalArgumentException("Unknown sound-wrapper option: " + args[i]);
                 }
             }
             if (game == null || jogg == null || jorbis == null) {
                 throw new IllegalArgumentException(
-                        "Expected: audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
+                        "Expected: audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--java <game-java>] [--output <report.json>]");
             }
-            return new Options(game, jogg, jorbis, output);
+            return new Options(game, jogg, jorbis, java, output);
         }
 
         private static String value(String[] args, int index, String option) {

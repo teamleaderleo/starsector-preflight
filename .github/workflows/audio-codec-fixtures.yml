@@ -91,7 +91,7 @@ jobs:
             mvn --batch-mode --no-transfer-progress \
               -pl preflight-core,preflight-cli -am \
               -Dtest=OggVorbisGoldenFixtureTest,InstalledJorbisEquivalenceCommandTest,InstalledJorbisFixtureIdentityTest,SoundWrapperObservationCommandTest,SoundWrapperObservationChildTest,SoundWrapperObservationRuntimeLauncherTest,StarsectorDiscoveryTest \
-              -Dit.test=InstalledJorbisEquivalenceCommandIT,SoundWrapperObservationCommandIT \
+              -Dit.test=InstalledJorbisEquivalenceCommandIT,SoundWrapperObservationCommandIT,SoundWrapperObservationRuntimeLauncherIT \
               -Dsurefire.failIfNoSpecifiedTests=false \
               verify >> "$log" 2>&1
             status=$?

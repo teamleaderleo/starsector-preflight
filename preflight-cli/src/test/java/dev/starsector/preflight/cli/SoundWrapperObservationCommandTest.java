@@ -47,6 +47,22 @@ class SoundWrapperObservationCommandTest {
         assertTrue(error.getMessage().contains("--jogg"), error.getMessage());
     }
 
+    @Test
+    void parsesExplicitJavaForDirectRuntimeHandoff() {
+        Path java = temporaryDirectory.resolve("selected-java");
+        SoundWrapperObservationCommand.Options options = SoundWrapperObservationCommand.Options.parse(
+                new String[] {
+                    "audio", "sound-wrapper-observe",
+                    "--game", temporaryDirectory.toString(),
+                    "--jogg", temporaryDirectory.resolve("jogg.jar").toString(),
+                    "--jorbis", temporaryDirectory.resolve("jorbis.jar").toString(),
+                    "--java", java.toString()
+                },
+                2);
+
+        assertEquals(java, options.java());
+    }
+
     private static void writeSoundArchive(Path destination) throws IOException {
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(destination))) {
             for (String name : new String[] {"sound/J.class", "sound/F.class"}) {
