@@ -1,4 +1,4 @@
-name: Audio codec and installed JOrbis tests
+name: Audio codec, installed JOrbis, and sound wrapper tests
 
 on:
   push:
@@ -8,10 +8,15 @@ on:
       - 'preflight-core/src/test/java/dev/starsector/preflight/core/OggVorbisGoldenFixtureTest.java'
       - 'preflight-core/src/test/resources/audio/ogg-v1/**'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/InstalledJorbisEquivalence*.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/SoundWrapperObservation*.java'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/PreflightCli.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/StarsectorDiscovery.java'
       - 'preflight-cli/src/test/java/com/jcraft/jogg/**'
       - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
+      - 'preflight-cli/src/test/java/sound/**'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/InstalledJorbis*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/SoundWrapperObservation*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/StarsectorDiscoveryTest.java'
       - 'preflight-cli/pom.xml'
       - 'preflight-core/pom.xml'
       - 'pom.xml'
@@ -22,10 +27,15 @@ on:
       - 'preflight-core/src/test/java/dev/starsector/preflight/core/OggVorbisGoldenFixtureTest.java'
       - 'preflight-core/src/test/resources/audio/ogg-v1/**'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/InstalledJorbisEquivalence*.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/SoundWrapperObservation*.java'
       - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/PreflightCli.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/StarsectorDiscovery.java'
       - 'preflight-cli/src/test/java/com/jcraft/jogg/**'
       - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
+      - 'preflight-cli/src/test/java/sound/**'
       - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/InstalledJorbis*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/SoundWrapperObservation*.java'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/StarsectorDiscoveryTest.java'
       - 'preflight-cli/pom.xml'
       - 'preflight-core/pom.xml'
       - 'pom.xml'
@@ -53,7 +63,7 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run golden codec and packaged installed-JOrbis tests
+      - name: Run golden codec and packaged audio observation tests
         shell: bash
         run: |
           set +e
@@ -80,15 +90,15 @@ jobs:
           if [ "$status" -eq 0 ]; then
             mvn --batch-mode --no-transfer-progress \
               -pl preflight-core,preflight-cli -am \
-              -Dtest=OggVorbisGoldenFixtureTest,InstalledJorbisEquivalenceCommandTest,InstalledJorbisFixtureIdentityTest \
-              -Dit.test=InstalledJorbisEquivalenceCommandIT \
+              -Dtest=OggVorbisGoldenFixtureTest,InstalledJorbisEquivalenceCommandTest,InstalledJorbisFixtureIdentityTest,SoundWrapperObservationCommandTest,SoundWrapperObservationChildTest,StarsectorDiscoveryTest \
+              -Dit.test=InstalledJorbisEquivalenceCommandIT,SoundWrapperObservationCommandIT \
               -Dsurefire.failIfNoSpecifiedTests=false \
               verify >> "$log" 2>&1
             status=$?
           fi
           find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> "$log"
           find . -path '*/target/failsafe-reports/*.txt' -type f -print -exec cat {} \; >> "$log"
-          tail -n 400 "$log"
+          tail -n 500 "$log"
           exit "$status"
       - name: Upload focused logs
         if: always()
