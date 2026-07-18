@@ -153,7 +153,7 @@ final class StarsectorDiscovery {
 
         List<String> command;
         if (name.endsWith(".bat") || name.endsWith(".cmd")) {
-            command = List.of("cmd.exe", "/d", "/s", "/c", quoteWindowsCommand(normalized));
+            command = List.of("cmd.exe", "/d", "/s", "/c", "call", quoteWindowsCommand(normalized));
         } else if ((name.endsWith(".sh") || name.endsWith(".command")) && !Files.isExecutable(normalized)) {
             command = List.of("/bin/sh", normalized.toString());
         } else {
