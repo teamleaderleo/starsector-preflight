@@ -75,12 +75,11 @@ public final class InstalledJorbisEquivalenceChild {
     public static void main(String[] args) throws Exception {
         Options options = Options.parse(args);
         Map<String, Object> report = run(options);
-        String json = Json.object(report) + System.lineSeparator();
         Path output = options.output().toAbsolutePath().normalize();
         if (output.getParent() != null) {
             Files.createDirectories(output.getParent());
         }
-        Files.writeString(output, json, StandardCharsets.UTF_8);
+        Files.writeString(output, Json.object(report) + System.lineSeparator(), StandardCharsets.UTF_8);
         boolean equivalent = Boolean.TRUE.equals(report.get("equivalent"));
         System.out.println(equivalent ? "installed-jorbis-equivalent" : "installed-jorbis-mismatch");
         System.exit(equivalent ? 0 : 6);
@@ -94,9 +93,7 @@ public final class InstalledJorbisEquivalenceChild {
         Identity jorbis = identity(vorbisFileClass, options.expectedJorbisSha256());
         Identity info = identity(infoClass, options.expectedJorbisSha256());
         boolean identityExact = jogg.exact() && jorbis.exact() && info.exact()
-                && appLoader(jogg)
-                && appLoader(jorbis)
-                && appLoader(info);
+                && appLoader(jogg) && appLoader(jorbis) && appLoader(info);
 
         String decoderPolicyIdentity = Hashes.sha256((
                 "installed-jorbis-equivalence-v1\n"
@@ -120,22 +117,13 @@ public final class InstalledJorbisEquivalenceChild {
             validEquivalent &= result.equivalent();
         }
 
-        byte[] mono = fixture("mono-22050.ogg");
-        byte[] stereo = fixture("stereo-44100.ogg");
-        byte[] corrupt = stereo.clone();
-        corrupt[Math.min(corrupt.length - 1, 192)] ^= 0x40;
-        List<InvalidFixture> invalidFixtures = List.of(
-                new InvalidFixture("opus-unsupported", fixture("mono-22050-opus.ogg")),
-                new InvalidFixture("non-ogg", "not an ogg stream".getBytes(StandardCharsets.US_ASCII)),
-                new InvalidFixture("truncated-header", Arrays.copyOf(mono, 19)),
-                new InvalidFixture("truncated-packet", Arrays.copyOf(mono, mono.length / 2)),
-                new InvalidFixture("corrupt-packet", corrupt));
+        List<InvalidFixture> invalidFixtures = invalidFixtures();
         boolean invalidStable = true;
         for (InvalidFixture fixture : invalidFixtures) {
             Observation first = observe(decoder, fixture.source());
             Observation second = observe(decoder, fixture.source());
             boolean stable = first.behaviorKey().equals(second.behaviorKey());
-            Map<String, Object> value = new LinkedHashMap<>(first.toMap(fixture.id(), false));
+            Map<String, Object> value = new LinkedHashMap<>(first.toMap(fixture.id()));
             value.put("repeatDecoded", second.decoded());
             value.put("repeatFailureClass", second.failureClass());
             value.put("behaviorStable", stable);
@@ -171,6 +159,19 @@ public final class InstalledJorbisEquivalenceChild {
         root.put("caseCount", cases.size());
         root.put("cases", List.copyOf(cases));
         return Map.copyOf(root);
+    }
+
+    private static List<InvalidFixture> invalidFixtures() throws IOException {
+        byte[] mono = fixture("mono-22050.ogg");
+        byte[] stereo = fixture("stereo-44100.ogg");
+        byte[] corrupt = stereo.clone();
+        corrupt[Math.min(corrupt.length - 1, 192)] ^= 0x40;
+        return List.of(
+                new InvalidFixture("opus-unsupported", fixture("mono-22050-opus.ogg")),
+                new InvalidFixture("non-ogg", "not an ogg stream".getBytes(StandardCharsets.US_ASCII)),
+                new InvalidFixture("truncated-header", Arrays.copyOf(mono, 19)),
+                new InvalidFixture("truncated-packet", Arrays.copyOf(mono, mono.length / 2)),
+                new InvalidFixture("corrupt-packet", corrupt));
     }
 
     private static boolean appLoader(Identity identity) {
@@ -214,15 +215,8 @@ public final class InstalledJorbisEquivalenceChild {
                     && ownershipExact
                     && input.bytesRead() == source.length;
             return ValidResult.success(
-                    fixture,
-                    source,
-                    decoded,
-                    prepared,
-                    actualPcmSha256,
-                    closedDuringDecode,
-                    input,
-                    ownershipExact,
-                    exact);
+                    fixture, source, decoded, prepared, actualPcmSha256,
+                    closedDuringDecode, input, ownershipExact, exact);
         } catch (Throwable failure) {
             boolean closedDuringDecode = input.closeCount() != 0;
             try {
@@ -230,13 +224,8 @@ public final class InstalledJorbisEquivalenceChild {
             } catch (IOException ignored) {
             }
             return ValidResult.failure(
-                    fixture,
-                    source,
-                    rootCause(failure),
-                    closedDuringDecode,
-                    input.closeCount(),
-                    input.bytesRead(),
-                    input.readCalls());
+                    fixture, source, rootCause(failure), closedDuringDecode,
+                    input.closeCount(), input.bytesRead(), input.readCalls());
         }
     }
 
@@ -264,15 +253,13 @@ public final class InstalledJorbisEquivalenceChild {
                 ? null
                 : Path.of(new URI(source.getLocation().toString())).toAbsolutePath().normalize();
         String actual = path != null && Files.isRegularFile(path) ? Hashes.sha256(path) : "";
-        String loaderClass = loader == null ? "<bootstrap>" : loader.getClass().getName();
-        String loaderName = loader == null ? "<bootstrap>" : String.valueOf(loader.getName());
         return new Identity(
                 type.getName(),
                 path == null ? "" : path.toString(),
                 expectedSha256,
                 actual,
-                loaderClass,
-                loaderName,
+                loader == null ? "<bootstrap>" : loader.getClass().getName(),
+                loader == null ? "<bootstrap>" : String.valueOf(loader.getName()),
                 expectedSha256.equals(actual));
     }
 
@@ -295,9 +282,7 @@ public final class InstalledJorbisEquivalenceChild {
             }
             parts++;
         }
-        if (parts == 0) {
-            throw new IOException("Missing packaged audio fixture " + base);
-        }
+        if (parts == 0) throw new IOException("Missing packaged audio fixture " + base);
         return Base64.getMimeDecoder().decode(encoded.toByteArray());
     }
 
@@ -319,7 +304,7 @@ public final class InstalledJorbisEquivalenceChild {
     }
 
     record Options(String expectedJoggSha256, String expectedJorbisSha256, String fixtureProfile, Path output) {
-        private Options {
+        Options {
             Hashes.decodeSha256(expectedJoggSha256);
             Hashes.decodeSha256(expectedJorbisSha256);
             if (!"full".equals(fixtureProfile) && !"ci".equals(fixtureProfile)) {
@@ -342,8 +327,11 @@ public final class InstalledJorbisEquivalenceChild {
                     default -> throw new IllegalArgumentException("Unknown child option: " + args[i]);
                 }
             }
-            return new Options(required(jogg, "--expected-jogg-sha256"),
-                    required(jorbis, "--expected-jorbis-sha256"), profile, output);
+            return new Options(
+                    required(jogg, "--expected-jogg-sha256"),
+                    required(jorbis, "--expected-jorbis-sha256"),
+                    profile,
+                    output);
         }
 
         private static String value(String[] args, int index) {
@@ -618,10 +606,10 @@ public final class InstalledJorbisEquivalenceChild {
                     + "|" + streamClosedDuringDecode + "|" + finalCloseCount + "|" + failureClass;
         }
 
-        private Map<String, Object> toMap(String id, boolean validInput) {
+        private Map<String, Object> toMap(String id) {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("id", id);
-            values.put("validInput", validInput);
+            values.put("validInput", false);
             values.put("decoded", decoded);
             values.put("actualPcmSha256", pcmSha256);
             values.put("actualPcmBytes", pcmBytes);
