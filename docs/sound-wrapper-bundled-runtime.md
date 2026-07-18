@@ -19,7 +19,7 @@ The launcher searches only below the explicit game root for a bounded set of `bi
 --java <path-to-game-java>
 ```
 
-It then starts the unchanged shaded CLI with the selected runtime. The normal sound-wrapper command consequently launches its child from the same `java.home`.
+It then builds the bounded observation classpath with the shaded Preflight JAR first and launches `SoundWrapperObservationChild` directly with the exact executable that passed `java -version` validation. It never reconstructs a second executable from the selected process's reported `java.home`.
 
 The launcher adds these content-safe fields to the completed or incomplete report:
 
@@ -29,4 +29,4 @@ The launcher adds these content-safe fields to the completed or incomplete repor
 - `childJavaVersionOutputLength`
 - `childJavaVersionOutputSha256`
 
-The command remains evidence only. It does not edit the game, transform a game class, read or write prepared-audio cache entries, generate an allowlist, or enable live audio reuse.
+The command remains evidence only. It rejects report paths inside the game installation, does not transform a game class, does not read or write prepared-audio cache entries, does not generate an allowlist, and does not enable live audio reuse.

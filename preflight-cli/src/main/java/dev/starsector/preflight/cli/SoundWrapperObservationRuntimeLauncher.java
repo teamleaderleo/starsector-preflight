@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,19 +22,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * Re-launches the sound-wrapper observation command with Starsector's bundled Java runtime.
+ * Launches the sound-wrapper observation child with Starsector's bundled Java runtime.
  *
  * <p>The normal CLI is often built and invoked with a newer system JDK. Some reviewed Starsector
- * classes are loadable only by the runtime shipped with the game. This launcher keeps the outer
- * discovery process on the caller's JDK, then starts the unchanged shaded CLI with the selected
- * game runtime. The unchanged CLI subsequently starts its evidence child from that same java.home.
- * No game file is edited and no optimization is enabled.</p>
+ * classes are loadable only by the runtime shipped with the game. This launcher keeps discovery
+ * on the caller's JDK, validates one exact game Java executable, and uses that same executable to
+ * start the evidence child directly. No game file is edited and no optimization is enabled.</p>
  */
 public final class SoundWrapperObservationRuntimeLauncher {
     private static final int MAX_RUNTIME_CANDIDATES = 64;
     private static final int MAX_CHILD_OUTPUT_BYTES = 1 * 1024 * 1024;
+    private static final long MAX_REPORT_BYTES = 2L * 1024 * 1024;
     private static final long MAX_JAVA_EXECUTABLE_BYTES = 256L * 1024 * 1024;
-    private static final Duration CHILD_TIMEOUT = Duration.ofMinutes(3);
+    private static final Duration CHILD_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration VERSION_TIMEOUT = Duration.ofSeconds(15);
 
     private SoundWrapperObservationRuntimeLauncher() {
@@ -47,36 +48,60 @@ public final class SoundWrapperObservationRuntimeLauncher {
     }
 
     static int execute(Options options, Path applicationJar) throws Exception {
+        return execute(
+                options,
+                applicationJar,
+                InstalledJorbisEquivalenceCommand.JOGG_SHA256,
+                InstalledJorbisEquivalenceCommand.JORBIS_SHA256,
+                "full");
+    }
+
+    static int execute(
+            Options options,
+            Path applicationJar,
+            String expectedJoggSha256,
+            String expectedJorbisSha256,
+            String fixtureProfile) throws Exception {
         Path game = exactDirectory(options.game(), "Starsector installation");
         Path application = exactFile(applicationJar, "Preflight application JAR");
         JavaSelection java = selectJava(game, options.java());
+        SoundWrapperObservationCommand.ObservationPlan plan = SoundWrapperObservationCommand.prepare(
+                new SoundWrapperObservationCommand.Options(
+                        game, options.jogg(), options.jorbis(), java.executable(), options.output()),
+                expectedJoggSha256,
+                expectedJorbisSha256,
+                application,
+                fixtureProfile);
         Path output = options.output() == null
                 ? Path.of("sound-wrapper-observation.json").toAbsolutePath().normalize()
                 : options.output().toAbsolutePath().normalize();
-        if (output.getParent() != null) Files.createDirectories(output.getParent());
-        Files.deleteIfExists(output);
+        prepareOutput(output, plan, java.executable());
+        RuntimeEvidence evidence = runtimeEvidence(java);
 
         List<String> command = new ArrayList<>();
         command.add(java.executable().toString());
-        command.add("-jar");
-        command.add(application.toString());
-        command.add("audio");
-        command.add("sound-wrapper-observe");
-        command.add("--game");
-        command.add(game.toString());
-        command.add("--jogg");
-        command.add(options.jogg().toAbsolutePath().normalize().toString());
-        command.add("--jorbis");
-        command.add(options.jorbis().toAbsolutePath().normalize().toString());
+        command.add("-cp");
+        command.add(String.join(
+                System.getProperty("path.separator"),
+                plan.classpath().stream().map(Path::toString).toList()));
+        command.add(SoundWrapperObservationChild.class.getName());
+        command.add("--expected-sound-sha256");
+        command.add(plan.expectedSoundArchiveSha256());
+        command.add("--expected-jogg-sha256");
+        command.add(expectedJoggSha256);
+        command.add("--expected-jorbis-sha256");
+        command.add(expectedJorbisSha256);
+        command.add("--fixture-profile");
+        command.add(fixtureProfile);
         command.add("--output");
         command.add(output.toString());
 
         Process process = new ProcessBuilder(command)
-                .directory(Path.of("").toAbsolutePath().normalize().toFile())
+                .directory(plan.soundArchive().getParent().toFile())
                 .redirectErrorStream(true)
                 .start();
         ByteArrayOutputStream childOutput = new ByteArrayOutputStream();
-        Thread reader = boundedReader(process.getInputStream(), childOutput, "Preflight-Sound-Wrapper-Runtime-Output");
+        Thread reader = boundedReader(process.getInputStream(), childOutput, "Preflight-Sound-Wrapper-Child-Output");
         boolean completed = process.waitFor(CHILD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         if (!completed) {
             process.destroyForcibly();
@@ -85,14 +110,18 @@ public final class SoundWrapperObservationRuntimeLauncher {
         reader.join(10_000);
         String console = childOutput.toString(StandardCharsets.UTF_8);
         if (!completed) {
-            throw new IOException("Bundled-runtime sound-wrapper command exceeded " + CHILD_TIMEOUT + ": " + console);
+            throw new IOException("Sound-wrapper child exceeded " + CHILD_TIMEOUT + ": " + console);
         }
         int exit = process.exitValue();
         if (!Files.isRegularFile(output)) {
-            throw new IOException("Bundled-runtime command did not write its report; exit=" + exit + ": " + console);
+            throw new IOException("Sound-wrapper child did not write its report; exit=" + exit + ": " + console);
         }
 
-        RuntimeEvidence evidence = runtimeEvidence(java);
+        String executableSha256AfterLaunch = hashExecutable(java.executable());
+        if (!evidence.executableSha256().equals(executableSha256AfterLaunch)) {
+            throw new IOException("Selected Java executable changed between validation and child completion: "
+                    + java.executable());
+        }
         mergeRuntimeEvidence(output, evidence);
         System.out.println(output);
         System.err.println("sound-wrapper-java=" + java.executable());
@@ -108,8 +137,8 @@ public final class SoundWrapperObservationRuntimeLauncher {
         Path root = exactDirectory(game, "Starsector installation");
         if (explicitJava != null) {
             Path selected = exactJava(explicitJava);
-            probe.probe(selected);
-            return new JavaSelection(selected, "explicit");
+            String version = probe.probe(selected);
+            return new JavaSelection(selected, "explicit", version);
         }
 
         Set<Path> candidates = new LinkedHashSet<>();
@@ -162,8 +191,8 @@ public final class SoundWrapperObservationRuntimeLauncher {
         IOException lastFailure = null;
         for (Path candidate : ordered) {
             try {
-                probe.probe(candidate);
-                return new JavaSelection(candidate, "bundled-auto");
+                String version = probe.probe(candidate);
+                return new JavaSelection(candidate, "bundled-auto", version);
             } catch (IOException failure) {
                 lastFailure = failure;
             }
@@ -175,6 +204,10 @@ public final class SoundWrapperObservationRuntimeLauncher {
     }
 
     static void mergeRuntimeEvidence(Path report, RuntimeEvidence evidence) throws IOException {
+        long size = Files.size(report);
+        if (size < 2 || size > MAX_REPORT_BYTES) {
+            throw new IOException("Sound-wrapper report size is outside 2.." + MAX_REPORT_BYTES + ": " + report);
+        }
         String original = Files.readString(report, StandardCharsets.UTF_8).trim();
         if (original.length() < 2 || original.charAt(0) != '{' || original.charAt(original.length() - 1) != '}') {
             throw new IOException("Sound-wrapper report is not one JSON object: " + report);
@@ -185,27 +218,47 @@ public final class SoundWrapperObservationRuntimeLauncher {
         values.put("childJavaExecutableSha256", evidence.executableSha256());
         values.put("childJavaVersionOutputLength", evidence.versionOutputLength());
         values.put("childJavaVersionOutputSha256", evidence.versionOutputSha256());
+        for (String key : values.keySet()) {
+            if (original.contains("\"" + key + "\"")) {
+                throw new IOException("Sound-wrapper report already contains reserved runtime key: " + key);
+            }
+        }
         String prefix = Json.object(values);
         String fields = prefix.substring(1, prefix.length() - 1);
         String body = original.substring(1, original.length() - 1);
         String merged = "{" + fields + (body.isBlank() ? "" : "," + body) + "}" + System.lineSeparator();
-        Files.writeString(report, merged, StandardCharsets.UTF_8);
+        Path parent = report.toAbsolutePath().normalize().getParent();
+        Path staged = Files.createTempFile(parent, ".sound-wrapper-runtime-", ".json");
+        try {
+            Files.writeString(staged, merged, StandardCharsets.UTF_8);
+            try {
+                Files.move(staged, report, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                Files.move(staged, report, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(staged);
+        }
     }
 
     private static RuntimeEvidence runtimeEvidence(JavaSelection selection) throws IOException {
         Path executable = selection.executable();
+        String version = selection.versionOutput();
+        return new RuntimeEvidence(
+                executable,
+                selection.source(),
+                hashExecutable(executable),
+                version.length(),
+                Hashes.sha256(version.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String hashExecutable(Path executable) throws IOException {
         long size = Files.size(executable);
         if (size < 1 || size > MAX_JAVA_EXECUTABLE_BYTES) {
             throw new IOException("Selected Java executable size is outside 1.."
                     + MAX_JAVA_EXECUTABLE_BYTES + ": " + executable);
         }
-        String version = versionOutput(executable);
-        return new RuntimeEvidence(
-                executable,
-                selection.source(),
-                Hashes.sha256(executable),
-                version.length(),
-                Hashes.sha256(version.getBytes(StandardCharsets.UTF_8)));
+        return Hashes.sha256(executable);
     }
 
     private static String versionOutput(Path java) throws IOException {
@@ -229,6 +282,42 @@ public final class SoundWrapperObservationRuntimeLauncher {
             Thread.currentThread().interrupt();
             throw new IOException("Interrupted while checking selected Java", interrupted);
         }
+    }
+
+    static void prepareOutput(
+            Path output,
+            SoundWrapperObservationCommand.ObservationPlan plan,
+            Path javaExecutable) throws IOException {
+        Path absoluteOutput = output.toAbsolutePath().normalize();
+        Path gameRoot = plan.game().toRealPath();
+        Path existingAncestor = absoluteOutput;
+        while (existingAncestor != null && !Files.exists(existingAncestor)) {
+            existingAncestor = existingAncestor.getParent();
+        }
+        if (existingAncestor != null && existingAncestor.toRealPath().startsWith(gameRoot)) {
+            throw new IOException("Observation report must be outside the Starsector installation: " + absoluteOutput);
+        }
+        if (Files.exists(absoluteOutput) && absoluteOutput.toRealPath().startsWith(gameRoot)) {
+            throw new IOException("Observation report must be outside the Starsector installation: " + absoluteOutput);
+        }
+
+        List<Path> inputs = new ArrayList<>(plan.classpath());
+        inputs.add(javaExecutable);
+        for (Path input : inputs) {
+            if (absoluteOutput.equals(input)
+                    || (Files.exists(absoluteOutput) && Files.isSameFile(absoluteOutput, input))) {
+                throw new IOException("Observation report path collides with a probe input: " + absoluteOutput);
+            }
+        }
+
+        Path parent = absoluteOutput.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+            if (parent.toRealPath().startsWith(gameRoot)) {
+                throw new IOException("Observation report must be outside the Starsector installation: " + absoluteOutput);
+            }
+        }
+        Files.deleteIfExists(absoluteOutput);
     }
 
     private static Thread boundedReader(InputStream input, ByteArrayOutputStream output, String name) {
@@ -304,10 +393,11 @@ public final class SoundWrapperObservationRuntimeLauncher {
         String probe(Path java) throws IOException;
     }
 
-    record JavaSelection(Path executable, String source) {
+    record JavaSelection(Path executable, String source, String versionOutput) {
         JavaSelection {
             executable = executable.toAbsolutePath().normalize();
             if (source == null || source.isBlank()) throw new IllegalArgumentException("source is required");
+            if (versionOutput == null) throw new IllegalArgumentException("versionOutput is required");
         }
     }
 

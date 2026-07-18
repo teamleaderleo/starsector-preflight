@@ -137,8 +137,10 @@ public final class SoundWrapperObservationChild {
         root.put("literalFailureMessagesIncluded", false);
         root.put("fullyDecodedEffectsEligible", false);
         root.put("streamedMusicEligible", false);
+        root.put("preparedAudioReadsEnabled", false);
         root.put("preparedAudioWritesEnabled", false);
         root.put("cacheReadsEnabled", false);
+        root.put("cacheWritesEnabled", false);
         root.put("liveTransformEnabled", false);
         root.put("validCases", List.copyOf(validCases));
         root.put("invalidCases", List.copyOf(invalidCases));

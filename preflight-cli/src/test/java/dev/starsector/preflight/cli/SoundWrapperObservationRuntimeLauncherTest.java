@@ -25,6 +25,7 @@ class SoundWrapperObservationRuntimeLauncherTest {
 
         assertEquals(canonical.toAbsolutePath().normalize(), selected.executable());
         assertEquals("bundled-auto", selected.source());
+        assertEquals("synthetic-version", selected.versionOutput());
     }
 
     @Test
@@ -43,6 +44,7 @@ class SoundWrapperObservationRuntimeLauncherTest {
 
         assertEquals(fallback.toAbsolutePath().normalize(), selected.executable());
         assertEquals("bundled-auto", selected.source());
+        assertEquals("synthetic-version", selected.versionOutput());
     }
 
     @Test
@@ -57,6 +59,7 @@ class SoundWrapperObservationRuntimeLauncherTest {
 
         assertEquals(explicit.toAbsolutePath().normalize(), selected.executable());
         assertEquals("explicit", selected.source());
+        assertEquals("synthetic-version", selected.versionOutput());
     }
 
     @Test
@@ -129,6 +132,77 @@ class SoundWrapperObservationRuntimeLauncherTest {
         assertTrue(json.contains("\"childJavaVersionOutputLength\":123"), json);
         assertTrue(json.contains("\"childJavaVersionOutputSha256\":\"" + "b".repeat(64) + "\""), json);
         assertTrue(json.contains("\"observationComplete\":false"), json);
+    }
+
+    @Test
+    void rejectsReportThatAlreadyContainsRuntimeIdentity() throws Exception {
+        Path report = temporaryDirectory.resolve("report.json");
+        Files.writeString(report, "{\"childJavaExecutable\":\"untrusted\"}\n");
+        SoundWrapperObservationRuntimeLauncher.RuntimeEvidence evidence =
+                new SoundWrapperObservationRuntimeLauncher.RuntimeEvidence(
+                        temporaryDirectory.resolve(javaName()),
+                        "bundled-auto",
+                        "a".repeat(64),
+                        1,
+                        "b".repeat(64));
+
+        IOException error = assertThrows(
+                IOException.class,
+                () -> SoundWrapperObservationRuntimeLauncher.mergeRuntimeEvidence(report, evidence));
+
+        assertTrue(error.getMessage().contains("reserved runtime key"), error.getMessage());
+    }
+
+    @Test
+    void rejectsReportInsideGameWithoutDeletingIt() throws Exception {
+        Path game = temporaryDirectory.resolve("game");
+        Files.createDirectories(game);
+        Path application = temporaryDirectory.resolve("preflight.jar");
+        Path sound = game.resolve("fs.sound_obf.jar");
+        Path javaExecutable = game.resolve("runtime/bin").resolve(javaName());
+        Files.writeString(application, "application");
+        Files.writeString(sound, "sound");
+        executable(javaExecutable);
+        Path report = game.resolve("existing-report.json");
+        Files.writeString(report, "do-not-delete");
+        SoundWrapperObservationCommand.ObservationPlan plan =
+                new SoundWrapperObservationCommand.ObservationPlan(
+                        game.toAbsolutePath().normalize(),
+                        sound.toAbsolutePath().normalize(),
+                        "a".repeat(64),
+                        java.util.List.of(application.toAbsolutePath().normalize(), sound.toAbsolutePath().normalize()));
+
+        IOException error = assertThrows(
+                IOException.class,
+                () -> SoundWrapperObservationRuntimeLauncher.prepareOutput(report, plan, javaExecutable));
+
+        assertTrue(error.getMessage().contains("outside the Starsector installation"), error.getMessage());
+        assertEquals("do-not-delete", Files.readString(report));
+    }
+
+    @Test
+    void rejectsReportThatCollidesWithClasspathInputWithoutDeletingIt() throws Exception {
+        Path game = temporaryDirectory.resolve("game");
+        Files.createDirectories(game);
+        Path application = temporaryDirectory.resolve("preflight.jar");
+        Path sound = game.resolve("fs.sound_obf.jar");
+        Path javaExecutable = game.resolve("runtime/bin").resolve(javaName());
+        Files.writeString(application, "application");
+        Files.writeString(sound, "sound");
+        executable(javaExecutable);
+        SoundWrapperObservationCommand.ObservationPlan plan =
+                new SoundWrapperObservationCommand.ObservationPlan(
+                        game.toAbsolutePath().normalize(),
+                        sound.toAbsolutePath().normalize(),
+                        "a".repeat(64),
+                        java.util.List.of(application.toAbsolutePath().normalize(), sound.toAbsolutePath().normalize()));
+
+        IOException error = assertThrows(
+                IOException.class,
+                () -> SoundWrapperObservationRuntimeLauncher.prepareOutput(application, plan, javaExecutable));
+
+        assertTrue(error.getMessage().contains("collides with a probe input"), error.getMessage());
+        assertEquals("application", Files.readString(application));
     }
 
     @Test

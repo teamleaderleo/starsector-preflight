@@ -21,16 +21,22 @@ class SoundWrapperObservationCommandIT {
     @Test
     void packagedCommandObservesSyntheticWrapperWithoutEnablingReuse() throws Exception {
         Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
-        Path sound = temporaryDirectory.resolve("sound-wrapper.jar");
-        Path jogg = temporaryDirectory.resolve("jogg.jar");
-        Path jorbis = temporaryDirectory.resolve("jorbis.jar");
+        Path game = temporaryDirectory.resolve("game");
+        Files.createDirectories(game);
+        Path sound = game.resolve("sound-wrapper.jar");
+        Path jogg = game.resolve("jogg.jar");
+        Path jorbis = game.resolve("jorbis.jar");
         writeJar(sound, testClasses, List.of("sound"));
         writeJar(jogg, testClasses, List.of("com/jcraft/jogg"));
         writeJar(jorbis, testClasses, List.of("com/jcraft/jorbis"));
 
         Path report = temporaryDirectory.resolve("sound-wrapper-observation.json");
+        Path java = Path.of(
+                System.getProperty("java.home"),
+                "bin",
+                System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java");
         SoundWrapperObservationCommand.Options options =
-                new SoundWrapperObservationCommand.Options(temporaryDirectory, jogg, jorbis, report);
+                new SoundWrapperObservationCommand.Options(game, jogg, jorbis, java, report);
         int exit = SoundWrapperObservationCommand.execute(
                 options,
                 Hashes.sha256(jogg),
@@ -46,8 +52,10 @@ class SoundWrapperObservationCommandIT {
         assertTrue(json.contains("\"wrapperPayloadMatchesDirectJorbis\":false"), json);
         assertTrue(json.contains("\"equivalenceEstablished\":false"), json);
         assertTrue(json.contains("\"requiresHumanReview\":true"), json);
+        assertTrue(json.contains("\"preparedAudioReadsEnabled\":false"), json);
         assertTrue(json.contains("\"preparedAudioWritesEnabled\":false"), json);
         assertTrue(json.contains("\"cacheReadsEnabled\":false"), json);
+        assertTrue(json.contains("\"cacheWritesEnabled\":false"), json);
         assertTrue(json.contains("\"liveTransformEnabled\":false"), json);
         assertTrue(json.contains("\"decodedAudioIncluded\":false"), json);
     }
