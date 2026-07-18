@@ -86,8 +86,10 @@ Every stage records:
 The report also has a separate readiness section:
 
 - cache artifacts may be prepared and validated;
-- the live vanilla adapter is still reported as not integrated;
+- the compatibility-v2 vanilla adapter remains under review and is not reported as integrated;
+- preparation never enables either texture adapter mode;
+- compatibility and prepared-pixel modes still require a reviewed real-install pilot;
 - Fast Rendering remains optional;
 - launch acceleration is not claimed until a compatible live adapter consumes the artifacts.
 
-This distinction keeps offline preparation useful without overstating runtime integration.
+This distinction keeps offline preparation useful without overstating runtime integration or activation readiness.

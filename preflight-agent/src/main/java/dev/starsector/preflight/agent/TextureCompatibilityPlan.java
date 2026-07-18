@@ -1,15 +1,16 @@
 package dev.starsector.preflight.agent;
 
-import java.util.List;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FrameNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
@@ -19,7 +20,8 @@ final class TextureCompatibilityPlan {
     static final String TARGET_CLASS = "com/fs/graphics/TextureLoader";
     static final String DECODE_METHOD = "Ô00000";
     static final String DECODE_DESCRIPTOR = "(Ljava/lang/String;)Ljava/awt/image/BufferedImage;";
-    private static final String ORIGINAL_METHOD = "preflight$original$decodeImage";
+    private static final String PRELOADER = "com/fs/graphics/L";
+    private static final String PRELOADER_METHOD = "class";
     private static final String RUNTIME = "dev/starsector/preflight/agent/TextureCompatibilityRuntime";
 
     private TextureCompatibilityPlan() {
@@ -36,89 +38,116 @@ final class TextureCompatibilityPlan {
             return null;
         }
 
-        MethodNode original = null;
+        MethodNode decode = null;
         for (MethodNode method : owner.methods) {
-            if (ORIGINAL_METHOD.equals(method.name) && DECODE_DESCRIPTOR.equals(method.desc)) {
-                return null;
-            }
             if (DECODE_METHOD.equals(method.name) && DECODE_DESCRIPTOR.equals(method.desc)) {
-                if (original != null) {
+                if (decode != null) {
                     return null;
                 }
-                original = method;
+                decode = method;
             }
         }
-        if (original == null
-                || (original.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0
-                || (original.access & Opcodes.ACC_STATIC) != 0) {
+        if (decode == null
+                || (decode.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0
+                || (decode.access & Opcodes.ACC_STATIC) != 0
+                || containsRuntimeCall(decode)) {
             return null;
         }
 
-        int originalAccess = original.access;
-        String originalSignature = original.signature;
-        List<String> originalExceptions = original.exceptions == null ? List.of() : List.copyOf(original.exceptions);
-        original.name = ORIGINAL_METHOD;
-        original.access = (originalAccess
-                & (Opcodes.ACC_FINAL | Opcodes.ACC_BRIDGE | Opcodes.ACC_VARARGS | Opcodes.ACC_STRICT))
-                | Opcodes.ACC_PRIVATE
-                | Opcodes.ACC_SYNTHETIC;
-        rewriteSelfCalls(owner.name, original);
-
-        MethodNode wrapper = new MethodNode(
-                Opcodes.ASM9,
-                originalAccess,
-                DECODE_METHOD,
-                DECODE_DESCRIPTOR,
-                originalSignature,
-                originalExceptions.toArray(String[]::new));
-        LabelNode fallback = new LabelNode();
-        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        wrapper.instructions.add(new MethodInsnNode(
+        AbstractInsnNode directDecode = directDecodeAfterPreloaderMiss(decode);
+        if (directDecode == null) {
+            return null;
+        }
+        LabelNode continueOriginal = new LabelNode();
+        InsnList cacheLookup = new InsnList();
+        cacheLookup.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        cacheLookup.add(new MethodInsnNode(
                 Opcodes.INVOKESTATIC,
                 RUNTIME,
                 "load",
                 DECODE_DESCRIPTOR,
                 false));
-        wrapper.instructions.add(new InsnNode(Opcodes.DUP));
-        wrapper.instructions.add(new JumpInsnNode(Opcodes.IFNULL, fallback));
-        wrapper.instructions.add(new InsnNode(Opcodes.ARETURN));
-        wrapper.instructions.add(fallback);
-        wrapper.instructions.add(new FrameNode(
+        cacheLookup.add(new InsnNode(Opcodes.DUP));
+        cacheLookup.add(new JumpInsnNode(Opcodes.IFNULL, continueOriginal));
+        cacheLookup.add(new InsnNode(Opcodes.ARETURN));
+        cacheLookup.add(continueOriginal);
+        cacheLookup.add(new FrameNode(
                 Opcodes.F_SAME1,
                 0,
                 null,
                 1,
                 new Object[] {"java/awt/image/BufferedImage"}));
-        wrapper.instructions.add(new InsnNode(Opcodes.POP));
-        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        wrapper.instructions.add(new MethodInsnNode(
-                Opcodes.INVOKESPECIAL,
-                owner.name,
-                ORIGINAL_METHOD,
-                DECODE_DESCRIPTOR,
-                false));
-        wrapper.instructions.add(new InsnNode(Opcodes.ARETURN));
-        wrapper.maxStack = 2;
-        wrapper.maxLocals = 2;
-        owner.methods.add(wrapper);
+        cacheLookup.add(new InsnNode(Opcodes.POP));
+        decode.instructions.insertBefore(directDecode, cacheLookup);
+        decode.maxStack = Math.max(decode.maxStack, 2);
 
         ClassWriter writer = new ClassWriter(0);
         owner.accept(writer);
         return writer.toByteArray();
     }
 
-    private static void rewriteSelfCalls(String owner, MethodNode method) {
+    private static boolean containsRuntimeCall(MethodNode method) {
         for (AbstractInsnNode instruction = method.instructions.getFirst();
                 instruction != null;
                 instruction = instruction.getNext()) {
             if (instruction instanceof MethodInsnNode call
-                    && owner.equals(call.owner)
-                    && DECODE_METHOD.equals(call.name)
+                    && RUNTIME.equals(call.owner)
+                    && "load".equals(call.name)
                     && DECODE_DESCRIPTOR.equals(call.desc)) {
-                call.name = ORIGINAL_METHOD;
-                call.setOpcode(Opcodes.INVOKESPECIAL);
+                return true;
             }
         }
+        return false;
+    }
+
+    private static AbstractInsnNode directDecodeAfterPreloaderMiss(MethodNode method) {
+        AbstractInsnNode insertion = null;
+        for (AbstractInsnNode instruction = method.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (!(instruction instanceof MethodInsnNode call)
+                    || call.getOpcode() != Opcodes.INVOKESTATIC
+                    || !PRELOADER.equals(call.owner)
+                    || !PRELOADER_METHOD.equals(call.name)
+                    || !DECODE_DESCRIPTOR.equals(call.desc)) {
+                continue;
+            }
+            AbstractInsnNode store = nextOpcode(call);
+            AbstractInsnNode loadForBranch = nextOpcode(store);
+            AbstractInsnNode branch = nextOpcode(loadForBranch);
+            AbstractInsnNode loadForReturn = nextOpcode(branch);
+            AbstractInsnNode returnImage = nextOpcode(loadForReturn);
+            if (!(store instanceof VarInsnNode stored)
+                    || store.getOpcode() != Opcodes.ASTORE
+                    || !(loadForBranch instanceof VarInsnNode branchLoad)
+                    || loadForBranch.getOpcode() != Opcodes.ALOAD
+                    || branchLoad.var != stored.var
+                    || !(branch instanceof JumpInsnNode jump)
+                    || branch.getOpcode() != Opcodes.IFNULL
+                    || !(loadForReturn instanceof VarInsnNode returnLoad)
+                    || loadForReturn.getOpcode() != Opcodes.ALOAD
+                    || returnLoad.var != stored.var
+                    || returnImage == null
+                    || returnImage.getOpcode() != Opcodes.ARETURN) {
+                return null;
+            }
+            AbstractInsnNode candidate = nextOpcode(jump.label);
+            if (candidate == null || insertion != null) {
+                return null;
+            }
+            insertion = candidate;
+        }
+        return insertion;
+    }
+
+    private static AbstractInsnNode nextOpcode(AbstractInsnNode instruction) {
+        if (instruction == null) {
+            return null;
+        }
+        AbstractInsnNode next = instruction.getNext();
+        while (next instanceof LabelNode || next instanceof FrameNode || next instanceof LineNumberNode) {
+            next = next.getNext();
+        }
+        return next;
     }
 }

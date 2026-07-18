@@ -80,6 +80,7 @@ final class TextureBatchCommand {
         report.put("cacheHitBlobs", result.cacheHitBlobs());
         report.put("builtBlobs", result.builtBlobs());
         report.put("failedBlobs", result.failedBlobs());
+        report.put("skippedUnsupportedBlobs", result.skippedUnsupportedBlobs());
         report.put("quarantinedBlobs", result.quarantinedBlobs());
         report.put("deduplicatedEntries", result.deduplicatedEntries());
         report.put("sourceBytes", result.sourceBytes());

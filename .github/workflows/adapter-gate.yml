@@ -69,8 +69,8 @@ jobs:
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-agent,preflight-cli -am \
-            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,TextureCompatibilityRuntimeTest,TextureCompatibilityPlanTest,TexturePreparedPixelRuntimeTest,TexturePreparedPixelPlanTest,TextureCompatibilityTargetTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest \
-            -Dit.test=AdapterAgentIT,TextureCompatibilityAgentIT,TexturePreparedPixelAgentIT \
+            -Dtest=AdapterSignatureGateTest,AdapterSourceIdentityTest,BytecodeShapeReportTest,TextureCompatibilityRuntimeTest,TextureCompatibilityPlanTest,TexturePreparedPixelRuntimeTest,TexturePreparedPixelPlanTest,TextureCompatibilityTargetTest,AudioDecoderSignatureReportTest,SoundLoaderContractReportTest,CodeLoaderSignatureReportTest,AdapterCandidateScorerTest,AgentOptionsTest,AgentInjectionTest,CommandLineAdapterTest,StarsectorRunLogEvidenceTest \
+            -Dit.test=AdapterAgentIT,TextureCompatibilityAgentIT,TexturePreparedPixelAgentIT,RunCommandIT \
             -Dsurefire.failIfNoSpecifiedTests=false \
             verify > adapter-gate-maven.log 2>&1
           status=$?

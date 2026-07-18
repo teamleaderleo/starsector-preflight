@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Runtime bridge for upload-ready SPFT pixels with bounded direct-buffer ownership. */
 public final class TexturePreparedPixelRuntime {
-    static final String PLAN_ID = "texture-prepared-pixels-v1";
+    static final String PLAN_ID = "texture-prepared-pixels-v2";
     static final int MAX_TEXTURE_BYTES = 32 * 1024 * 1024;
     static final long MAX_ACTIVE_DIRECT_BYTES = 64L * 1024 * 1024;
     static final int MAX_ACTIVE_BUFFERS = 1_024;

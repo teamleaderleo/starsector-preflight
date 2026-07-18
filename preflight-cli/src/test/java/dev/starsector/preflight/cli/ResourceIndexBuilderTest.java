@@ -66,4 +66,23 @@ class ResourceIndexBuilderTest {
         assertTrue(result.diagnostics().stream().anyMatch(value -> value.contains("missing")));
         assertTrue(result.diagnostics().stream().anyMatch(value -> value.contains("mod-only")));
     }
+
+    @Test
+    void recognizesMacBundleJavaDirectoryAsCoreResourceRoot() throws Exception {
+        Path app = temporaryDirectory.resolve("Starsector.app");
+        Path core = app.resolve("Contents/Resources/Java");
+        Path mods = app.resolve("mods");
+        Files.createDirectories(core.resolve("graphics"));
+        Files.createDirectories(core.resolve("data"));
+        Files.createDirectories(mods);
+        Files.writeString(core.resolve("graphics/core.png"), "core");
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[]}");
+
+        ResourceIndexBuilder.BuildResult result = ResourceIndexBuilder.build(app);
+
+        assertEquals(List.of("core"), result.index().roots().stream().map(ResourceIndex.Root::id).toList());
+        assertEquals(core.toAbsolutePath().normalize(), result.index().roots().get(0).path());
+        assertTrue(result.index().winner("graphics/core.png").isPresent());
+        assertTrue(result.diagnostics().stream().noneMatch(value -> value.contains("mod-only")));
+    }
 }

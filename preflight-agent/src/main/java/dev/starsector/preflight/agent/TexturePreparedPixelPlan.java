@@ -10,9 +10,12 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.FrameNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TryCatchBlockNode;
@@ -34,6 +37,8 @@ final class TexturePreparedPixelPlan {
     private static final String ORIGINAL_CONVERT = "preflight$original$convertPixels";
     private static final String ORIGINAL_CLEANUP = "preflight$original$cleanupBuffer";
     private static final String RUNTIME = "dev/starsector/preflight/agent/TexturePreparedPixelRuntime";
+    private static final String PRELOADER = "com/fs/graphics/L";
+    private static final String PRELOADER_METHOD = "class";
     private static final String PREPARED_PIXEL = RUNTIME + "$PreparedPixel";
     private static final String COLOR_DESCRIPTOR = "Ljava/awt/Color;";
 
@@ -64,15 +69,24 @@ final class TexturePreparedPixelPlan {
             return null;
         }
 
+        PreloaderHandoff handoff = preloaderHandoff(decode);
+        if (handoff == null) {
+            return null;
+        }
+
         List<ColorField> colors = reviewedColorFields(convert);
         if (colors.size() != 3) {
             return null;
         }
 
-        MethodMetadata decodeMetadata = rename(owner.name, decode, ORIGINAL_DECODE, DECODE_METHOD, DECODE_DESCRIPTOR);
+        MethodNode originalDecode = directDecodeClone(decode);
+        if (originalDecode == null) {
+            return null;
+        }
+        injectPreparedLookup(decode, handoff.directDecode());
         MethodMetadata convertMetadata = rename(owner.name, convert, ORIGINAL_CONVERT, CONVERT_METHOD, CONVERT_DESCRIPTOR);
         MethodMetadata cleanupMetadata = rename(owner.name, cleanup, ORIGINAL_CLEANUP, CLEANUP_METHOD, CLEANUP_DESCRIPTOR);
-        owner.methods.add(decodeWrapper(owner.name, decodeMetadata));
+        owner.methods.add(originalDecode);
         owner.methods.add(convertWrapper(owner.name, convertMetadata, colors));
         owner.methods.add(cleanupWrapper(owner.name, cleanupMetadata));
 
@@ -100,25 +114,6 @@ final class TexturePreparedPixelPlan {
             }
         }
         return rasterRead && fields.size() == 3 ? List.copyOf(fields.values()) : List.of();
-    }
-
-    private static MethodNode decodeWrapper(String owner, MethodMetadata metadata) {
-        MethodNode wrapper = method(metadata, DECODE_METHOD, DECODE_DESCRIPTOR);
-        LabelNode fallback = new LabelNode();
-        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        wrapper.instructions.add(new MethodInsnNode(
-                Opcodes.INVOKESTATIC, RUNTIME, "load", DECODE_DESCRIPTOR, false));
-        wrapper.instructions.add(new InsnNode(Opcodes.DUP));
-        wrapper.instructions.add(new JumpInsnNode(Opcodes.IFNULL, fallback));
-        wrapper.instructions.add(new InsnNode(Opcodes.ARETURN));
-        wrapper.instructions.add(fallback);
-        wrapper.instructions.add(new InsnNode(Opcodes.POP));
-        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        wrapper.instructions.add(new MethodInsnNode(
-                Opcodes.INVOKESPECIAL, owner, ORIGINAL_DECODE, DECODE_DESCRIPTOR, false));
-        wrapper.instructions.add(new InsnNode(Opcodes.ARETURN));
-        return wrapper;
     }
 
     private static MethodNode convertWrapper(
@@ -247,6 +242,107 @@ final class TexturePreparedPixelPlan {
         return metadata;
     }
 
+    private static MethodNode directDecodeClone(MethodNode decode) {
+        MethodNode clone = new MethodNode(
+                Opcodes.ASM9,
+                decode.access,
+                decode.name,
+                decode.desc,
+                decode.signature,
+                decode.exceptions == null ? null : decode.exceptions.toArray(String[]::new));
+        decode.accept(clone);
+        PreloaderHandoff handoff = preloaderHandoff(clone);
+        if (handoff == null) {
+            return null;
+        }
+        AbstractInsnNode afterReturn = handoff.returnImage().getNext();
+        for (AbstractInsnNode instruction = handoff.argumentLoad(); instruction != afterReturn; ) {
+            AbstractInsnNode next = instruction.getNext();
+            clone.instructions.remove(instruction);
+            instruction = next;
+        }
+        clone.name = ORIGINAL_DECODE;
+        clone.access = (clone.access
+                & (Opcodes.ACC_FINAL | Opcodes.ACC_BRIDGE | Opcodes.ACC_VARARGS | Opcodes.ACC_STRICT))
+                | Opcodes.ACC_PRIVATE
+                | Opcodes.ACC_SYNTHETIC;
+        return clone;
+    }
+
+    private static void injectPreparedLookup(MethodNode decode, AbstractInsnNode directDecode) {
+        LabelNode continueOriginal = new LabelNode();
+        InsnList lookup = new InsnList();
+        lookup.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        lookup.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC, RUNTIME, "load", DECODE_DESCRIPTOR, false));
+        lookup.add(new InsnNode(Opcodes.DUP));
+        lookup.add(new JumpInsnNode(Opcodes.IFNULL, continueOriginal));
+        lookup.add(new InsnNode(Opcodes.ARETURN));
+        lookup.add(continueOriginal);
+        lookup.add(new InsnNode(Opcodes.POP));
+        decode.instructions.insertBefore(directDecode, lookup);
+    }
+
+    private static PreloaderHandoff preloaderHandoff(MethodNode method) {
+        PreloaderHandoff found = null;
+        for (AbstractInsnNode instruction = method.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (!(instruction instanceof MethodInsnNode call)
+                    || call.getOpcode() != Opcodes.INVOKESTATIC
+                    || !PRELOADER.equals(call.owner)
+                    || !PRELOADER_METHOD.equals(call.name)
+                    || !DECODE_DESCRIPTOR.equals(call.desc)) {
+                continue;
+            }
+            AbstractInsnNode argumentLoad = previousOpcode(call);
+            AbstractInsnNode store = nextOpcode(call);
+            AbstractInsnNode loadForBranch = nextOpcode(store);
+            AbstractInsnNode branch = nextOpcode(loadForBranch);
+            AbstractInsnNode loadForReturn = nextOpcode(branch);
+            AbstractInsnNode returnImage = nextOpcode(loadForReturn);
+            if (!(argumentLoad instanceof VarInsnNode argument)
+                    || argumentLoad.getOpcode() != Opcodes.ALOAD
+                    || argument.var != 1
+                    || !(store instanceof VarInsnNode stored)
+                    || store.getOpcode() != Opcodes.ASTORE
+                    || !(loadForBranch instanceof VarInsnNode branchLoad)
+                    || loadForBranch.getOpcode() != Opcodes.ALOAD
+                    || branchLoad.var != stored.var
+                    || !(branch instanceof JumpInsnNode jump)
+                    || branch.getOpcode() != Opcodes.IFNULL
+                    || !(loadForReturn instanceof VarInsnNode returnLoad)
+                    || loadForReturn.getOpcode() != Opcodes.ALOAD
+                    || returnLoad.var != stored.var
+                    || returnImage == null
+                    || returnImage.getOpcode() != Opcodes.ARETURN) {
+                return null;
+            }
+            AbstractInsnNode directDecode = nextOpcode(jump.label);
+            if (directDecode == null || found != null) {
+                return null;
+            }
+            found = new PreloaderHandoff(argumentLoad, returnImage, directDecode);
+        }
+        return found;
+    }
+
+    private static AbstractInsnNode previousOpcode(AbstractInsnNode instruction) {
+        AbstractInsnNode previous = instruction == null ? null : instruction.getPrevious();
+        while (previous instanceof LabelNode || previous instanceof FrameNode || previous instanceof LineNumberNode) {
+            previous = previous.getPrevious();
+        }
+        return previous;
+    }
+
+    private static AbstractInsnNode nextOpcode(AbstractInsnNode instruction) {
+        AbstractInsnNode next = instruction == null ? null : instruction.getNext();
+        while (next instanceof LabelNode || next instanceof FrameNode || next instanceof LineNumberNode) {
+            next = next.getNext();
+        }
+        return next;
+    }
+
     private static MethodNode method(MethodMetadata metadata, String name, String descriptor) {
         return new MethodNode(
                 Opcodes.ASM9,
@@ -307,6 +403,12 @@ final class TexturePreparedPixelPlan {
     }
 
     private record ColorField(String name, String descriptor) {
+    }
+
+    private record PreloaderHandoff(
+            AbstractInsnNode argumentLoad,
+            AbstractInsnNode returnImage,
+            AbstractInsnNode directDecode) {
     }
 
     private record MethodMetadata(int access, String signature, List<String> exceptions) {

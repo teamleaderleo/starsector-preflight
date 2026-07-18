@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** Shared fail-open cache lookup plus the decoded-image compatibility consumer. */
 public final class TextureCompatibilityRuntime {
-    static final String PLAN_ID = "texture-compatibility-v1";
+    static final String PLAN_ID = "texture-compatibility-v2";
     static final int MAX_MANIFEST_ENTRIES = 100_000;
     static final long MAX_INDEX_PROVIDERS = 500_000;
     static final int MAX_INTERNAL_ERRORS = 8;

@@ -1,6 +1,7 @@
 package dev.starsector.preflight.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,6 +11,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -29,6 +31,13 @@ class TexturePreparedPixelPlanTest {
         assertNotNull(method(node, "preflight$original$decodeImage", TexturePreparedPixelPlan.DECODE_DESCRIPTOR));
         assertNotNull(method(node, "preflight$original$convertPixels", TexturePreparedPixelPlan.CONVERT_DESCRIPTOR));
         assertNotNull(method(node, "preflight$original$cleanupBuffer", TexturePreparedPixelPlan.CLEANUP_DESCRIPTOR));
+
+        MethodNode decode = method(node, TexturePreparedPixelPlan.DECODE_METHOD, TexturePreparedPixelPlan.DECODE_DESCRIPTOR);
+        MethodNode directDecode = method(node, "preflight$original$decodeImage", TexturePreparedPixelPlan.DECODE_DESCRIPTOR);
+        assertTrue(hasCall(decode, "com/fs/graphics/L", "class"));
+        assertTrue(hasCall(decode, "TexturePreparedPixelRuntime", "load"));
+        assertFalse(hasCall(directDecode, "com/fs/graphics/L", "class"));
+        assertFalse(hasCall(directDecode, "TexturePreparedPixelRuntime", "load"));
 
         MethodNode convert = method(node, TexturePreparedPixelPlan.CONVERT_METHOD, TexturePreparedPixelPlan.CONVERT_DESCRIPTOR);
         assertEquals(List.of("derived0", "derived1", "derived2"), fieldWrites(convert));
@@ -87,7 +96,7 @@ class TexturePreparedPixelPlanTest {
     }
 
     private static byte[] textureLoader(int colorFields, boolean rasterRead) {
-        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, TexturePreparedPixelPlan.TARGET_CLASS,
                 null, "java/lang/Object", null);
         constructor(writer);
@@ -99,6 +108,20 @@ class TexturePreparedPixelPlanTest {
                 null,
                 null);
         decode.visitCode();
+        decode.visitVarInsn(Opcodes.ALOAD, 1);
+        decode.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                "com/fs/graphics/L",
+                "class",
+                TexturePreparedPixelPlan.DECODE_DESCRIPTOR,
+                false);
+        decode.visitVarInsn(Opcodes.ASTORE, 2);
+        decode.visitVarInsn(Opcodes.ALOAD, 2);
+        Label direct = new Label();
+        decode.visitJumpInsn(Opcodes.IFNULL, direct);
+        decode.visitVarInsn(Opcodes.ALOAD, 2);
+        decode.visitInsn(Opcodes.ARETURN);
+        decode.visitLabel(direct);
         decode.visitInsn(Opcodes.ACONST_NULL);
         decode.visitInsn(Opcodes.ARETURN);
         decode.visitMaxs(0, 0);

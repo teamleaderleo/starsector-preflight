@@ -101,7 +101,8 @@ See [vanilla runtime adapter](vanilla-adapter.md) for the activation gate, repor
 
 Each ordinary profiling run receives a directory containing:
 
-- `run.json` — selected launcher, command, Java version, timestamps, exit code, and profile report path
+- `run.json` — selected launcher, command, Java version, timestamps, effective and raw launcher exit codes,
+  bounded fatal-log lifecycle evidence, and profile report path
 - `profile.json` — enabled-mod workload census
 - `startup.jfr` — raw Java Flight Recorder data
 - `summary.json` — aggregate and attributed startup metrics

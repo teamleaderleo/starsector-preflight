@@ -183,6 +183,7 @@ final class PrepareCommand {
                     details.put("cacheHitBlobs", built.cacheHitBlobs());
                     details.put("builtBlobs", built.builtBlobs());
                     details.put("failedBlobs", built.failedBlobs());
+                    details.put("skippedUnsupportedBlobs", built.skippedUnsupportedBlobs());
                     details.put("quarantinedBlobs", built.quarantinedBlobs());
                     details.put("deduplicatedEntries", built.deduplicatedEntries());
                     details.put("sourceBytes", built.sourceBytes());
@@ -252,7 +253,10 @@ final class PrepareCommand {
         Map<String, Object> readiness = new LinkedHashMap<>();
         readiness.put("cacheArtifactsPrepared", allEnabledStagesSuccessful);
         readiness.put("liveAdapterIntegrated", false);
-        readiness.put("vanillaAdapter", "not-yet-integrated");
+        readiness.put("liveAdapterEnabledByPreparation", false);
+        readiness.put("vanillaAdapter", "compatibility-v2-under-review");
+        readiness.put("textureAdapterModes", List.of("compatibility", "prepared-pixels"));
+        readiness.put("realInstallPilotRequired", true);
         readiness.put("fastRenderingAdapter", "optional-not-required");
         readiness.put("launchAccelerationClaimed", false);
 

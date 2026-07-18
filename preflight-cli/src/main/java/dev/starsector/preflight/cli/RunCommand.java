@@ -78,9 +78,10 @@ final class RunCommand {
 
         Path recordedProfile = Files.isRegularFile(profile) ? profile : null;
         Instant started = Instant.now();
+        StarsectorRunLogEvidence.Snapshot logSnapshot = StarsectorRunLogEvidence.snapshot(target.installRoot());
         writeMetadata(
-                metadata, target, command, started, null, null, recordedProfile,
-                options, adapterReport, adapterAnalysis);
+                metadata, target, command, started, null, null, null, "RUNNING", null,
+                recordedProfile, options, adapterReport, adapterAnalysis);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(target.workingDirectory().toFile());
@@ -88,8 +89,17 @@ final class RunCommand {
         builder.environment().put("PREFLIGHT_RUN_DIR", runDirectory.toString());
         builder.inheritIO();
 
-        int exitCode = builder.start().waitFor();
+        int launcherExitCode = builder.start().waitFor();
         Instant ended = Instant.now();
+        StarsectorRunLogEvidence.Evidence lifecycleEvidence = StarsectorRunLogEvidence.inspect(logSnapshot);
+        int exitCode = StarsectorRunLogEvidence.effectiveExitCode(launcherExitCode, lifecycleEvidence);
+        String outcome = lifecycleEvidence.fatalDetected()
+                ? "FATAL_LOG_EVIDENCE"
+                : launcherExitCode == 0 ? "COMPLETED" : "LAUNCHER_EXIT_NONZERO";
+        if (lifecycleEvidence.fatalDetected()) {
+            System.err.println("Preflight detected fatal Starsector lifecycle evidence in logs."
+                    + " Launcher exit " + launcherExitCode + " is not a clean game exit.");
+        }
 
         if (options.summarize() && Files.isRegularFile(recording)) {
             PreflightCli.summarize(recording, report);
@@ -112,8 +122,8 @@ final class RunCommand {
         }
 
         writeMetadata(
-                metadata, target, command, started, ended, exitCode, recordedProfile,
-                options, adapterReport, adapterAnalysis);
+                metadata, target, command, started, ended, exitCode, launcherExitCode, outcome,
+                lifecycleEvidence, recordedProfile, options, adapterReport, adapterAnalysis);
         return exitCode;
     }
 
@@ -200,6 +210,9 @@ final class RunCommand {
             Instant started,
             Instant ended,
             Integer exitCode,
+            Integer launcherExitCode,
+            String outcome,
+            StarsectorRunLogEvidence.Evidence lifecycleEvidence,
             Path profile,
             CommandLine options,
             Path adapterReport,
@@ -208,6 +221,9 @@ final class RunCommand {
         values.put("started", started);
         values.put("ended", ended);
         values.put("exitCode", exitCode);
+        values.put("launcherExitCode", launcherExitCode);
+        values.put("outcome", outcome);
+        values.put("lifecycleEvidence", lifecycleEvidence == null ? null : lifecycleEvidence.toMap());
         values.put("platform", Platform.current());
         values.put("javaVersion", System.getProperty("java.version"));
         values.put("installRoot", target.installRoot());

@@ -116,7 +116,7 @@ java -jar preflight.jar run \
 
 A valid hit reconstructs a compatible `BufferedImage` from the existing bottom-up SPFT pixel payload. Starsector continues through its original texture-object creation, pixel conversion, OpenGL upload, cleanup, and lifetime path.
 
-The transformer retains the reviewed original decode body inside the same class and calls it directly on every unsuccessful cache path. Original exceptions propagate unchanged.
+The `texture-compatibility-v2` plan preserves Starsector's asynchronous image-preloader handoff before consulting Preflight. A preloaded image remains authoritative and is returned without a cache lookup. Only when the original preloader returns `null` does Preflight attempt a prepared hit; a miss then continues into the original direct `ImageIO` branch in the same method. A missing or ambiguous preloader shape declines transformation. Original exceptions propagate unchanged.
 
 ## Prepared-pixel consumer
 
@@ -150,7 +150,9 @@ The bytecode plan additionally requires a reviewed conversion pattern: a raster 
 
 A valid hit supplies a fresh direct ByteBuffer containing the stored bottom-up SPFT bytes and writes the three stored derived colors. It bypasses ImageIO decode, raster traversal, row reversal, RGB/RGBA conversion, transparent-texel normalization, and derived-color calculation. Starsector retains its original texture allocation, OpenGL upload, filtering, mipmaps, cleanup call, flags, and texture lifetime.
 
-The plan retains the original decode, conversion, and cleanup bodies under private synthetic names. Misses and unsupported cases call original decode and conversion once. Original cleanup always executes, and Preflight releases its buffer accounting afterward, including the exceptional path. Original exceptions propagate.
+The `texture-prepared-pixels-v2` plan also executes the original asynchronous preloader first. It retains a direct-decode-only clone for a prepared-carrier failure, plus the original conversion and cleanup bodies under private synthetic names. Misses and unsupported cases call direct decode and conversion once, without repeating or bypassing the preloader handoff. Original cleanup always executes, and Preflight releases its buffer accounting afterward, including the exceptional path. Original exceptions propagate.
+
+Current status: the packaged synthetic prepared-pixel tests pass, but a read-only transform check against the exact installed 0.98a-RC8 class declines at the color-sink matcher. The installed converter stores colors on `TextureLoader` and later transfers them through texture-object setters; the fixture modeled direct texture-object fields. Treat prepared-pixels as fail-closed, not live-ready, until that exact dataflow is corrected and reviewed.
 
 Prepared direct-buffer ownership is bounded:
 

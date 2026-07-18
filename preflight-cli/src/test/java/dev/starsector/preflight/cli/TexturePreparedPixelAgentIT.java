@@ -24,6 +24,11 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 
 class TexturePreparedPixelAgentIT {
     @TempDir
@@ -43,6 +48,22 @@ class TexturePreparedPixelAgentIT {
         assertTrue(report.contains("\"transformationsApplied\":1"), report);
         assertTrue(report.contains("\"hits\":1"), report);
         assertTrue(report.contains("\"fallbacks\":0"), report);
+    }
+
+    @Test
+    void packagedPreloadedImageWinsBeforePreparedPixelLookup() throws Exception {
+        Fixture fixture = fixture(false, false);
+
+        ProcessResult result = launch(fixture, "graphics/test.png", false, true);
+
+        assertSuccess(result);
+        assertTrue(result.output().contains(
+                "synthetic-pixels:abcdef:colors=ffabcdef,ff00ff00,ff0000ff:decode=0:convert=1:cleanup=1:preloaderCalls=1"),
+                result.output());
+        String report = Files.readString(fixture.adapterReport());
+        assertTrue(report.contains("\"transformationsApplied\":1"), report);
+        assertTrue(report.contains("\"attempts\":0"), report);
+        assertTrue(report.contains("\"hits\":0"), report);
     }
 
     @Test
@@ -104,7 +125,9 @@ class TexturePreparedPixelAgentIT {
     private Fixture fixture(boolean corruptBlob, boolean wrongClassHash) throws Exception {
         Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
         Path classFile = testClasses.resolve("com/fs/graphics/TextureLoader.class");
-        byte[] classBytes = Files.readAllBytes(classFile);
+        byte[] classBytes = renameSyntheticPreloaderMethod(Files.readAllBytes(classFile));
+        byte[] preloaderBytes = renameSyntheticPreloaderMethod(
+                Files.readAllBytes(testClasses.resolve("com/fs/graphics/L.class")));
         Path targetJar = temporaryDirectory.resolve("starsector-core/fixture-texture-pixels.jar");
         Files.createDirectories(targetJar.getParent());
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(targetJar))) {
@@ -112,6 +135,11 @@ class TexturePreparedPixelAgentIT {
             entry.setTime(0);
             output.putNextEntry(entry);
             output.write(classBytes);
+            output.closeEntry();
+            entry = new JarEntry("com/fs/graphics/L.class");
+            entry.setTime(0);
+            output.putNextEntry(entry);
+            output.write(preloaderBytes);
             output.closeEntry();
         }
 
@@ -122,7 +150,7 @@ class TexturePreparedPixelAgentIT {
                 target synthetic-texture-loader-pixels
                 class com/fs/graphics/TextureLoader
                 sha256 %s
-                plan texture-prepared-pixels-v1
+                plan texture-prepared-pixels-v2
                 source-kind STARSECTOR_CORE
                 source-suffix starsector-core/fixture-texture-pixels.jar
                 source-sha256 %s
@@ -198,6 +226,14 @@ class TexturePreparedPixelAgentIT {
     }
 
     private ProcessResult launch(Fixture fixture, String logicalPath, boolean killSwitch) throws Exception {
+        return launch(fixture, logicalPath, killSwitch, false);
+    }
+
+    private ProcessResult launch(
+            Fixture fixture,
+            String logicalPath,
+            boolean killSwitch,
+            boolean preloaded) throws Exception {
         Path java = Path.of(System.getProperty("java.home"), "bin", executable("java"));
         Path agent = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
         String agentArguments = "dest64=" + encoded(fixture.recording())
@@ -219,12 +255,55 @@ class TexturePreparedPixelAgentIT {
         command.add("com.fs.starfarer.SyntheticTextureLauncher");
         command.add(logicalPath);
         command.add("prepared-pixels");
+        if (preloaded) {
+            command.add("preloaded");
+        }
         Process process = new ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .start();
         boolean completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         return new ProcessResult(completed, completed ? process.exitValue() : -1, output);
+    }
+
+    private static byte[] renameSyntheticPreloaderMethod(byte[] original) {
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(
+                    int access,
+                    String name,
+                    String descriptor,
+                    String signature,
+                    String[] exceptions) {
+                MethodVisitor delegate = super.visitMethod(
+                        access,
+                        "clazz".equals(name) ? "class" : name,
+                        descriptor,
+                        signature,
+                        exceptions);
+                return new MethodVisitor(Opcodes.ASM9, delegate) {
+                    @Override
+                    public void visitMethodInsn(
+                            int opcode,
+                            String owner,
+                            String methodName,
+                            String methodDescriptor,
+                            boolean isInterface) {
+                        super.visitMethodInsn(
+                                opcode,
+                                owner,
+                                "com/fs/graphics/L".equals(owner) && "clazz".equals(methodName)
+                                        ? "class"
+                                        : methodName,
+                                methodDescriptor,
+                                isInterface);
+                    }
+                };
+            }
+        }, 0);
+        return writer.toByteArray();
     }
 
     private static void assertSuccess(ProcessResult result) {
