@@ -78,4 +78,6 @@ Every result except `HIT` means the future adapter executes the untouched origin
 
 ## Current boundary
 
-This cache substrate does not decode OGG files and does not install a live sound-loader hook. Codec-equivalence fixtures, exact real-install signatures, packaged child-JVM adapter tests, and real OFF-versus-ENABLED launches remain required before any startup improvement claim.
+The [installed JOrbis equivalence gate](installed-jorbis-equivalence.md) now verifies exact shipped decoder archives, application-classloader identity, PCM and metadata identity, malformed-input behavior, and stream ownership in a packaged child JVM. It remains an evidence command: it writes no `SPAU` files and installs no live sound-loader hook.
+
+A real run against the reviewed installation must pass before a target-specific prepared-audio wrapper is considered. Packaged cold/warm/corrupt adapter proofs and real OFF-versus-ENABLED launches remain later gates before any startup improvement claim.

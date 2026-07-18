@@ -1,4 +1,4 @@
-name: Audio codec fixture tests
+name: Audio codec and installed JOrbis tests
 
 on:
   push:
@@ -7,6 +7,12 @@ on:
       - 'preflight-core/src/main/java/dev/starsector/preflight/core/OggVorbisIdentification.java'
       - 'preflight-core/src/test/java/dev/starsector/preflight/core/OggVorbisGoldenFixtureTest.java'
       - 'preflight-core/src/test/resources/audio/ogg-v1/**'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/InstalledJorbisEquivalence*.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/PreflightCli.java'
+      - 'preflight-cli/src/test/java/com/jcraft/jogg/**'
+      - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/InstalledJorbis*.java'
+      - 'preflight-cli/pom.xml'
       - 'preflight-core/pom.xml'
       - 'pom.xml'
   pull_request:
@@ -15,6 +21,12 @@ on:
       - 'preflight-core/src/main/java/dev/starsector/preflight/core/OggVorbisIdentification.java'
       - 'preflight-core/src/test/java/dev/starsector/preflight/core/OggVorbisGoldenFixtureTest.java'
       - 'preflight-core/src/test/resources/audio/ogg-v1/**'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/InstalledJorbisEquivalence*.java'
+      - 'preflight-cli/src/main/java/dev/starsector/preflight/cli/PreflightCli.java'
+      - 'preflight-cli/src/test/java/com/jcraft/jogg/**'
+      - 'preflight-cli/src/test/java/com/jcraft/jorbis/**'
+      - 'preflight-cli/src/test/java/dev/starsector/preflight/cli/InstalledJorbis*.java'
+      - 'preflight-cli/pom.xml'
       - 'preflight-core/pom.xml'
       - 'pom.xml'
   workflow_dispatch:
@@ -41,7 +53,7 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run Ogg/Vorbis golden fixture tests
+      - name: Run golden codec and packaged installed-JOrbis tests
         shell: bash
         run: |
           set +e
@@ -67,19 +79,25 @@ jobs:
           status=$?
           if [ "$status" -eq 0 ]; then
             mvn --batch-mode --no-transfer-progress \
-              -pl preflight-core -am \
-              -Dtest=OggVorbisGoldenFixtureTest \
+              -pl preflight-core,preflight-cli -am \
+              -Dtest=OggVorbisGoldenFixtureTest,InstalledJorbisEquivalenceCommandTest,InstalledJorbisFixtureIdentityTest \
+              -Dit.test=InstalledJorbisEquivalenceCommandIT \
               -Dsurefire.failIfNoSpecifiedTests=false \
-              test >> "$log" 2>&1
+              verify >> "$log" 2>&1
             status=$?
           fi
-          cat "$log"
+          find . -path '*/target/surefire-reports/*.txt' -type f -print -exec cat {} \; >> "$log"
+          find . -path '*/target/failsafe-reports/*.txt' -type f -print -exec cat {} \; >> "$log"
+          tail -n 400 "$log"
           exit "$status"
       - name: Upload focused logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: audio-codec-fixtures-${{ matrix.os }}
-          path: audio-codec-fixtures-maven.log
-          if-no-files-found: error
+          path: |
+            audio-codec-fixtures-maven.log
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+          if-no-files-found: warn
           retention-days: 7
