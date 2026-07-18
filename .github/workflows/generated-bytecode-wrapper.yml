@@ -8,6 +8,7 @@ on:
       - 'preflight-core/src/test/java/dev/starsector/preflight/core/GeneratedBytecode*.java'
       - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticGeneratedBytecode*.java'
       - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticGeneratedBytecode*.java'
+      - 'docs/generated-bytecode-cache.md'
       - 'preflight-core/pom.xml'
       - 'preflight-synthetic-startup/pom.xml'
       - 'pom.xml'
@@ -18,6 +19,7 @@ on:
       - 'preflight-core/src/test/java/dev/starsector/preflight/core/GeneratedBytecode*.java'
       - 'preflight-synthetic-startup/src/main/java/dev/starsector/preflight/synthetic/SyntheticGeneratedBytecode*.java'
       - 'preflight-synthetic-startup/src/test/java/dev/starsector/preflight/synthetic/SyntheticGeneratedBytecode*.java'
+      - 'docs/generated-bytecode-cache.md'
       - 'preflight-core/pom.xml'
       - 'preflight-synthetic-startup/pom.xml'
       - 'pom.xml'
@@ -51,7 +53,7 @@ jobs:
           set +e
           mvn --batch-mode --no-transfer-progress \
             -pl preflight-core,preflight-synthetic-startup -am \
-            -Dtest=GeneratedBytecodeCacheWrapperTest,GeneratedBytecodeCacheSafetyTest,SyntheticGeneratedBytecodeCrossProcessTest \
+            -Dtest=GeneratedBytecodeContextEvidenceTest,GeneratedBytecodeCacheWrapperTest,GeneratedBytecodeCacheSafetyTest,SyntheticGeneratedBytecodeCrossProcessTest \
             -Dsurefire.failIfNoSpecifiedTests=false \
             test > generated-bytecode-wrapper-maven.log 2>&1
           status=$?

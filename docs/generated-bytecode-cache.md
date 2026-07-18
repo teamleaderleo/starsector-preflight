@@ -28,7 +28,34 @@ Intercepting individual `defineClass` calls is not the preferred design because 
 - parent classloader identity
 - protection-domain policy
 
-The key is deterministic and domain-separated. A live adapter may add stricter inputs, but it may not omit any required component. If the complete source dependency graph cannot be proven, the cache lookup is a miss.
+The key is deterministic and domain-separated. A live adapter may add stricter inputs, but it may not omit any required component.
+
+## Bounded context evidence
+
+`GeneratedBytecodeContextEvidence` is the gate in front of `GeneratedBytecodeContext`. It accepts only bounded, ordered evidence for one requested root class:
+
+- at most 512 ordered classpath providers, each identified by provider kind and SHA-256;
+- at most 4,096 ordered source, resource, or class lookups;
+- each lookup records a logical-name length/hash token, exact provider identity, found/miss outcome, and content SHA-256 only when found;
+- at most 256 ordered compiler settings, retained only as key/value length/hash tokens;
+- character encoding as a length/hash token;
+- exact Starsector, Janino, parent-loader, and protection-domain identities;
+- explicit completeness gates for lookup interception, transitive source-graph closure, classpath order, compiler settings, parent loader, protection domain, duplicate behavior, and the complete generated class map.
+
+Observed source/resource names, compiler-setting values, and source contents are not retained. The diagnostic summary contains only hashes, lengths, counts, completion flags, and deterministic incomplete reasons.
+
+An exact SPJB context is available only when every gate passes for the same requested class. Empty classpath or lookup evidence also blocks the context. Ordering is part of the identity: reordering providers, lookups, or compiler settings changes the context key.
+
+`GeneratedBytecodeCacheWrapper.generate(..., GeneratedBytecodeContextEvidence, ...)` enforces the boundary before touching the filesystem. When evidence is incomplete or belongs to a different requested class, it:
+
+1. performs no cache lookup;
+2. performs no cache write;
+3. invokes the untouched original generator exactly once;
+4. returns the original map object unchanged;
+5. preserves the exact original checked exception object;
+6. reports `ORIGINAL_CONTEXT_INCOMPLETE` with deterministic bounded reasons.
+
+This remains true even when a valid SPJB entry already exists under the context that the incomplete evidence would otherwise resemble. Incomplete evidence cannot consume that entry.
 
 ## Bundle format
 
@@ -59,6 +86,8 @@ Lookup failures are data. They are not thrown into the future game loading path.
 
 ## Current boundary
 
-This module supplies the deterministic format, exact context-key contract, and fail-open storage layer. It does not yet hook Starsector's Janino build. A focused real-install probe must first confirm the exact Janino class hash, source archive, classloader, method descriptors, and dependency lookup behavior used by the reviewed Starsector installation.
+The reviewed installation has exact Janino and commons-compiler archive/class/loader evidence, and the unified contract collector retains the structural `JavaSourceClassLoader` seams. The repository now also has a bounded evidence-to-SPJB key gate and a proven incomplete-context bypass.
 
-No startup improvement is claimed until a target-specific adapter consumes this cache and real OFF-versus-ENABLED launches demonstrate it.
+It still does not intercept the real installation's source/resource provider calls, prove transitive dependency closure, or activate a live Janino target. The next real-Janino slice must populate this evidence from the exact installed lookup behavior and prove cold, warm, corrupt, duplicate-name, inner/anonymous-class, parent-loader, protection-domain, and original-error behavior in packaged child JVMs. Any incomplete real observation must remain `ORIGINAL_CONTEXT_INCOMPLETE`.
+
+No startup improvement is claimed until a manually allowlisted target-specific adapter consumes this cache and real OFF-versus-ENABLED launches demonstrate it.
