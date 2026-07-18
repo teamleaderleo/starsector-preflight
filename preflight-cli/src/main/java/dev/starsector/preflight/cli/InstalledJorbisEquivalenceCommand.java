@@ -24,16 +24,28 @@ final class InstalledJorbisEquivalenceCommand {
 
     static int execute(String[] args, int offset) throws Exception {
         Options options = Options.parse(args, offset);
-        return execute(options, JOGG_SHA256, JORBIS_SHA256, SelfJar.locate());
+        return execute(options, JOGG_SHA256, JORBIS_SHA256, SelfJar.locate(), "full");
     }
 
     static int execute(Options options, String expectedJogg, String expectedJorbis, Path applicationJar)
             throws Exception {
+        return execute(options, expectedJogg, expectedJorbis, applicationJar, "full");
+    }
+
+    static int execute(
+            Options options,
+            String expectedJogg,
+            String expectedJorbis,
+            Path applicationJar,
+            String fixtureProfile) throws Exception {
         Path jogg = exactJar(options.jogg(), expectedJogg, "Jogg");
         Path jorbis = exactJar(options.jorbis(), expectedJorbis, "JOrbis");
         Path application = applicationJar.toAbsolutePath().normalize();
         if (!Files.isRegularFile(application)) {
             throw new IOException("Preflight application JAR is unavailable: " + application);
+        }
+        if (!"full".equals(fixtureProfile) && !"ci".equals(fixtureProfile)) {
+            throw new IllegalArgumentException("Unknown installed-JOrbis fixture profile: " + fixtureProfile);
         }
 
         Path output = options.output() == null
@@ -60,6 +72,8 @@ final class InstalledJorbisEquivalenceCommand {
                 expectedJogg,
                 "--expected-jorbis-sha256",
                 expectedJorbis,
+                "--fixture-profile",
+                fixtureProfile,
                 "--output",
                 output.toString());
         Process process = new ProcessBuilder(command)
