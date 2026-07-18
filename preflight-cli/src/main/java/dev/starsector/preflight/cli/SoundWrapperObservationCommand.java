@@ -29,13 +29,32 @@ final class SoundWrapperObservationCommand {
     }
 
     static int execute(String[] args, int offset) throws Exception {
-        return execute(Options.parse(args, offset), SelfJar.locate(), "full");
+        return execute(
+                Options.parse(args, offset),
+                InstalledJorbisEquivalenceCommand.JOGG_SHA256,
+                InstalledJorbisEquivalenceCommand.JORBIS_SHA256,
+                SelfJar.locate(),
+                "full");
     }
 
     static int execute(Options options, Path applicationJar, String fixtureProfile) throws Exception {
+        return execute(
+                options,
+                InstalledJorbisEquivalenceCommand.JOGG_SHA256,
+                InstalledJorbisEquivalenceCommand.JORBIS_SHA256,
+                applicationJar,
+                fixtureProfile);
+    }
+
+    static int execute(
+            Options options,
+            String expectedJoggSha256,
+            String expectedJorbisSha256,
+            Path applicationJar,
+            String fixtureProfile) throws Exception {
         Path game = exactDirectory(options.game(), "Starsector installation");
-        Path jogg = exactJar(options.jogg(), InstalledJorbisEquivalenceCommand.JOGG_SHA256, "Jogg");
-        Path jorbis = exactJar(options.jorbis(), InstalledJorbisEquivalenceCommand.JORBIS_SHA256, "JOrbis");
+        Path jogg = exactJar(options.jogg(), expectedJoggSha256, "Jogg");
+        Path jorbis = exactJar(options.jorbis(), expectedJorbisSha256, "JOrbis");
         Path application = applicationJar.toAbsolutePath().normalize();
         if (!Files.isRegularFile(application)) {
             throw new IOException("Preflight application JAR is unavailable: " + application);
@@ -71,9 +90,9 @@ final class SoundWrapperObservationCommand {
                 "--expected-sound-sha256",
                 expectedSoundArchiveSha256,
                 "--expected-jogg-sha256",
-                InstalledJorbisEquivalenceCommand.JOGG_SHA256,
+                expectedJoggSha256,
                 "--expected-jorbis-sha256",
-                InstalledJorbisEquivalenceCommand.JORBIS_SHA256,
+                expectedJorbisSha256,
                 "--fixture-profile",
                 fixtureProfile,
                 "--output",
