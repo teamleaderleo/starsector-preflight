@@ -52,6 +52,9 @@ final class InstalledJorbisEquivalenceCommand {
                 ? Files.createTempFile("preflight-installed-jorbis-", ".json")
                 : options.output().toAbsolutePath().normalize();
         boolean temporaryOutput = options.output() == null;
+        if (output.equals(jogg) || output.equals(jorbis) || output.equals(application)) {
+            throw new IllegalArgumentException("Equivalence report path collides with an input JAR: " + output);
+        }
         if (output.getParent() != null) {
             Files.createDirectories(output.getParent());
         }
@@ -134,13 +137,19 @@ final class InstalledJorbisEquivalenceCommand {
     private static void copyBounded(InputStream input, ByteArrayOutputStream output) {
         byte[] buffer = new byte[8_192];
         try (input) {
-            while (output.size() < MAX_CHILD_OUTPUT_BYTES) {
-                int count = input.read(buffer, 0, Math.min(buffer.length, MAX_CHILD_OUTPUT_BYTES - output.size()));
+            while (true) {
+                int count = input.read(buffer);
                 if (count < 0) return;
-                if (count > 0) output.write(buffer, 0, count);
+                int remaining = MAX_CHILD_OUTPUT_BYTES - output.size();
+                if (remaining > 0) {
+                    output.write(buffer, 0, Math.min(count, remaining));
+                }
             }
         } catch (IOException error) {
-            output.writeBytes(("\n[child-output-error] " + error.getMessage()).getBytes(StandardCharsets.UTF_8));
+            if (output.size() < MAX_CHILD_OUTPUT_BYTES) {
+                byte[] detail = ("\n[child-output-error] " + error.getMessage()).getBytes(StandardCharsets.UTF_8);
+                output.write(detail, 0, Math.min(detail.length, MAX_CHILD_OUTPUT_BYTES - output.size()));
+            }
         }
     }
 
