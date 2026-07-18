@@ -34,7 +34,7 @@
         <directory>src/main/resources</directory>
       </resource>
       <resource>
-        <directory>${project.parent.basedir}/preflight-core/src/test/resources</directory>
+        <directory>${maven.multiModuleProjectDirectory}/preflight-core/src/test/resources</directory>
         <includes>
           <include>audio/ogg-v1/**</include>
         </includes>
