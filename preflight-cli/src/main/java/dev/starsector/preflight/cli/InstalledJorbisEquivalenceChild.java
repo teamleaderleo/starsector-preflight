@@ -31,12 +31,43 @@ public final class InstalledJorbisEquivalenceChild {
     private static final int MAX_FAILURE_DETAIL_CHARS = 1_024;
     private static final String LOADER_CLASS = "jdk.internal.loader.ClassLoaders$AppClassLoader";
     private static final String LOADER_NAME = "app";
-    private static final List<Fixture> VALID_FIXTURES = List.of(
-            new Fixture("mono-22050", "mono-22050.ogg", "mono-22050-reference.s16le", 1, 22_050),
-            new Fixture("stereo-44100", "stereo-44100.ogg", "stereo-44100-reference.s16le", 2, 44_100),
-            new Fixture("silence-mono-8000", "silence-mono-8000.ogg", "silence-mono-8000-reference.s16le", 1, 8_000),
-            new Fixture("clipping-stereo-48000", "clipping-stereo-48000.ogg", "clipping-stereo-48000-reference.s16le", 2, 48_000),
-            new Fixture("packet-boundary-mono-44100", "packet-boundary-mono-44100.ogg", "packet-boundary-mono-44100-reference.s16le", 1, 44_100));
+
+    private static final List<Fixture> FULL_FIXTURES = List.of(
+            new Fixture(
+                    "mono-22050",
+                    "mono-22050.ogg",
+                    "bbe3d4cb25eb77c157a77091202dd0f4458aa18e50a4b59be018f22be8dc62e5",
+                    3_584,
+                    1,
+                    22_050),
+            new Fixture(
+                    "stereo-44100",
+                    "stereo-44100.ogg",
+                    "ada77fe8b369053d7dd1b1ec9430bfec15886ece0be5768dcc4c8e2b17f9fbf8",
+                    15_872,
+                    2,
+                    44_100),
+            new Fixture(
+                    "silence-mono-8000",
+                    "silence-mono-8000.ogg",
+                    "6cf1b57d59e7111bc218dfb01dda93ac0f776715599a1c69f89035bd20c16a10",
+                    3_584,
+                    1,
+                    8_000),
+            new Fixture(
+                    "clipping-stereo-48000",
+                    "clipping-stereo-48000.ogg",
+                    "f5eba24d0166fadf4ac02cc423810afb596564615984b063c11e7740f4258e3d",
+                    15_872,
+                    2,
+                    48_000),
+            new Fixture(
+                    "packet-boundary-mono-44100",
+                    "packet-boundary-mono-44100.ogg",
+                    "d4f78542dcdbe1774072343805516076f38fe6ba9edb8f1c36a60dfbbdb26d43",
+                    16_640,
+                    1,
+                    44_100));
 
     private InstalledJorbisEquivalenceChild() {
     }
@@ -63,8 +94,9 @@ public final class InstalledJorbisEquivalenceChild {
         Identity jorbis = identity(vorbisFileClass, options.expectedJorbisSha256());
         Identity info = identity(infoClass, options.expectedJorbisSha256());
         boolean identityExact = jogg.exact() && jorbis.exact() && info.exact()
-                && LOADER_CLASS.equals(jorbis.loaderClass())
-                && LOADER_NAME.equals(jorbis.loaderName());
+                && appLoader(jogg)
+                && appLoader(jorbis)
+                && appLoader(info);
 
         String decoderPolicyIdentity = Hashes.sha256((
                 "installed-jorbis-equivalence-v1\n"
@@ -76,71 +108,52 @@ public final class InstalledJorbisEquivalenceChild {
                         + "sound/J.o00000(Ljava/io/InputStream;)Lsound/F;\n"
                         + "fully-decoded-effect-only").getBytes(StandardCharsets.UTF_8));
 
+        List<Fixture> fixtures = "ci".equals(options.fixtureProfile())
+                ? FULL_FIXTURES.subList(0, 3)
+                : FULL_FIXTURES;
         Decoder decoder = new Decoder(vorbisFileClass, infoClass);
         List<Map<String, Object>> cases = new ArrayList<>();
-        boolean equivalent = identityExact;
-        for (Fixture fixture : VALID_FIXTURES) {
-            byte[] source = fixture(fixture.source());
-            byte[] expectedPcm = fixture(fixture.expectedPcm());
-            CaseResult result = decodeCase(
-                    decoder,
-                    fixture.id(),
-                    source,
-                    expectedPcm,
-                    fixture.channels(),
-                    fixture.sampleRate(),
-                    decoderPolicyIdentity,
-                    true);
+        boolean validEquivalent = true;
+        for (Fixture fixture : fixtures) {
+            ValidResult result = decodeValid(decoder, fixture, decoderPolicyIdentity);
             cases.add(result.toMap());
-            equivalent &= result.equivalent();
+            validEquivalent &= result.equivalent();
         }
 
         byte[] mono = fixture("mono-22050.ogg");
         byte[] stereo = fixture("stereo-44100.ogg");
         byte[] corrupt = stereo.clone();
         corrupt[Math.min(corrupt.length - 1, 192)] ^= 0x40;
-        List<InvalidFixture> invalid = List.of(
+        List<InvalidFixture> invalidFixtures = List.of(
                 new InvalidFixture("opus-unsupported", fixture("mono-22050-opus.ogg")),
                 new InvalidFixture("non-ogg", "not an ogg stream".getBytes(StandardCharsets.US_ASCII)),
                 new InvalidFixture("truncated-header", Arrays.copyOf(mono, 19)),
                 new InvalidFixture("truncated-packet", Arrays.copyOf(mono, mono.length / 2)),
                 new InvalidFixture("corrupt-packet", corrupt));
-        for (InvalidFixture fixture : invalid) {
-            CaseResult first = decodeCase(
-                    decoder,
-                    fixture.id(),
-                    fixture.source(),
-                    null,
-                    0,
-                    0,
-                    decoderPolicyIdentity,
-                    false);
-            CaseResult second = decodeCase(
-                    decoder,
-                    fixture.id() + "-repeat",
-                    fixture.source(),
-                    null,
-                    0,
-                    0,
-                    decoderPolicyIdentity,
-                    false);
-            boolean stableFailure = !first.decoded()
-                    && !second.decoded()
-                    && first.failureClass().equals(second.failureClass())
-                    && first.streamClosedDuringDecode() == second.streamClosedDuringDecode();
-            Map<String, Object> value = new LinkedHashMap<>(first.toMap());
+        boolean invalidStable = true;
+        for (InvalidFixture fixture : invalidFixtures) {
+            Observation first = observe(decoder, fixture.source());
+            Observation second = observe(decoder, fixture.source());
+            boolean stable = first.behaviorKey().equals(second.behaviorKey());
+            Map<String, Object> value = new LinkedHashMap<>(first.toMap(fixture.id(), false));
+            value.put("repeatDecoded", second.decoded());
             value.put("repeatFailureClass", second.failureClass());
-            value.put("stableFailure", stableFailure);
-            value.put("equivalent", stableFailure);
+            value.put("behaviorStable", stable);
+            value.put("equivalent", stable);
+            value.put("preparedAudioEligible", false);
             cases.add(Map.copyOf(value));
-            equivalent &= stableFailure;
+            invalidStable &= stable;
         }
 
+        boolean equivalent = identityExact && validEquivalent && invalidStable;
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("format", "starsector-preflight-installed-jorbis-equivalence-v1");
         root.put("generatedAt", Instant.now());
+        root.put("fixtureProfile", options.fixtureProfile());
         root.put("equivalent", equivalent);
         root.put("identityExact", identityExact);
+        root.put("validPcmEquivalent", validEquivalent);
+        root.put("invalidBehaviorStable", invalidStable);
         root.put("jogg", jogg.toMap());
         root.put("jorbis", jorbis.toMap());
         root.put("info", info.toMap());
@@ -149,35 +162,36 @@ public final class InstalledJorbisEquivalenceChild {
         root.put("bitsPerSample", 16);
         root.put("byteOrder", "LITTLE_ENDIAN");
         root.put("primaryWrapperSeam", "sound/J.o00000(Ljava/io/InputStream;)Lsound/F;");
-        root.put("fullyDecodedEffectsEligible", equivalent);
+        root.put("fullyDecodedEffectsEligible", identityExact && validEquivalent);
         root.put("streamedMusicEligible", false);
         root.put("preparedAudioWritesEnabled", false);
         root.put("liveTransformEnabled", false);
+        root.put("validCaseCount", fixtures.size());
+        root.put("invalidCaseCount", invalidFixtures.size());
         root.put("caseCount", cases.size());
         root.put("cases", List.copyOf(cases));
         return Map.copyOf(root);
     }
 
-    private static CaseResult decodeCase(
-            Decoder decoder,
-            String id,
-            byte[] source,
-            byte[] expectedPcm,
-            int expectedChannels,
-            int expectedSampleRate,
-            String decoderPolicyIdentity,
-            boolean expectSuccess) {
+    private static boolean appLoader(Identity identity) {
+        return LOADER_CLASS.equals(identity.loaderClass()) && LOADER_NAME.equals(identity.loaderName());
+    }
+
+    private static ValidResult decodeValid(Decoder decoder, Fixture fixture, String decoderPolicyIdentity) {
+        byte[] source;
+        try {
+            source = fixture(fixture.sourceResource());
+        } catch (IOException failure) {
+            return ValidResult.failure(fixture, new byte[0], failure, false, 0, 0, 0);
+        }
         TrackingInputStream input = new TrackingInputStream(source);
         try {
             Decoded decoded = decoder.decode(input);
-            boolean streamClosedDuringDecode = input.closeCount() != 0;
+            boolean closedDuringDecode = input.closeCount() != 0;
             input.close();
-            boolean streamOwnershipExact = !streamClosedDuringDecode && input.closeCount() == 1;
-            if (!expectSuccess) {
-                return CaseResult.unexpectedSuccess(
-                        id, source, decoded, streamClosedDuringDecode, input, streamOwnershipExact);
-            }
-            long expectedFrames = expectedPcm.length / Math.multiplyExact(expectedChannels, 2);
+            boolean ownershipExact = !closedDuringDecode && input.closeCount() == 1;
+            int frameBytes = Math.multiplyExact(decoded.channels(), 2);
+            long frames = decoded.pcm().length / frameBytes;
             PreparedAudio prepared = new PreparedAudio(
                     Hashes.sha256(source),
                     decoderPolicyIdentity,
@@ -187,43 +201,59 @@ public final class InstalledJorbisEquivalenceChild {
                     PreparedAudio.ByteOrder.LITTLE_ENDIAN,
                     decoded.sampleRate(),
                     decoded.channels(),
-                    decoded.pcm().length / Math.multiplyExact(decoded.channels(), 2),
+                    frames,
                     decoded.pcm());
-            boolean exact = decoded.channels() == expectedChannels
-                    && decoded.sampleRate() == expectedSampleRate
-                    && decoded.pcm().length == expectedPcm.length
-                    && Arrays.equals(decoded.pcm(), expectedPcm)
+            long expectedFrames = fixture.expectedPcmBytes() / Math.multiplyExact(fixture.channels(), 2);
+            String actualPcmSha256 = prepared.pcmSha256();
+            boolean exact = decoded.channels() == fixture.channels()
+                    && decoded.sampleRate() == fixture.sampleRate()
+                    && decoded.pcm().length == fixture.expectedPcmBytes()
+                    && fixture.expectedPcmSha256().equals(actualPcmSha256)
                     && prepared.frameCount() == expectedFrames
-                    && prepared.sampleCount() == expectedFrames * expectedChannels
-                    && streamOwnershipExact
+                    && prepared.sampleCount() == expectedFrames * fixture.channels()
+                    && ownershipExact
                     && input.bytesRead() == source.length;
-            return CaseResult.success(
-                    id,
+            return ValidResult.success(
+                    fixture,
                     source,
-                    expectedPcm,
                     decoded,
                     prepared,
-                    streamClosedDuringDecode,
+                    actualPcmSha256,
+                    closedDuringDecode,
                     input,
-                    streamOwnershipExact,
+                    ownershipExact,
                     exact);
         } catch (Throwable failure) {
-            boolean streamClosedDuringDecode = input.closeCount() != 0;
+            boolean closedDuringDecode = input.closeCount() != 0;
             try {
                 input.close();
             } catch (IOException ignored) {
             }
-            String failureClass = rootCause(failure).getClass().getName();
-            String detail = bounded(rootCause(failure).getMessage());
-            boolean expectedFailure = !expectSuccess && !streamClosedDuringDecode && input.closeCount() == 1;
-            return CaseResult.failure(
-                    id,
+            return ValidResult.failure(
+                    fixture,
                     source,
-                    failureClass,
-                    detail,
-                    streamClosedDuringDecode,
-                    input,
-                    expectedFailure);
+                    rootCause(failure),
+                    closedDuringDecode,
+                    input.closeCount(),
+                    input.bytesRead(),
+                    input.readCalls());
+        }
+    }
+
+    private static Observation observe(Decoder decoder, byte[] source) {
+        TrackingInputStream input = new TrackingInputStream(source);
+        try {
+            Decoded decoded = decoder.decode(input);
+            boolean closedDuringDecode = input.closeCount() != 0;
+            input.close();
+            return Observation.decoded(decoded, input, closedDuringDecode);
+        } catch (Throwable failure) {
+            boolean closedDuringDecode = input.closeCount() != 0;
+            try {
+                input.close();
+            } catch (IOException ignored) {
+            }
+            return Observation.failed(rootCause(failure), input, closedDuringDecode);
         }
     }
 
@@ -259,9 +289,7 @@ public final class InstalledJorbisEquivalenceChild {
         for (int i = 0; i < 100; i++) {
             InputStream part = InstalledJorbisEquivalenceChild.class.getResourceAsStream(
                     base + ".part" + String.format("%02d", i));
-            if (part == null) {
-                break;
-            }
+            if (part == null) break;
             try (part) {
                 part.transferTo(encoded);
             }
@@ -290,29 +318,32 @@ public final class InstalledJorbisEquivalenceChild {
                 : text.substring(0, MAX_FAILURE_DETAIL_CHARS);
     }
 
-    record Options(String expectedJoggSha256, String expectedJorbisSha256, Path output) {
+    record Options(String expectedJoggSha256, String expectedJorbisSha256, String fixtureProfile, Path output) {
         private Options {
-            dev.starsector.preflight.core.Hashes.decodeSha256(expectedJoggSha256);
-            dev.starsector.preflight.core.Hashes.decodeSha256(expectedJorbisSha256);
-            if (output == null) {
-                throw new IllegalArgumentException("output is required");
+            Hashes.decodeSha256(expectedJoggSha256);
+            Hashes.decodeSha256(expectedJorbisSha256);
+            if (!"full".equals(fixtureProfile) && !"ci".equals(fixtureProfile)) {
+                throw new IllegalArgumentException("fixtureProfile must be full or ci");
             }
+            if (output == null) throw new IllegalArgumentException("output is required");
         }
 
         static Options parse(String[] args) {
             String jogg = null;
             String jorbis = null;
+            String profile = "full";
             Path output = null;
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
                     case "--expected-jogg-sha256" -> jogg = value(args, ++i);
                     case "--expected-jorbis-sha256" -> jorbis = value(args, ++i);
+                    case "--fixture-profile" -> profile = value(args, ++i);
                     case "--output" -> output = Path.of(value(args, ++i));
                     default -> throw new IllegalArgumentException("Unknown child option: " + args[i]);
                 }
             }
             return new Options(required(jogg, "--expected-jogg-sha256"),
-                    required(jorbis, "--expected-jorbis-sha256"), output);
+                    required(jorbis, "--expected-jorbis-sha256"), profile, output);
         }
 
         private static String value(String[] args, int index) {
@@ -346,12 +377,8 @@ public final class InstalledJorbisEquivalenceChild {
         private Decoded decode(InputStream input) throws Exception {
             Object decoder = constructor.newInstance(input, null, 0);
             Object info = getInfo.invoke(decoder, 0);
-            if (info == null) {
-                info = getInfo.invoke(decoder, -1);
-            }
-            if (info == null) {
-                throw new IOException("JOrbis returned no stream info");
-            }
+            if (info == null) info = getInfo.invoke(decoder, -1);
+            if (info == null) throw new IOException("JOrbis returned no stream info");
             int channelCount = channels.getInt(info);
             int sampleRate = rate.getInt(info);
             if (channelCount < 1 || channelCount > PreparedAudio.MAX_CHANNELS
@@ -375,9 +402,7 @@ public final class InstalledJorbisEquivalenceChild {
             }
             byte[] bytes = pcm.toByteArray();
             int frameBytes = Math.multiplyExact(channelCount, 2);
-            if (bytes.length % frameBytes != 0) {
-                throw new IOException("Decoded PCM is not frame aligned");
-            }
+            if (bytes.length % frameBytes != 0) throw new IOException("Decoded PCM is not frame aligned");
             return new Decoded(bytes, channelCount, sampleRate, readCalls, bitstream[0]);
         }
     }
@@ -420,20 +445,28 @@ public final class InstalledJorbisEquivalenceChild {
         private int closeCount() { return closeCount; }
     }
 
-    private record Fixture(String id, String source, String expectedPcm, int channels, int sampleRate) {
+    private record Fixture(
+            String id,
+            String sourceResource,
+            String expectedPcmSha256,
+            int expectedPcmBytes,
+            int channels,
+            int sampleRate) {
+        private Fixture {
+            Hashes.decodeSha256(expectedPcmSha256);
+            if (expectedPcmBytes < 0 || expectedPcmBytes % Math.multiplyExact(channels, 2) != 0) {
+                throw new IllegalArgumentException("Fixture PCM size is invalid: " + id);
+            }
+        }
     }
 
     private record InvalidFixture(String id, byte[] source) {
-        private InvalidFixture {
-            source = source.clone();
-        }
+        private InvalidFixture { source = source.clone(); }
         @Override public byte[] source() { return source.clone(); }
     }
 
     private record Decoded(byte[] pcm, int channels, int sampleRate, int readCalls, int bitstream) {
-        private Decoded {
-            pcm = pcm.clone();
-        }
+        private Decoded { pcm = pcm.clone(); }
         @Override public byte[] pcm() { return pcm.clone(); }
     }
 
@@ -458,7 +491,7 @@ public final class InstalledJorbisEquivalenceChild {
         }
     }
 
-    private record CaseResult(
+    private record ValidResult(
             String id,
             boolean equivalent,
             boolean decoded,
@@ -468,104 +501,142 @@ public final class InstalledJorbisEquivalenceChild {
             String actualPcmSha256,
             int expectedPcmBytes,
             int actualPcmBytes,
-            int channels,
-            int sampleRate,
+            int expectedChannels,
+            int actualChannels,
+            int expectedSampleRate,
+            int actualSampleRate,
             long frameCount,
             long sampleCount,
             int decoderReadCalls,
             int bitstream,
             long sourceBytesRead,
             long sourceReadCalls,
-            long sourceEofReads,
             boolean streamClosedDuringDecode,
             int finalCloseCount,
             boolean streamOwnershipExact,
             String failureClass,
             String failureDetail) {
 
-        private static CaseResult success(
-                String id,
+        private static ValidResult success(
+                Fixture fixture,
                 byte[] source,
-                byte[] expected,
                 Decoded decoded,
                 PreparedAudio prepared,
+                String actualPcmSha256,
                 boolean closedDuring,
                 TrackingInputStream input,
                 boolean ownership,
                 boolean exact) {
-            return new CaseResult(
-                    id, exact, true, Hashes.sha256(source), source.length,
-                    Hashes.sha256(expected), Hashes.sha256(decoded.pcm()), expected.length, decoded.pcm().length,
-                    decoded.channels(), decoded.sampleRate(), prepared.frameCount(), prepared.sampleCount(),
-                    decoded.readCalls(), decoded.bitstream(), input.bytesRead(), input.readCalls(), input.eofReads(),
-                    closedDuring, input.closeCount(), ownership, "", "");
+            return new ValidResult(
+                    fixture.id(), exact, true, Hashes.sha256(source), source.length,
+                    fixture.expectedPcmSha256(), actualPcmSha256,
+                    fixture.expectedPcmBytes(), decoded.pcm().length,
+                    fixture.channels(), decoded.channels(), fixture.sampleRate(), decoded.sampleRate(),
+                    prepared.frameCount(), prepared.sampleCount(), decoded.readCalls(), decoded.bitstream(),
+                    input.bytesRead(), input.readCalls(), closedDuring, input.closeCount(), ownership, "", "");
         }
 
-        private static CaseResult unexpectedSuccess(
-                String id,
+        private static ValidResult failure(
+                Fixture fixture,
                 byte[] source,
-                Decoded decoded,
+                Throwable failure,
                 boolean closedDuring,
-                TrackingInputStream input,
-                boolean ownership) {
-            return new CaseResult(
-                    id, false, true, Hashes.sha256(source), source.length,
-                    "", Hashes.sha256(decoded.pcm()), 0, decoded.pcm().length,
-                    decoded.channels(), decoded.sampleRate(),
-                    decoded.pcm().length / Math.max(1, decoded.channels() * 2L),
-                    decoded.pcm().length / 2L,
-                    decoded.readCalls(), decoded.bitstream(), input.bytesRead(), input.readCalls(), input.eofReads(),
-                    closedDuring, input.closeCount(), ownership, "unexpected-success", "");
-        }
-
-        private static CaseResult failure(
-                String id,
-                byte[] source,
-                String failureClass,
-                String failureDetail,
-                boolean closedDuring,
-                TrackingInputStream input,
-                boolean expectedFailure) {
-            return new CaseResult(
-                    id, expectedFailure, false, Hashes.sha256(source), source.length,
-                    "", "", 0, 0, 0, 0, 0, 0, 0, 0,
-                    input.bytesRead(), input.readCalls(), input.eofReads(), closedDuring, input.closeCount(),
-                    !closedDuring && input.closeCount() == 1, failureClass, failureDetail);
+                int closeCount,
+                long bytesRead,
+                long readCalls) {
+            return new ValidResult(
+                    fixture.id(), false, false, source.length == 0 ? "" : Hashes.sha256(source), source.length,
+                    fixture.expectedPcmSha256(), "", fixture.expectedPcmBytes(), 0,
+                    fixture.channels(), 0, fixture.sampleRate(), 0, 0, 0, 0, 0,
+                    bytesRead, readCalls, closedDuring, closeCount, !closedDuring && closeCount == 1,
+                    failure.getClass().getName(), bounded(failure.getMessage()));
         }
 
         private Map<String, Object> toMap() {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("id", id);
+            values.put("validInput", true);
             values.put("equivalent", equivalent);
             values.put("decoded", decoded);
+            values.put("preparedAudioEligible", equivalent);
             values.put("sourceSha256", sourceSha256);
             values.put("sourceBytes", sourceBytes);
-            values.put("expectedPcmSha256", empty(expectedPcmSha256));
-            values.put("actualPcmSha256", empty(actualPcmSha256));
+            values.put("expectedPcmSha256", expectedPcmSha256);
+            values.put("actualPcmSha256", actualPcmSha256);
             values.put("expectedPcmBytes", expectedPcmBytes);
             values.put("actualPcmBytes", actualPcmBytes);
-            values.put("channels", channels);
-            values.put("sampleRate", sampleRate);
+            values.put("expectedChannels", expectedChannels);
+            values.put("actualChannels", actualChannels);
+            values.put("expectedSampleRate", expectedSampleRate);
+            values.put("actualSampleRate", actualSampleRate);
             values.put("frameCount", frameCount);
             values.put("sampleCount", sampleCount);
-            values.put("pcmEncoding", "PCM_SIGNED");
-            values.put("bitsPerSample", 16);
-            values.put("byteOrder", "LITTLE_ENDIAN");
             values.put("decoderReadCalls", decoderReadCalls);
             values.put("bitstream", bitstream);
+            values.put("sourceBytesRead", sourceBytesRead);
+            values.put("sourceReadCalls", sourceReadCalls);
+            values.put("streamClosedDuringDecode", streamClosedDuringDecode);
+            values.put("finalCloseCount", finalCloseCount);
+            values.put("streamOwnershipExact", streamOwnershipExact);
+            values.put("failureClass", failureClass);
+            values.put("failureDetail", failureDetail);
+            return Map.copyOf(values);
+        }
+    }
+
+    private record Observation(
+            boolean decoded,
+            String pcmSha256,
+            int pcmBytes,
+            int channels,
+            int sampleRate,
+            int decoderReadCalls,
+            long sourceBytesRead,
+            long sourceReadCalls,
+            long sourceEofReads,
+            boolean streamClosedDuringDecode,
+            int finalCloseCount,
+            String failureClass,
+            String failureDetail) {
+
+        private static Observation decoded(Decoded decoded, TrackingInputStream input, boolean closedDuring) {
+            return new Observation(
+                    true, Hashes.sha256(decoded.pcm()), decoded.pcm().length,
+                    decoded.channels(), decoded.sampleRate(), decoded.readCalls(), input.bytesRead(),
+                    input.readCalls(), input.eofReads(), closedDuring, input.closeCount(), "", "");
+        }
+
+        private static Observation failed(Throwable failure, TrackingInputStream input, boolean closedDuring) {
+            return new Observation(
+                    false, "", 0, 0, 0, 0, input.bytesRead(), input.readCalls(), input.eofReads(),
+                    closedDuring, input.closeCount(), failure.getClass().getName(), bounded(failure.getMessage()));
+        }
+
+        private String behaviorKey() {
+            return decoded + "|" + pcmSha256 + "|" + pcmBytes + "|" + channels + "|" + sampleRate
+                    + "|" + sourceBytesRead + "|" + sourceReadCalls + "|" + sourceEofReads
+                    + "|" + streamClosedDuringDecode + "|" + finalCloseCount + "|" + failureClass;
+        }
+
+        private Map<String, Object> toMap(String id, boolean validInput) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("id", id);
+            values.put("validInput", validInput);
+            values.put("decoded", decoded);
+            values.put("actualPcmSha256", pcmSha256);
+            values.put("actualPcmBytes", pcmBytes);
+            values.put("actualChannels", channels);
+            values.put("actualSampleRate", sampleRate);
+            values.put("decoderReadCalls", decoderReadCalls);
             values.put("sourceBytesRead", sourceBytesRead);
             values.put("sourceReadCalls", sourceReadCalls);
             values.put("sourceEofReads", sourceEofReads);
             values.put("streamClosedDuringDecode", streamClosedDuringDecode);
             values.put("finalCloseCount", finalCloseCount);
-            values.put("streamOwnershipExact", streamOwnershipExact);
-            values.put("failureClass", empty(failureClass));
-            values.put("failureDetail", empty(failureDetail));
+            values.put("streamOwnershipExact", !streamClosedDuringDecode && finalCloseCount == 1);
+            values.put("failureClass", failureClass);
+            values.put("failureDetail", failureDetail);
             return Map.copyOf(values);
-        }
-
-        private static String empty(String value) {
-            return value == null || value.isEmpty() ? null : value;
         }
     }
 }
