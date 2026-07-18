@@ -72,8 +72,11 @@ public final class PreflightCli {
         if (args.length > 1 && "jorbis-equivalence".equals(args[1])) {
             return InstalledJorbisEquivalenceCommand.execute(args, 2);
         }
+        if (args.length > 1 && "sound-wrapper-observe".equals(args[1])) {
+            return SoundWrapperObservationCommand.execute(args, 2);
+        }
         throw new IllegalArgumentException(
-                "Expected: audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
+                "Expected: audio <jorbis-equivalence|sound-wrapper-observe> ...");
     }
 
     private static int requirePathCommand(String[] args, String name, PathCommand command) throws Exception {
@@ -148,6 +151,7 @@ public final class PreflightCli {
         System.err.println("  preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]");
         System.err.println("  preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]");
         System.err.println("  preflight audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
+        System.err.println("  preflight audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
         System.err.println("  preflight classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]");
         System.err.println("  preflight classpath index build [--game <path>] [--launcher <path>] [--cache-dir <path>]");
         System.err.println("  preflight classpath index inspect <profile.spfc>");

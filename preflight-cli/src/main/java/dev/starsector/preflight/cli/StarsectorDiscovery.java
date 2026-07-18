@@ -45,10 +45,12 @@ final class StarsectorDiscovery {
 
         LinkedHashSet<Path> roots = new LinkedHashSet<>();
         addRoot(roots, explicitGame);
-        addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_HOME"));
-        addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_DIR"));
-        addRoot(roots, currentDirectory);
-        addStandardRoots(roots, platform, home, environment);
+        if (explicitGame == null) {
+            addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_HOME"));
+            addRoot(roots, pathFromEnvironment(environment, "STARSECTOR_DIR"));
+            addRoot(roots, currentDirectory);
+            addStandardRoots(roots, platform, home, environment);
+        }
 
         for (Path root : roots) {
             inspectRoot(platform, root, targets, diagnostics);

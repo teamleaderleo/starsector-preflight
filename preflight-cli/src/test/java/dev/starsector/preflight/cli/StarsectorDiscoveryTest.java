@@ -35,6 +35,30 @@ class StarsectorDiscoveryTest {
     }
 
     @Test
+    void explicitGameDoesNotMixWithEnvironmentDiscovery() throws Exception {
+        Path explicitGame = temporaryDirectory.resolve("explicit-game");
+        Path environmentGame = temporaryDirectory.resolve("environment-game");
+        Files.createDirectories(explicitGame);
+        Files.createDirectories(environmentGame);
+        Path explicitLauncher = Files.writeString(explicitGame.resolve("starsector.sh"), "#!/bin/sh\n");
+        Path competingLauncher = Files.writeString(environmentGame.resolve("fr.sh"), "#!/bin/sh\n");
+        explicitLauncher.toFile().setExecutable(true);
+        competingLauncher.toFile().setExecutable(true);
+
+        DiscoveryResult result = StarsectorDiscovery.discover(
+                Platform.LINUX,
+                temporaryDirectory,
+                temporaryDirectory.resolve("elsewhere"),
+                Map.of("STARSECTOR_HOME", environmentGame.toString()),
+                explicitGame,
+                null);
+
+        assertNotNull(result.selected());
+        assertEquals(explicitLauncher.toAbsolutePath().normalize(), result.selected().launcher());
+        assertEquals(1, result.candidates().size());
+    }
+
+    @Test
     void prefersFastRenderingLauncher() throws Exception {
         Path game = temporaryDirectory.resolve("game");
         Files.createDirectories(game);
