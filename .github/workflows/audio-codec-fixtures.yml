@@ -90,7 +90,7 @@ jobs:
           if [ "$status" -eq 0 ]; then
             mvn --batch-mode --no-transfer-progress \
               -pl preflight-core,preflight-cli -am \
-              -Dtest=OggVorbisGoldenFixtureTest,InstalledJorbisEquivalenceCommandTest,InstalledJorbisFixtureIdentityTest,SoundWrapperObservationCommandTest,SoundWrapperObservationChildTest,StarsectorDiscoveryTest \
+              -Dtest=OggVorbisGoldenFixtureTest,InstalledJorbisEquivalenceCommandTest,InstalledJorbisFixtureIdentityTest,SoundWrapperObservationCommandTest,SoundWrapperObservationChildTest,SoundWrapperObservationRuntimeLauncherTest,StarsectorDiscoveryTest \
               -Dit.test=InstalledJorbisEquivalenceCommandIT,SoundWrapperObservationCommandIT \
               -Dsurefire.failIfNoSpecifiedTests=false \
               verify >> "$log" 2>&1
