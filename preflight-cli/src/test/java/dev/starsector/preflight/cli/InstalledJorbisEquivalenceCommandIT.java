@@ -21,24 +21,19 @@ class InstalledJorbisEquivalenceCommandIT {
 
     @Test
     void packagedCommandLoadsExactSyntheticDecoderJarsAndProvesCiFixtures() throws Exception {
-        Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
-        Path jogg = temporaryDirectory.resolve("jogg-0.0.7.jar");
-        Path jorbis = temporaryDirectory.resolve("jorbis-0.0.15.jar");
-        writeJar(jogg, testClasses, List.of("com/jcraft/jogg"));
-        writeJar(jorbis, testClasses, List.of("com/jcraft/jorbis"));
-
+        DecoderJars jars = decoderJars();
         Path report = temporaryDirectory.resolve("installed-jorbis-equivalence.json");
         InstalledJorbisEquivalenceCommand.Options options =
-                new InstalledJorbisEquivalenceCommand.Options(jogg, jorbis, report);
+                new InstalledJorbisEquivalenceCommand.Options(jars.jogg(), jars.jorbis(), report);
         int exit = InstalledJorbisEquivalenceCommand.execute(
                 options,
-                Hashes.sha256(jogg),
-                Hashes.sha256(jorbis),
+                Hashes.sha256(jars.jogg()),
+                Hashes.sha256(jars.jorbis()),
                 Path.of("target", "preflight.jar"),
                 "ci");
 
-        assertEquals(0, exit);
         String json = Files.readString(report);
+        assertEquals(0, exit, json);
         assertTrue(json.contains("\"format\":\"starsector-preflight-installed-jorbis-equivalence-v1\""), json);
         assertTrue(json.contains("\"fixtureProfile\":\"ci\""), json);
         assertTrue(json.contains("\"identityExact\":true"), json);
@@ -56,23 +51,46 @@ class InstalledJorbisEquivalenceCommandIT {
 
     @Test
     void rejectsAnyDecoderArchiveIdentityChangeBeforeLaunchingChild() throws Exception {
-        Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
-        Path jogg = temporaryDirectory.resolve("jogg.jar");
-        Path jorbis = temporaryDirectory.resolve("jorbis.jar");
-        writeJar(jogg, testClasses, List.of("com/jcraft/jogg"));
-        writeJar(jorbis, testClasses, List.of("com/jcraft/jorbis"));
-
-        InstalledJorbisEquivalenceCommand.Options options =
-                new InstalledJorbisEquivalenceCommand.Options(jogg, jorbis, temporaryDirectory.resolve("report.json"));
+        DecoderJars jars = decoderJars();
+        InstalledJorbisEquivalenceCommand.Options options = new InstalledJorbisEquivalenceCommand.Options(
+                jars.jogg(), jars.jorbis(), temporaryDirectory.resolve("report.json"));
         IOException error = assertThrows(
                 IOException.class,
                 () -> InstalledJorbisEquivalenceCommand.execute(
                         options,
                         "00".repeat(32),
-                        Hashes.sha256(jorbis),
+                        Hashes.sha256(jars.jorbis()),
                         Path.of("target", "preflight.jar"),
                         "ci"));
         assertTrue(error.getMessage().contains("Jogg JAR SHA-256 differs"), error.getMessage());
+    }
+
+    @Test
+    void refusesToDeleteAnInputJarChosenAsTheReportPath() throws Exception {
+        DecoderJars jars = decoderJars();
+        String joggHash = Hashes.sha256(jars.jogg());
+        InstalledJorbisEquivalenceCommand.Options options =
+                new InstalledJorbisEquivalenceCommand.Options(jars.jogg(), jars.jorbis(), jars.jogg());
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> InstalledJorbisEquivalenceCommand.execute(
+                        options,
+                        joggHash,
+                        Hashes.sha256(jars.jorbis()),
+                        Path.of("target", "preflight.jar"),
+                        "ci"));
+        assertTrue(error.getMessage().contains("collides with an input JAR"), error.getMessage());
+        assertEquals(joggHash, Hashes.sha256(jars.jogg()));
+    }
+
+    private DecoderJars decoderJars() throws IOException {
+        Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
+        Path jogg = temporaryDirectory.resolve("jogg-" + System.nanoTime() + ".jar");
+        Path jorbis = temporaryDirectory.resolve("jorbis-" + System.nanoTime() + ".jar");
+        writeJar(jogg, testClasses, List.of("com/jcraft/jogg"));
+        writeJar(jorbis, testClasses, List.of("com/jcraft/jorbis"));
+        return new DecoderJars(jogg, jorbis);
     }
 
     private static void writeJar(Path destination, Path classes, List<String> packageRoots) throws IOException {
@@ -95,5 +113,8 @@ class InstalledJorbisEquivalenceCommandIT {
                 }
             }
         }
+    }
+
+    private record DecoderJars(Path jogg, Path jorbis) {
     }
 }
