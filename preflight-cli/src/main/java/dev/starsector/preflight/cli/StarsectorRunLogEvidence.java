@@ -1,0 +1,266 @@
+package dev.starsector.preflight.cli;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+/** Bounded, read-only lifecycle evidence from log bytes written during one run. */
+final class StarsectorRunLogEvidence {
+    static final int FATAL_LIFECYCLE_EXIT = 6;
+    private static final long MAX_BYTES = 16L * 1024L * 1024L;
+    private static final int MAX_FILES = 8;
+    private static final int MAX_MATCHES = 8;
+    private static final int MAX_MESSAGE_CHARACTERS = 512;
+    private static final int MAX_STACK_LINES = 32;
+    private static final Pattern ROTATED_LOG = Pattern.compile("starsector\\.log(?:\\.\\d+)?", Pattern.CASE_INSENSITIVE);
+    private static final List<FatalMarker> FATAL_MARKERS = List.of(
+            new FatalMarker(
+                    "combat-main-top-level",
+                    " ERROR com.fs.starfarer.combat.CombatMain  - ",
+                    "at com.fs.starfarer.combat.CombatMain.main("));
+
+    private StarsectorRunLogEvidence() {
+    }
+
+    static Snapshot snapshot(Path installRoot) {
+        Path directory = installRoot.toAbsolutePath().normalize().resolve("logs");
+        List<String> problems = new ArrayList<>();
+        List<FileStamp> files = stamps(directory, problems);
+        return new Snapshot(directory, Instant.now(), files, List.copyOf(problems));
+    }
+
+    static Evidence inspect(Snapshot before) {
+        List<String> problems = new ArrayList<>(before.problems());
+        List<FileStamp> after = stamps(before.logDirectory(), problems);
+        List<FileStamp> changed = after.stream()
+                .filter(file -> changedSince(before.files(), file))
+                .sorted(Comparator.comparing(FileStamp::modified)
+                        .thenComparing(file -> file.path().toString())
+                        .reversed())
+                .toList();
+        boolean truncated = changed.size() > MAX_FILES;
+        if (changed.size() > MAX_FILES) {
+            changed = changed.subList(0, MAX_FILES);
+        }
+
+        long remaining = MAX_BYTES;
+        long examined = 0;
+        List<Map<String, Object>> matches = new ArrayList<>();
+        int examinedFiles = 0;
+        for (FileStamp file : changed) {
+            if (remaining == 0) {
+                truncated = true;
+                break;
+            }
+            long start = startOffset(before.files(), file);
+            long available = Math.max(0, file.size() - start);
+            if (available == 0) {
+                continue;
+            }
+            long readStart = start;
+            long length = Math.min(available, remaining);
+            if (available > length) {
+                readStart = file.size() - length;
+                truncated = true;
+            }
+            try {
+                String text = read(file.path(), readStart, length);
+                examined += length;
+                remaining -= length;
+                examinedFiles++;
+                findFatalMarkers(file.path(), text, matches);
+            } catch (IOException error) {
+                addProblem(problems, file.path().getFileName() + ": " + error.getMessage());
+            }
+        }
+
+        if (matches.size() > MAX_MATCHES) {
+            matches = new ArrayList<>(matches.subList(0, MAX_MATCHES));
+            truncated = true;
+        }
+        return new Evidence(
+                !after.isEmpty(),
+                !matches.isEmpty(),
+                examined,
+                examinedFiles,
+                truncated,
+                List.copyOf(matches),
+                List.copyOf(problems));
+    }
+
+    static int effectiveExitCode(int launcherExitCode, Evidence evidence) {
+        if (launcherExitCode != 0) {
+            return launcherExitCode;
+        }
+        return evidence.fatalDetected() ? FATAL_LIFECYCLE_EXIT : 0;
+    }
+
+    private static List<FileStamp> stamps(Path directory, List<String> problems) {
+        if (!Files.isDirectory(directory)) {
+            return List.of();
+        }
+        try (Stream<Path> entries = Files.list(directory)) {
+            List<Path> paths = entries
+                    .filter(Files::isRegularFile)
+                    .filter(path -> ROTATED_LOG.matcher(path.getFileName().toString()).matches())
+                    .sorted()
+                    .toList();
+            List<FileStamp> files = new ArrayList<>();
+            for (Path path : paths) {
+                try {
+                    BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class);
+                    files.add(new FileStamp(
+                            path.toAbsolutePath().normalize(),
+                            attributes.fileKey(),
+                            attributes.size(),
+                            attributes.lastModifiedTime().toInstant()));
+                } catch (IOException error) {
+                    addProblem(problems, path.getFileName() + ": " + error.getMessage());
+                }
+            }
+            return List.copyOf(files);
+        } catch (IOException error) {
+            addProblem(problems, "logs: " + error.getMessage());
+            return List.of();
+        }
+    }
+
+    private static boolean changedSince(List<FileStamp> before, FileStamp after) {
+        FileStamp prior = sameFile(before, after);
+        return prior == null || prior.size() != after.size() || !prior.modified().equals(after.modified());
+    }
+
+    private static long startOffset(List<FileStamp> before, FileStamp after) {
+        FileStamp prior = sameFile(before, after);
+        if (prior == null || after.size() < prior.size()) {
+            return 0;
+        }
+        return prior.size();
+    }
+
+    private static FileStamp sameFile(List<FileStamp> before, FileStamp after) {
+        if (after.fileKey() != null) {
+            for (FileStamp candidate : before) {
+                if (after.fileKey().equals(candidate.fileKey())) {
+                    return candidate;
+                }
+            }
+        }
+        for (FileStamp candidate : before) {
+            if (after.path().equals(candidate.path()) && candidate.fileKey() == null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static String read(Path path, long start, long length) throws IOException {
+        if (length > Integer.MAX_VALUE) {
+            throw new IOException("bounded log read is too large");
+        }
+        ByteBuffer buffer = ByteBuffer.allocate((int) length);
+        try (SeekableByteChannel channel = Files.newByteChannel(path, StandardOpenOption.READ)) {
+            channel.position(start);
+            while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
+                // Continue until the bounded segment is exhausted or EOF is reached.
+            }
+        }
+        buffer.flip();
+        return StandardCharsets.UTF_8.decode(buffer).toString();
+    }
+
+    private static void findFatalMarkers(Path path, String text, List<Map<String, Object>> matches) {
+        String[] lines = text.split("\\R");
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            if (matches.size() > MAX_MATCHES) {
+                return;
+            }
+            String line = lines[lineIndex];
+            for (FatalMarker marker : FATAL_MARKERS) {
+                int index = line.indexOf(marker.text());
+                if (index < 0 || !hasRequiredFrame(lines, lineIndex, marker.requiredFrame())) {
+                    continue;
+                }
+                Map<String, Object> match = new LinkedHashMap<>();
+                match.put("category", marker.category());
+                match.put("logFile", path.getFileName().toString());
+                match.put("message", bounded(line.substring(index + marker.text().length()).trim()));
+                matches.add(match);
+                break;
+            }
+        }
+    }
+
+    private static boolean hasRequiredFrame(String[] lines, int markerLine, String requiredFrame) {
+        int limit = Math.min(lines.length, markerLine + MAX_STACK_LINES + 1);
+        for (int i = markerLine + 1; i < limit; i++) {
+            if (lines[i].contains(requiredFrame)) {
+                return true;
+            }
+            if (!lines[i].isBlank() && Character.isDigit(lines[i].charAt(0))) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private static String bounded(String value) {
+        String normalized = value.replace('\u0000', '?');
+        return normalized.length() <= MAX_MESSAGE_CHARACTERS
+                ? normalized
+                : normalized.substring(0, MAX_MESSAGE_CHARACTERS) + "...";
+    }
+
+    private static void addProblem(List<String> problems, String problem) {
+        if (problems.size() < MAX_MATCHES) {
+            problems.add(bounded(problem == null ? "unknown log-read problem" : problem));
+        }
+    }
+
+    record Snapshot(Path logDirectory, Instant capturedAt, List<FileStamp> files, List<String> problems) {
+    }
+
+    record Evidence(
+            boolean logAvailable,
+            boolean fatalDetected,
+            long bytesExamined,
+            int filesExamined,
+            boolean truncated,
+            List<Map<String, Object>> matches,
+            List<String> problems) {
+        Map<String, Object> toMap() {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("logAvailable", logAvailable);
+            values.put("fatalDetected", fatalDetected);
+            values.put("bytesExamined", bytesExamined);
+            values.put("filesExamined", filesExamined);
+            values.put("truncated", truncated);
+            values.put("matches", matches);
+            values.put("problems", problems);
+            return values;
+        }
+    }
+
+    private record FileStamp(Path path, Object fileKey, long size, Instant modified) {
+    }
+
+    private record FatalMarker(String category, String text, String requiredFrame) {
+        private FatalMarker {
+            category = category.toLowerCase(Locale.ROOT);
+        }
+    }
+}

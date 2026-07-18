@@ -215,6 +215,27 @@ class TextureBatchBuilderTest {
                 .anyMatch(message -> message.contains("exceeding the texture worker memory budget")));
     }
 
+    @Test
+    void unsupportedImageReaderIsSkippedWithoutFailingPreparedFallbacks() throws Exception {
+        Path root = temporaryDirectory.resolve("root");
+        Path source = root.resolve("graphics/unsupported.webp");
+        Files.createDirectories(source.getParent());
+        Files.write(source, new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'});
+        ResourceIndex index = index(root, "profile", List.of("graphics/unsupported.webp"));
+
+        TextureBatchBuilder.Result result = TextureBatchBuilder.build(
+                index,
+                temporaryDirectory.resolve("cache"),
+                new TextureBatchBuilder.Options(1, 16 * MIB));
+
+        assertEquals(0, result.builtBlobs());
+        assertEquals(0, result.failedBlobs());
+        assertEquals(1, result.skippedUnsupportedBlobs());
+        assertEquals(0, result.manifest().entryCount());
+        assertTrue(result.diagnostics().stream()
+                .anyMatch(message -> message.contains("Skipped unsupported texture")));
+    }
+
     private static ResourceIndex index(Path root, String fingerprint, List<String> paths) throws Exception {
         Map<String, List<ResourceIndex.Provider>> entries = new LinkedHashMap<>();
         for (String relative : paths) {

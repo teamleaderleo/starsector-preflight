@@ -92,6 +92,8 @@ class StarsectorDiscoveryTest {
                 launcher);
 
         assertEquals("cmd.exe", result.selected().command().get(0));
+        assertEquals("call", result.selected().command().get(4));
+        assertEquals("\"" + launcher.toAbsolutePath().normalize() + "\"", result.selected().command().get(5));
         assertEquals(launcher.toAbsolutePath().normalize(), result.selected().launcher());
     }
 }

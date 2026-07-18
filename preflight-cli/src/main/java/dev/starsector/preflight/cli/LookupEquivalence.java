@@ -27,17 +27,17 @@ final class LookupEquivalence {
                 seed,
                 "preflight/missing/resource/",
                 ".json");
-        List<List<String>> baselineResults = new ArrayList<>(queryCount);
+        List<List<Path>> baselineResults = new ArrayList<>(queryCount);
         long baselineProbes = 0;
         long baselineStarted = System.nanoTime();
         for (String query : queries) {
-            List<String> providers = new ArrayList<>();
+            List<Path> providers = new ArrayList<>();
             for (ResourceIndex.Root root : index.roots()) {
                 baselineProbes++;
                 Path rootPath = root.path().toAbsolutePath().normalize();
                 Path candidate = rootPath.resolve(query).normalize();
                 if (candidate.startsWith(rootPath) && Files.isRegularFile(candidate)) {
-                    providers.add(candidate.toString());
+                    providers.add(candidate);
                 }
             }
             baselineResults.add(List.copyOf(providers));
@@ -49,12 +49,11 @@ final class LookupEquivalence {
         long indexedStarted = System.nanoTime();
         for (int i = 0; i < queries.size(); i++) {
             String query = queries.get(i);
-            List<String> indexed = index.providers(query).stream()
+            List<Path> indexed = index.providers(query).stream()
                     .map(index::resolve)
-                    .map(Path::toString)
                     .toList();
             indexedProviderAccesses += indexed.size();
-            if (!baselineResults.get(i).equals(indexed)) {
+            if (!sameFilesInOrder(baselineResults.get(i), indexed)) {
                 addMismatch(mismatches, query, baselineResults.get(i), indexed);
             }
         }
@@ -68,6 +67,27 @@ final class LookupEquivalence {
                 baselineNanos,
                 indexedNanos,
                 mismatches);
+    }
+
+    private static boolean sameFilesInOrder(List<Path> baseline, List<Path> indexed) {
+        if (baseline.size() != indexed.size()) {
+            return false;
+        }
+        for (int i = 0; i < baseline.size(); i++) {
+            Path left = baseline.get(i);
+            Path right = indexed.get(i);
+            if (left.equals(right)) {
+                continue;
+            }
+            try {
+                if (!Files.isSameFile(left, right)) {
+                    return false;
+                }
+            } catch (IOException error) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static DomainResult classpath(ClasspathProfileIndex index, int queryCount, long seed) throws IOException {
@@ -194,8 +214,8 @@ final class LookupEquivalence {
     private static void addMismatch(
             List<String> samples,
             String query,
-            List<String> baseline,
-            List<String> indexed) {
+            List<?> baseline,
+            List<?> indexed) {
         if (samples.size() < MISMATCH_SAMPLE_LIMIT) {
             samples.add(query + " baseline=" + baseline + " indexed=" + indexed);
         }

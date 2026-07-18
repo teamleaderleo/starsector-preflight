@@ -3,13 +3,13 @@ package dev.starsector.preflight.agent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -19,23 +19,18 @@ import org.objectweb.asm.tree.MethodNode;
 
 class TextureCompatibilityPlanTest {
     @Test
-    void movesOriginalBodyAndAddsDirectFailOpenWrapper() throws Exception {
-        byte[] original = syntheticTextureLoader();
-        ClassSignature signature = ClassSignature.parse(original);
+    void insertsFailOpenLookupOnlyAfterOriginalPreloaderMiss() throws Exception {
+        byte[] original = syntheticTextureLoader(true);
 
-        byte[] transformed = TextureCompatibilityPlan.transform(signature, original);
+        byte[] transformed = TextureCompatibilityPlan.transform(ClassSignature.parse(original), original);
 
         assertNotNull(transformed);
         ClassNode node = new ClassNode(Opcodes.ASM9);
         new ClassReader(transformed).accept(node, 0);
-        MethodNode wrapper = method(node, "Ô00000", TextureCompatibilityPlan.DECODE_DESCRIPTOR);
-        MethodNode fallback = method(node, "preflight$original$decodeImage", TextureCompatibilityPlan.DECODE_DESCRIPTOR);
-        assertNotNull(wrapper);
-        assertNotNull(fallback);
-        assertTrue((fallback.access & Opcodes.ACC_PRIVATE) != 0);
-        assertTrue((fallback.access & Opcodes.ACC_SYNTHETIC) != 0);
+        MethodNode decode = method(node, "Ô00000", TextureCompatibilityPlan.DECODE_DESCRIPTOR);
+        assertNotNull(decode);
         List<MethodInsnNode> calls = new ArrayList<>();
-        for (AbstractInsnNode instruction = wrapper.instructions.getFirst();
+        for (AbstractInsnNode instruction = decode.instructions.getFirst();
                 instruction != null;
                 instruction = instruction.getNext()) {
             if (instruction instanceof MethodInsnNode call) {
@@ -43,13 +38,18 @@ class TextureCompatibilityPlanTest {
             }
         }
         assertEquals(2, calls.size());
-        assertEquals("dev/starsector/preflight/agent/TextureCompatibilityRuntime", calls.get(0).owner);
-        assertEquals("load", calls.get(0).name);
-        assertEquals(Opcodes.INVOKESTATIC, calls.get(0).getOpcode());
-        assertEquals("preflight$original$decodeImage", calls.get(1).name);
-        assertEquals(Opcodes.INVOKESPECIAL, calls.get(1).getOpcode());
-
+        assertEquals("com/fs/graphics/L", calls.get(0).owner);
+        assertEquals("class", calls.get(0).name);
+        assertEquals("dev/starsector/preflight/agent/TextureCompatibilityRuntime", calls.get(1).owner);
+        assertEquals("load", calls.get(1).name);
         assertNull(TextureCompatibilityPlan.transform(ClassSignature.parse(transformed), transformed));
+    }
+
+    @Test
+    void declinesDecodeBodyWithoutExactPreloaderHandoff() throws Exception {
+        byte[] original = syntheticTextureLoader(false);
+
+        assertNull(TextureCompatibilityPlan.transform(ClassSignature.parse(original), original));
     }
 
     private static MethodNode method(ClassNode node, String name, String descriptor) {
@@ -59,8 +59,8 @@ class TextureCompatibilityPlanTest {
                 .orElse(null);
     }
 
-    private static byte[] syntheticTextureLoader() {
-        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+    private static byte[] syntheticTextureLoader(boolean includePreloader) {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         writer.visit(
                 Opcodes.V17,
                 Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
@@ -82,6 +82,22 @@ class TextureCompatibilityPlanTest {
                 null,
                 null);
         decode.visitCode();
+        if (includePreloader) {
+            decode.visitVarInsn(Opcodes.ALOAD, 1);
+            decode.visitMethodInsn(
+                    Opcodes.INVOKESTATIC,
+                    "com/fs/graphics/L",
+                    "class",
+                    TextureCompatibilityPlan.DECODE_DESCRIPTOR,
+                    false);
+            decode.visitVarInsn(Opcodes.ASTORE, 2);
+            decode.visitVarInsn(Opcodes.ALOAD, 2);
+            Label miss = new Label();
+            decode.visitJumpInsn(Opcodes.IFNULL, miss);
+            decode.visitVarInsn(Opcodes.ALOAD, 2);
+            decode.visitInsn(Opcodes.ARETURN);
+            decode.visitLabel(miss);
+        }
         decode.visitInsn(Opcodes.ACONST_NULL);
         decode.visitInsn(Opcodes.ARETURN);
         decode.visitMaxs(0, 0);

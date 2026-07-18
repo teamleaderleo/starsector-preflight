@@ -27,11 +27,14 @@ class SelfAgentIT {
         Path java = Path.of(System.getProperty("java.home"))
                 .resolve("bin")
                 .resolve(Platform.current() == Platform.WINDOWS ? "java.exe" : "java");
+        Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
 
         Process process = new ProcessBuilder(
                 java.toString(),
                 "-javaagent:" + jar + "=dest64=" + encoded,
-                "-version")
+                "-cp",
+                testClasses.toString(),
+                "com.fs.starfarer.SyntheticLauncher")
                 .redirectErrorStream(true)
                 .start();
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

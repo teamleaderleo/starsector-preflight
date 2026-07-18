@@ -48,6 +48,30 @@ class LookupEquivalenceTest {
         assertTrue(result.indexedProviderAccesses() > 0);
     }
 
+    @Test
+    void looseResourceComparisonTreatsFilesystemAliasesAsTheSameProvider() throws Exception {
+        Path root = temporaryDirectory.resolve("case-alias");
+        Path actual = root.resolve("graphics/Asset.PNG");
+        Path queryAlias = root.resolve("graphics/asset.png");
+        Files.createDirectories(actual.getParent());
+        Files.write(actual, new byte[] {1, 2, 3});
+        if (!Files.exists(queryAlias)) {
+            Files.createLink(queryAlias, actual);
+        }
+        ResourceIndex index = new ResourceIndex(
+                "cc".repeat(32),
+                List.of(new ResourceIndex.Root("root", root, true)),
+                Map.of("graphics/asset.png", List.of(new ResourceIndex.Provider(
+                        0,
+                        "graphics/Asset.PNG",
+                        Files.size(actual),
+                        Files.getLastModifiedTime(actual).toMillis()))));
+
+        LookupEquivalence.DomainResult result = LookupEquivalence.resources(index, 100, 7L);
+
+        assertTrue(result.equivalent(), result.mismatchSamples().toString());
+    }
+
     private ResourceIndex resourceFixture(int rootCount, int resourceCount) throws Exception {
         List<ResourceIndex.Root> roots = new ArrayList<>();
         Map<String, List<ResourceIndex.Provider>> entries = new LinkedHashMap<>();

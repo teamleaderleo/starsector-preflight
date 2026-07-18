@@ -109,10 +109,11 @@ final class ResourceIndexBuilder {
         List<Path> candidates = List.of(
                 root.resolve("starsector-core"),
                 root.resolve("Contents/Resources/Java/starsector-core"),
+                root.resolve("Contents/Resources/Java"),
                 root.resolve("Contents/Resources/starsector-core"),
                 root.resolve("Contents/Java/starsector-core"));
         for (Path candidate : candidates) {
-            if (Files.isDirectory(candidate)) {
+            if (isCoreResourceDirectory(candidate)) {
                 return candidate.toAbsolutePath().normalize();
             }
         }
@@ -127,6 +128,16 @@ final class ResourceIndexBuilder {
                         && path.getFileName().toString().equalsIgnoreCase("starsector-core"))) {
             return found.sorted().findFirst().map(path -> path.toAbsolutePath().normalize()).orElse(null);
         }
+    }
+
+    private static boolean isCoreResourceDirectory(Path candidate) {
+        if (!Files.isDirectory(candidate)) {
+            return false;
+        }
+        Path name = candidate.getFileName();
+        return (name != null && name.toString().equalsIgnoreCase("starsector-core"))
+                || (Files.isDirectory(candidate.resolve("graphics"))
+                        && Files.isDirectory(candidate.resolve("data")));
     }
 
     private static void scanRoot(

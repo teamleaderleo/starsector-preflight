@@ -1,0 +1,103 @@
+package dev.starsector.preflight.cli;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class StarsectorRunLogEvidenceTest {
+    private static final String FATAL =
+            "328814 [Thread-3] ERROR com.fs.starfarer.combat.CombatMain  - "
+                    + "java.lang.NullPointerException: synthetic fatal\n"
+                    + "java.lang.NullPointerException: synthetic fatal\n"
+                    + "\tat com.fs.graphics.LayeredRenderer.renderExcluding(Unknown Source)\n"
+                    + "\tat com.fs.starfarer.combat.CombatMain.main(Unknown Source)\n";
+
+    @TempDir
+    Path temporaryDirectory;
+
+    @Test
+    void detectsFatalBytesAppendedDuringRunAndOverridesZeroExit() throws Exception {
+        Path log = log("0 [main] INFO com.fs.starfarer.StarfarerLauncher  - Starting\n");
+        StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
+
+        Files.writeString(log, FATAL, java.nio.file.StandardOpenOption.APPEND);
+        StarsectorRunLogEvidence.Evidence evidence = StarsectorRunLogEvidence.inspect(before);
+
+        assertTrue(evidence.fatalDetected());
+        assertEquals(1, evidence.matches().size());
+        assertEquals("combat-main-top-level", evidence.matches().get(0).get("category"));
+        assertEquals(StarsectorRunLogEvidence.FATAL_LIFECYCLE_EXIT,
+                StarsectorRunLogEvidence.effectiveExitCode(0, evidence));
+        assertEquals(23, StarsectorRunLogEvidence.effectiveExitCode(23, evidence));
+    }
+
+    @Test
+    void ignoresFatalEvidenceThatPredatesTheRun() throws Exception {
+        log(FATAL);
+        StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
+
+        StarsectorRunLogEvidence.Evidence evidence = StarsectorRunLogEvidence.inspect(before);
+
+        assertFalse(evidence.fatalDetected());
+        assertEquals(0, evidence.bytesExamined());
+        assertEquals(0, StarsectorRunLogEvidence.effectiveExitCode(0, evidence));
+    }
+
+    @Test
+    void doesNotTreatACombatMainLoggerErrorWithoutTopLevelStackAsFatal() throws Exception {
+        Path log = log("0 [main] INFO com.fs.starfarer.StarfarerLauncher  - Starting\n");
+        StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
+
+        Files.writeString(log,
+                "100 [Thread-3] ERROR com.fs.starfarer.combat.CombatMain  - recoverable synthetic error\n"
+                        + "\tat example.Mod.recover(Unknown Source)\n",
+                java.nio.file.StandardOpenOption.APPEND);
+
+        StarsectorRunLogEvidence.Evidence evidence = StarsectorRunLogEvidence.inspect(before);
+        assertFalse(evidence.fatalDetected());
+    }
+
+    @Test
+    void followsTheSnapshottedFileAcrossLogRotation() throws Exception {
+        Path current = log("0 [main] INFO com.fs.starfarer.StarfarerLauncher  - Starting\n");
+        StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
+
+        Path rotated = current.resolveSibling("starsector.log.1");
+        Files.move(current, rotated, StandardCopyOption.REPLACE_EXISTING);
+        Files.writeString(rotated, FATAL, java.nio.file.StandardOpenOption.APPEND);
+        Files.writeString(current, "0 [main] INFO com.fs.starfarer.StarfarerLauncher  - Restarted\n");
+
+        StarsectorRunLogEvidence.Evidence evidence = StarsectorRunLogEvidence.inspect(before);
+
+        assertTrue(evidence.fatalDetected());
+        assertEquals("starsector.log.1", evidence.matches().get(0).get("logFile"));
+    }
+
+    @Test
+    void prioritizesNewestLogsWhenTheFileLimitIsExceeded() throws Exception {
+        Path logs = temporaryDirectory.resolve("logs");
+        Files.createDirectories(logs);
+        StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
+
+        for (int i = 0; i < 10; i++) {
+            Files.writeString(logs.resolve("starsector.log." + i), i == 9 ? FATAL : "ordinary log\n");
+        }
+
+        StarsectorRunLogEvidence.Evidence evidence = StarsectorRunLogEvidence.inspect(before);
+        assertTrue(evidence.fatalDetected());
+        assertTrue(evidence.truncated());
+        assertEquals("starsector.log.9", evidence.matches().get(0).get("logFile"));
+    }
+
+    private Path log(String contents) throws Exception {
+        Path logs = temporaryDirectory.resolve("logs");
+        Files.createDirectories(logs);
+        return Files.writeString(logs.resolve("starsector.log"), contents);
+    }
+}

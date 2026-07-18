@@ -48,6 +48,9 @@ class PrepareCommandTest {
         assertTrue(first.contains("\"profileHit\":false"), first);
         assertTrue(first.contains("\"builtBlobs\":2"), first);
         assertTrue(first.contains("\"liveAdapterIntegrated\":false"), first);
+        assertTrue(first.contains("\"liveAdapterEnabledByPreparation\":false"), first);
+        assertTrue(first.contains("\"vanillaAdapter\":\"compatibility-v2-under-review\""), first);
+        assertTrue(first.contains("\"realInstallPilotRequired\":true"), first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 
         assertEquals(0, PreflightCli.run(command));

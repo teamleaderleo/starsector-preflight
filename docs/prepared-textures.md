@@ -150,6 +150,10 @@ Both live consumers use the exact-reviewed `TextureLoader` class, archive, metho
 - `compatibility` reconstructs a `BufferedImage` at the private decoded-image seam. Starsector retains its original pixel conversion, OpenGL upload, cleanup, and texture lifetime.
 - `prepared-pixels` carries the verified SPFT payload to the lower `BufferedImage -> ByteBuffer` seam. A hit supplies bottom-up upload bytes and all three stored derived colors, bypassing ImageIO decode, raster traversal, vertical reversal, RGB/RGBA conversion, transparent-texel normalization, and color calculation. Starsector retains its original texture allocation, OpenGL upload, cleanup, flags, filtering, mipmaps, and texture lifetime.
 
+Both version-2 plans preserve the original `com.fs.graphics.L.class(String)` asynchronous preloader handoff before any Preflight lookup. A preloaded image always wins. Preflight is consulted only on the original direct-decode branch after that handoff returns `null`; an absent or ambiguous handoff leaves the class untouched.
+
+Compatibility-v2 matches the exact installed class bytes. Prepared-pixels-v2 currently declines those bytes at its color-sink matcher, so the lower path remains fail-closed despite passing repository-owned synthetic tests. It must not be treated as live-ready until its fixture models the installed `TextureLoader` fields and subsequent texture-object setter calls.
+
 Launch the lower consumer with explicit artifacts:
 
 ```bash
@@ -164,6 +168,6 @@ java -jar preflight.jar run \
 
 The prepared-pixel rewrite additionally requires the reviewed conversion pattern: one raster-reading conversion method, exactly three distinct `java.awt.Color` writes on the texture object, and the reviewed static ByteBuffer cleanup method. An ambiguous pattern leaves the class untouched.
 
-Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. Version 1 accepts identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original decode and conversion methods once.
+Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. The current payload format accepts identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
 
 Prepared direct-buffer ownership is bounded to 32 MiB per texture, 64 MiB active bytes, and 1,024 active buffers. The existing Starsector cleanup method always runs. Preflight releases its identity-tracked accounting in a `finally` path after that original cleanup call.

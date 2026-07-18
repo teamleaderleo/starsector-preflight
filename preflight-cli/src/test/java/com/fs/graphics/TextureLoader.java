@@ -12,6 +12,10 @@ public final class TextureLoader {
     private static int originalCleanupCalls;
 
     private BufferedImage Ô00000(String logicalPath) {
+        BufferedImage preloaded = L.clazz(logicalPath);
+        if (preloaded != null) {
+            return preloaded;
+        }
         originalCalls++;
         BufferedImage fallback = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         fallback.setRGB(0, 0, 0xffcc00cc);

@@ -7,9 +7,10 @@ Preflight follows a measurement-first sequence. Each optimization keeps the orig
 The July 2026 unified real-install runs completed the broad discovery gate for texture loading, Janino compilation, and audio decoding.
 
 - [Optimization North Star](optimization-north-star.md) records the two-run evidence, exact reviewed targets, ordered implementation program, benchmark protocol, and release gates.
+- [Real texture preparation and compatibility pilot](evidence/2026-07-18-real-texture-preparation-and-compatibility-pilot.md) records the passing full-profile preparation, the title-screen renderer failure, and the bounded launcher-lifecycle reporting fix.
 - [Next LLM Implementation Handoff](next-llm-handoff.md) provides the concrete starting task, pinned identities, test requirements, and prohibited shortcuts for the next implementation session.
 
-The immediate sequence is benchmark telemetry, an exact-gated texture compatibility pilot, the upload-ready texture path, installed-JOrbis equivalence, short-effect audio reuse, and complete-key Janino reuse.
+The adapter-OFF control reached the main screen and exited normally. Source review then confirmed that compatibility-v1 bypassed Starsector's asynchronous image-preloader rendezvous; compatibility-v2 preserves that handoff and matches the exact installed bytes. The prepared-pixel prototype remains fail-closed because its synthetic color-sink model differs from the installed dataflow. The immediate sequence is compatibility-v2 review, full real-install compatibility acceptance, exact prepared-pixel dataflow repair, repeated OFF-versus-ENABLED texture measurement, resolution of the negative audio-equivalence evidence, and complete-key Janino reuse.
 
 ## M0: Measurement foundation
 

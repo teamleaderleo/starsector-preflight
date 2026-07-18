@@ -37,6 +37,7 @@ import javax.imageio.stream.ImageInputStream;
 final class TextureBatchBuilder {
     private static final Set<String> IMAGE_EXTENSIONS = Set.of(
             "png", "jpg", "jpeg", "bmp", "gif", "wbmp", "webp", "tga");
+    private static final Set<String> IMAGE_IO_READER_EXTENSIONS = imageIoReaderExtensions();
     private static final long ESTIMATED_BUILD_BYTES_PER_PIXEL = 24L;
     private static final long ESTIMATED_BLOB_READ_MULTIPLIER = 3L;
 
@@ -117,6 +118,7 @@ final class TextureBatchBuilder {
             long cacheHitBlobs = 0;
             long builtBlobs = 0;
             long failedBlobs = unexpectedFailures;
+            long skippedUnsupportedBlobs = 0;
             long quarantinedBlobs = 0;
             long pixelBytes = 0;
             long blobBytes = 0;
@@ -127,6 +129,9 @@ final class TextureBatchBuilder {
                     quarantinedBlobs += result.quarantined() ? 1 : 0;
                     pixelBytes += result.metadata().pixelBytes();
                     blobBytes += result.blobBytes();
+                } else if (result.unsupported()) {
+                    skippedUnsupportedBlobs++;
+                    quarantinedBlobs += result.quarantined() ? 1 : 0;
                 } else {
                     failedBlobs++;
                     quarantinedBlobs += result.quarantined() ? 1 : 0;
@@ -167,6 +172,7 @@ final class TextureBatchBuilder {
                     cacheHitBlobs,
                     builtBlobs,
                     failedBlobs,
+                    skippedUnsupportedBlobs,
                     quarantinedBlobs,
                     hashed.size() - groups.size(),
                     sourceBytes,
@@ -329,6 +335,12 @@ final class TextureBatchBuilder {
                 estimatedBuildBytes = Math.multiplyExact(
                         Math.multiplyExact((long) dimensions.width(), dimensions.height()),
                         ESTIMATED_BUILD_BYTES_PER_PIXEL);
+            } catch (UnsupportedImageException error) {
+                return BlobResult.unsupported(
+                        key,
+                        relative,
+                        quarantined,
+                        "Skipped unsupported texture " + representative.logicalPath() + ": " + error.getMessage());
             } catch (Exception error) {
                 return BlobResult.failure(
                         key,
@@ -389,7 +401,11 @@ final class TextureBatchBuilder {
             }
             var readers = ImageIO.getImageReaders(input);
             if (!readers.hasNext()) {
-                throw new IOException("No ImageIO reader is available");
+                String sourceExtension = extension(source.getFileName().toString());
+                if (IMAGE_IO_READER_EXTENSIONS.contains(sourceExtension)) {
+                    throw new IOException("No ImageIO reader accepted the encoded source");
+                }
+                throw new UnsupportedImageException("No ImageIO reader is available");
             }
             ImageReader reader = readers.next();
             try {
@@ -454,6 +470,14 @@ final class TextureBatchBuilder {
                 : path.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
+    private static Set<String> imageIoReaderExtensions() {
+        Set<String> extensions = new LinkedHashSet<>();
+        for (String suffix : ImageIO.getReaderFileSuffixes()) {
+            extensions.add(suffix.toLowerCase(Locale.ROOT));
+        }
+        return Set.copyOf(extensions);
+    }
+
     private static ThreadFactory workerFactory() {
         AtomicInteger counter = new AtomicInteger();
         return task -> {
@@ -483,6 +507,7 @@ final class TextureBatchBuilder {
             long cacheHitBlobs,
             long builtBlobs,
             long failedBlobs,
+            long skippedUnsupportedBlobs,
             long quarantinedBlobs,
             long deduplicatedEntries,
             long sourceBytes,
@@ -546,6 +571,7 @@ final class TextureBatchBuilder {
             String blobRelativePath,
             TextureMetadata metadata,
             boolean success,
+            boolean unsupported,
             boolean cacheHit,
             boolean quarantined,
             long blobBytes,
@@ -557,11 +583,21 @@ final class TextureBatchBuilder {
                 boolean cacheHit,
                 boolean quarantined,
                 long blobBytes) {
-            return new BlobResult(key, relative, metadata, true, cacheHit, quarantined, blobBytes, null);
+            return new BlobResult(key, relative, metadata, true, false, cacheHit, quarantined, blobBytes, null);
         }
 
         static BlobResult failure(BlobKey key, String relative, boolean quarantined, String diagnostic) {
-            return new BlobResult(key, relative, null, false, false, quarantined, 0, diagnostic);
+            return new BlobResult(key, relative, null, false, false, false, quarantined, 0, diagnostic);
+        }
+
+        static BlobResult unsupported(BlobKey key, String relative, boolean quarantined, String diagnostic) {
+            return new BlobResult(key, relative, null, false, true, false, quarantined, 0, diagnostic);
+        }
+    }
+
+    private static final class UnsupportedImageException extends IOException {
+        UnsupportedImageException(String message) {
+            super(message);
         }
     }
 
