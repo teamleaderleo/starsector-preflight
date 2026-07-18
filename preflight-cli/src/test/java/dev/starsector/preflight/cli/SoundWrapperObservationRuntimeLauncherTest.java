@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -20,9 +21,27 @@ class SoundWrapperObservationRuntimeLauncherTest {
         executable(game.resolve("Contents/Resources/Java/jre/bin").resolve(javaName()));
 
         SoundWrapperObservationRuntimeLauncher.JavaSelection selected =
-                SoundWrapperObservationRuntimeLauncher.selectJava(game, null);
+                SoundWrapperObservationRuntimeLauncher.selectJava(game, null, java -> "synthetic-version");
 
         assertEquals(canonical.toAbsolutePath().normalize(), selected.executable());
+        assertEquals("bundled-auto", selected.source());
+    }
+
+    @Test
+    void skipsHigherPriorityCandidateThatCannotLaunch() throws Exception {
+        Path game = temporaryDirectory.resolve("Starsector.app");
+        Path broken = executable(game.resolve("Contents/Home/bin").resolve(javaName()));
+        Path fallback = executable(game.resolve("Contents/Resources/Java/jre/bin").resolve(javaName()));
+
+        SoundWrapperObservationRuntimeLauncher.JavaSelection selected =
+                SoundWrapperObservationRuntimeLauncher.selectJava(game, null, java -> {
+                    if (java.equals(broken.toAbsolutePath().normalize())) {
+                        throw new IOException("synthetic launch failure");
+                    }
+                    return "synthetic-version";
+                });
+
+        assertEquals(fallback.toAbsolutePath().normalize(), selected.executable());
         assertEquals("bundled-auto", selected.source());
     }
 
@@ -34,10 +53,25 @@ class SoundWrapperObservationRuntimeLauncherTest {
         Path explicit = executable(temporaryDirectory.resolve("custom/bin").resolve(javaName()));
 
         SoundWrapperObservationRuntimeLauncher.JavaSelection selected =
-                SoundWrapperObservationRuntimeLauncher.selectJava(game, explicit);
+                SoundWrapperObservationRuntimeLauncher.selectJava(game, explicit, java -> "synthetic-version");
 
         assertEquals(explicit.toAbsolutePath().normalize(), selected.executable());
         assertEquals("explicit", selected.source());
+    }
+
+    @Test
+    void rejectsExplicitRuntimeThatCannotLaunch() throws Exception {
+        Path game = temporaryDirectory.resolve("game");
+        Files.createDirectories(game);
+        Path explicit = executable(temporaryDirectory.resolve("custom/bin").resolve(javaName()));
+
+        IOException error = assertThrows(
+                IOException.class,
+                () -> SoundWrapperObservationRuntimeLauncher.selectJava(game, explicit, java -> {
+                    throw new IOException("synthetic launch failure");
+                }));
+
+        assertTrue(error.getMessage().contains("synthetic launch failure"), error.getMessage());
     }
 
     @Test
