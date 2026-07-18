@@ -24,7 +24,7 @@ public final class VorbisFile {
 
     public VorbisFile(InputStream input, byte[] initial, int initialBytes) throws JOrbisException {
         try {
-            byte[] source = input.readAllBytes();
+            byte[] source = readSource(input);
             Fixture fixture = FIXTURES.get(sha256(source));
             if (fixture == null) {
                 throw new JOrbisException("synthetic unsupported or malformed stream");
@@ -55,6 +55,16 @@ public final class VorbisFile {
             bitstream[0] = 0;
         }
         return count;
+    }
+
+    private static byte[] readSource(InputStream input) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[257];
+        while (true) {
+            int count = input.read(buffer, 0, buffer.length);
+            if (count < 0) return output.toByteArray();
+            if (count > 0) output.write(buffer, 0, count);
+        }
     }
 
     private static byte[] resource(String name) throws IOException {
