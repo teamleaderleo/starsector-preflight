@@ -39,7 +39,7 @@ public final class SoundWrapperObservationChild {
     private static final String LOADER_CLASS = "jdk.internal.loader.ClassLoaders$AppClassLoader";
     private static final String LOADER_NAME = "app";
 
-    private static final List<Fixture> FULL_FIXTURES = List.of(
+    private static final List<Fixture> FIXTURES = List.of(
             new Fixture("mono-22050", "mono-22050.ogg", 1, 22_050),
             new Fixture("stereo-44100", "stereo-44100.ogg", 2, 44_100),
             new Fixture("silence-mono-8000", "silence-mono-8000.ogg", 1, 8_000),
@@ -72,25 +72,23 @@ public final class SoundWrapperObservationChild {
         Identity jogg = identity(joggClass, options.expectedJoggSha256());
         Identity jorbis = identity(vorbisFileClass, options.expectedJorbisSha256());
         Identity info = identity(infoClass, options.expectedJorbisSha256());
-        boolean identityExact = soundJ.exact() && soundF.exact() && jogg.exact() && jorbis.exact() && info.exact()
-                && appLoader(soundJ) && appLoader(soundF) && appLoader(jogg) && appLoader(jorbis) && appLoader(info);
+        boolean identityExact = List.of(soundJ, soundF, jogg, jorbis, info).stream()
+                .allMatch(identity -> identity.exact() && appLoader(identity));
 
         Wrapper wrapper = new Wrapper(soundJClass, soundFClass);
         Decoder decoder = new Decoder(vorbisFileClass, infoClass);
-        List<Fixture> fixtures = "ci".equals(options.fixtureProfile())
-                ? FULL_FIXTURES.subList(0, 2)
-                : FULL_FIXTURES;
+        List<Fixture> fixtures = "ci".equals(options.fixtureProfile()) ? FIXTURES.subList(0, 2) : FIXTURES;
 
         List<Map<String, Object>> validCases = new ArrayList<>();
-        boolean allWrapperReturned = true;
-        boolean allPayloadMatched = true;
-        boolean allMetadataCandidatesPresent = true;
+        boolean validObserved = true;
+        boolean payloadMatched = true;
+        boolean metadataCandidates = true;
         for (Fixture fixture : fixtures) {
-            ValidCase result = observeValid(wrapper, decoder, fixture);
-            validCases.add(result.toMap());
-            allWrapperReturned &= result.wrapperReturned();
-            allPayloadMatched &= result.payloadMatched();
-            allMetadataCandidatesPresent &= result.metadataCandidatesPresent();
+            ValidObservation observation = observeValid(wrapper, decoder, fixture);
+            validCases.add(observation.toMap());
+            validObserved &= observation.observed();
+            payloadMatched &= observation.payloadMatched();
+            metadataCandidates &= observation.metadataCandidatesPresent();
         }
 
         List<Map<String, Object>> invalidCases = new ArrayList<>();
@@ -108,13 +106,8 @@ public final class SoundWrapperObservationChild {
             invalidStable &= stable;
         }
 
-        boolean complete = identityExact && validCases.size() == fixtures.size();
-        boolean candidateEquivalence = complete
-                && allWrapperReturned
-                && allPayloadMatched
-                && allMetadataCandidatesPresent
-                && invalidStable;
-
+        boolean complete = identityExact && validObserved && invalidStable;
+        boolean candidateEquivalence = complete && payloadMatched && metadataCandidates;
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("format", "starsector-preflight-sound-wrapper-observation-v1");
         root.put("generatedAt", Instant.now());
@@ -130,9 +123,9 @@ public final class SoundWrapperObservationChild {
         root.put("wrapperMethodStatic", wrapper.methodStatic());
         root.put("validCaseCount", validCases.size());
         root.put("invalidCaseCount", invalidCases.size());
-        root.put("allValidWrapperInvocationsReturned", allWrapperReturned);
-        root.put("wrapperPayloadMatchesDirectJorbis", allPayloadMatched);
-        root.put("wrapperMetadataCandidatesPresent", allMetadataCandidatesPresent);
+        root.put("allValidWrapperInvocationsReturned", validObserved);
+        root.put("wrapperPayloadMatchesDirectJorbis", payloadMatched);
+        root.put("wrapperMetadataCandidatesPresent", metadataCandidates);
         root.put("invalidWrapperBehaviorStable", invalidStable);
         root.put("candidateEquivalence", candidateEquivalence);
         root.put("equivalenceEstablished", false);
@@ -152,28 +145,35 @@ public final class SoundWrapperObservationChild {
         return Map.copyOf(root);
     }
 
-    private static ValidCase observeValid(Wrapper wrapper, Decoder decoder, Fixture fixture) {
+    private static ValidObservation observeValid(Wrapper wrapper, Decoder decoder, Fixture fixture) {
         byte[] source;
         try {
-            source = fixture(fixture.sourceResource());
-        } catch (IOException failure) {
-            return ValidCase.failure(fixture, new byte[0], failure);
+            source = fixture(fixture.resource());
+        } catch (Throwable failure) {
+            return ValidObservation.failed(fixture, new byte[0], rootCause(failure));
         }
 
         Decoded direct;
         try {
             direct = decoder.decode(new ByteArrayInputStream(source));
         } catch (Throwable failure) {
-            return ValidCase.failure(fixture, source, rootCause(failure));
+            return ValidObservation.failed(fixture, source, rootCause(failure));
         }
 
         WrapperOutcome wrapperOutcome = invokeWrapper(wrapper, source);
         if (!wrapperOutcome.returned()) {
-            return ValidCase.wrapperFailure(fixture, source, direct, wrapperOutcome);
+            return ValidObservation.wrapperFailed(fixture, source, direct, wrapperOutcome);
         }
-
-        FieldSummary fields = observeFields(wrapperOutcome.value(), direct);
-        return ValidCase.success(fixture, source, direct, wrapperOutcome, fields);
+        try {
+            return ValidObservation.success(
+                    fixture,
+                    source,
+                    direct,
+                    wrapperOutcome,
+                    observeFields(wrapperOutcome.value(), direct));
+        } catch (Throwable failure) {
+            return ValidObservation.failed(fixture, source, rootCause(failure));
+        }
     }
 
     static FieldSummary observeFields(Object value, Decoded direct) {
@@ -183,8 +183,7 @@ public final class SoundWrapperObservationChild {
         List<String> sampleRateCandidates = new ArrayList<>();
         boolean truncated = false;
 
-        List<Field> fields = allFields(value.getClass());
-        for (Field field : fields) {
+        for (Field field : allFields(value.getClass())) {
             if (observations.size() >= FIELD_LIMIT) {
                 truncated = true;
                 break;
@@ -210,7 +209,7 @@ public final class SoundWrapperObservationChild {
                 }
             } catch (Throwable failure) {
                 observation.put("kind", "unreadable");
-                observation.put("failure", failure(rootCause(failure)).toMap());
+                observation.put("failure", redactFailure(rootCause(failure)).toMap());
             }
             observations.add(Map.copyOf(observation));
         }
@@ -231,29 +230,25 @@ public final class SoundWrapperObservationChild {
             List<String> payloadMatches) throws IOException {
         if (value == null) {
             observation.put("kind", "null");
-            return;
-        }
-        if (value instanceof byte[] bytes) {
+        } else if (value instanceof byte[] bytes) {
             observation.put("kind", "byte-array");
             observation.put("length", bytes.length);
             observation.put("sha256", Hashes.sha256(bytes));
-            boolean matches = matches(bytes, direct.pcm());
+            boolean matches = Arrays.equals(bytes, direct.pcm());
             observation.put("matchesDirectPcm", matches);
             if (matches) payloadMatches.add(key);
-            return;
-        }
-        if (value instanceof short[] shorts) {
+        } else if (value instanceof short[] shorts) {
+            byte[] bytes = shortsToLittleEndian(shorts);
             observation.put("kind", "short-array");
             observation.put("length", shorts.length);
-            byte[] bytes = shortsToLittleEndian(shorts);
             observation.put("byteLength", bytes.length);
             observation.put("littleEndianSha256", Hashes.sha256(bytes));
-            boolean matches = matches(bytes, direct.pcm());
+            boolean matches = Arrays.equals(bytes, direct.pcm());
             observation.put("matchesDirectPcm", matches);
             if (matches) payloadMatches.add(key);
-            return;
-        }
-        if (value instanceof ByteBuffer buffer) {
+        } else if (value instanceof ByteBuffer buffer) {
+            byte[] remaining = bufferBytes(buffer, buffer.position(), buffer.limit());
+            byte[] zeroToLimit = bufferBytes(buffer, 0, buffer.limit());
             observation.put("kind", "byte-buffer");
             observation.put("capacity", buffer.capacity());
             observation.put("position", buffer.position());
@@ -262,42 +257,35 @@ public final class SoundWrapperObservationChild {
             observation.put("direct", buffer.isDirect());
             observation.put("readOnly", buffer.isReadOnly());
             observation.put("byteOrder", buffer.order().toString());
-            byte[] remaining = bytes(buffer, buffer.position(), buffer.limit());
             observation.put("remainingSha256", Hashes.sha256(remaining));
-            byte[] zeroToLimit = bytes(buffer, 0, buffer.limit());
             observation.put("zeroToLimitSha256", Hashes.sha256(zeroToLimit));
-            boolean remainingMatch = matches(remaining, direct.pcm());
-            boolean zeroToLimitMatch = matches(zeroToLimit, direct.pcm());
+            boolean remainingMatch = Arrays.equals(remaining, direct.pcm());
+            boolean zeroToLimitMatch = Arrays.equals(zeroToLimit, direct.pcm());
             observation.put("remainingMatchesDirectPcm", remainingMatch);
             observation.put("zeroToLimitMatchesDirectPcm", zeroToLimitMatch);
             if (remainingMatch || zeroToLimitMatch) payloadMatches.add(key);
-            return;
-        }
-        if (declaredType.isPrimitive() || value instanceof Number || value instanceof Boolean || value instanceof Character) {
+        } else if (declaredType.isPrimitive()
+                || value instanceof Number
+                || value instanceof Boolean
+                || value instanceof Character) {
             observation.put("kind", "scalar");
             observation.put("value", value instanceof Character character ? (int) character.charValue() : value);
-            return;
-        }
-        if (value instanceof String text) {
+        } else if (value instanceof String text) {
             observation.put("kind", "string-redacted");
             observation.put("length", text.length());
             observation.put("sha256", Hashes.sha256(text.getBytes(StandardCharsets.UTF_8)));
-            return;
-        }
-        if (value.getClass().isArray()) {
+        } else if (value.getClass().isArray()) {
             observation.put("kind", "array-metadata-only");
             observation.put("componentType", value.getClass().getComponentType().getTypeName());
             observation.put("length", Array.getLength(value));
-            return;
+        } else {
+            observation.put("kind", "object-metadata-only");
+            observation.put("runtimeType", value.getClass().getName());
         }
-        observation.put("kind", "object-metadata-only");
-        observation.put("runtimeType", value.getClass().getName());
     }
 
-    private static byte[] bytes(ByteBuffer source, int start, int end) throws IOException {
-        if (start < 0 || end < start || end > source.capacity()) {
-            throw new IOException("ByteBuffer bounds are invalid");
-        }
+    private static byte[] bufferBytes(ByteBuffer source, int start, int end) throws IOException {
+        if (start < 0 || end < start || end > source.capacity()) throw new IOException("Invalid ByteBuffer bounds");
         int length = end - start;
         if (length > MAX_PCM_BYTES) throw new IOException("ByteBuffer payload exceeds the safety limit");
         ByteBuffer copy = source.duplicate();
@@ -309,26 +297,22 @@ public final class SoundWrapperObservationChild {
     }
 
     private static byte[] shortsToLittleEndian(short[] values) throws IOException {
-        long byteLength = Math.multiplyExact((long) values.length, 2L);
-        if (byteLength > MAX_PCM_BYTES) throw new IOException("short[] payload exceeds the safety limit");
-        ByteBuffer bytes = ByteBuffer.allocate((int) byteLength).order(ByteOrder.LITTLE_ENDIAN);
+        long length = Math.multiplyExact((long) values.length, 2L);
+        if (length > MAX_PCM_BYTES) throw new IOException("short[] payload exceeds the safety limit");
+        ByteBuffer bytes = ByteBuffer.allocate((int) length).order(ByteOrder.LITTLE_ENDIAN);
         for (short value : values) bytes.putShort(value);
         return bytes.array();
     }
 
-    private static boolean matches(byte[] candidate, byte[] expected) {
-        return candidate.length == expected.length && Arrays.equals(candidate, expected);
-    }
-
     private static List<Field> allFields(Class<?> type) {
-        List<Field> fields = new ArrayList<>();
+        List<Field> result = new ArrayList<>();
         for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
-            fields.addAll(Arrays.asList(current.getDeclaredFields()));
+            result.addAll(Arrays.asList(current.getDeclaredFields()));
         }
-        fields.sort(Comparator.comparing((Field field) -> field.getDeclaringClass().getName())
+        result.sort(Comparator.comparing((Field field) -> field.getDeclaringClass().getName())
                 .thenComparing(Field::getName)
                 .thenComparing(field -> field.getType().getTypeName()));
-        return fields;
+        return result;
     }
 
     private static WrapperOutcome invokeWrapper(Wrapper wrapper, byte[] source) {
@@ -361,36 +345,36 @@ public final class SoundWrapperObservationChild {
                 new InvalidFixture("corrupt-packet", corrupt));
     }
 
-    private static boolean appLoader(Identity identity) {
-        return LOADER_CLASS.equals(identity.loaderClass()) && LOADER_NAME.equals(identity.loaderName());
-    }
-
     private static Identity identity(Class<?> type, String expectedSourceSha256) throws Exception {
         ClassLoader loader = type.getClassLoader();
         CodeSource source = type.getProtectionDomain().getCodeSource();
-        Path path = source == null || source.getLocation() == null
+        Path sourcePath = source == null || source.getLocation() == null
                 ? null
                 : Path.of(new URI(source.getLocation().toString())).toAbsolutePath().normalize();
-        String sourceSha256 = path != null && Files.isRegularFile(path) ? Hashes.sha256(path) : "";
+        String sourceSha256 = sourcePath != null && Files.isRegularFile(sourcePath) ? Hashes.sha256(sourcePath) : "";
         String resource = type.getName().replace('.', '/') + ".class";
-        byte[] classBytes;
         InputStream input = loader == null
                 ? ClassLoader.getSystemResourceAsStream(resource)
                 : loader.getResourceAsStream(resource);
         if (input == null) throw new IOException("Could not read class resource " + resource);
+        byte[] classBytes;
         try (input) {
             classBytes = input.readNBytes(MAX_CLASS_BYTES + 1);
         }
         if (classBytes.length > MAX_CLASS_BYTES) throw new IOException("Class resource exceeds safety limit: " + resource);
         return new Identity(
                 type.getName(),
-                path == null ? "" : path.toString(),
+                sourcePath == null ? "" : sourcePath.toString(),
                 expectedSourceSha256,
                 sourceSha256,
                 Hashes.sha256(classBytes),
                 loader == null ? "<bootstrap>" : loader.getClass().getName(),
                 loader == null ? "<bootstrap>" : String.valueOf(loader.getName()),
                 expectedSourceSha256.equals(sourceSha256));
+    }
+
+    private static boolean appLoader(Identity identity) {
+        return LOADER_CLASS.equals(identity.loaderClass()) && LOADER_NAME.equals(identity.loaderName());
     }
 
     private static byte[] fixture(String name) throws IOException {
@@ -426,7 +410,7 @@ public final class SoundWrapperObservationChild {
         return current;
     }
 
-    private static Failure failure(Throwable failure) {
+    private static Failure redactFailure(Throwable failure) {
         String message = failure.getMessage() == null ? "" : failure.getMessage();
         String bounded = message.length() <= FAILURE_DETAIL_LIMIT
                 ? message
@@ -509,9 +493,9 @@ public final class SoundWrapperObservationChild {
 
         private Object invoke(InputStream input) throws Exception {
             Object receiver = constructor == null ? null : constructor.newInstance();
-            Object value = method.invoke(receiver, input);
-            if (value == null) throw new IOException("Sound wrapper returned null");
-            return value;
+            Object result = method.invoke(receiver, input);
+            if (result == null) throw new IOException("Sound wrapper returned null");
+            return result;
         }
 
         private boolean methodStatic() {
@@ -563,8 +547,9 @@ public final class SoundWrapperObservationChild {
                 pcm.write(buffer, 0, count);
             }
             byte[] bytes = pcm.toByteArray();
-            int frameBytes = Math.multiplyExact(channelCount, 2);
-            if (bytes.length % frameBytes != 0) throw new IOException("Decoded PCM is not frame aligned");
+            if (bytes.length % Math.multiplyExact(channelCount, 2) != 0) {
+                throw new IOException("Decoded PCM is not frame aligned");
+            }
             return new Decoded(bytes, channelCount, sampleRate, readCalls, bitstream[0]);
         }
     }
@@ -601,24 +586,13 @@ public final class SoundWrapperObservationChild {
             super.close();
         }
 
-        private long bytesRead() {
-            return bytesRead;
-        }
-
-        private long readCalls() {
-            return readCalls;
-        }
-
-        private long eofReads() {
-            return eofReads;
-        }
-
-        private int closeCount() {
-            return closeCount;
-        }
+        private long bytesRead() { return bytesRead; }
+        private long readCalls() { return readCalls; }
+        private long eofReads() { return eofReads; }
+        private int closeCount() { return closeCount; }
     }
 
-    record Fixture(String id, String sourceResource, int expectedChannels, int expectedSampleRate) {
+    record Fixture(String id, String resource, int expectedChannels, int expectedSampleRate) {
     }
 
     record InvalidFixture(String id, byte[] source) {
@@ -651,9 +625,7 @@ public final class SoundWrapperObservationChild {
     }
 
     record Failure(String className, int messageLength, String messageSha256, boolean messageTruncated) {
-        static Failure none() {
-            return new Failure("", 0, "", false);
-        }
+        static Failure none() { return new Failure("", 0, "", false); }
 
         Map<String, Object> toMap() {
             Map<String, Object> value = new LinkedHashMap<>();
@@ -671,10 +643,7 @@ public final class SoundWrapperObservationChild {
             List<String> channelCandidateFields,
             List<String> sampleRateCandidateFields,
             boolean truncated) {
-        boolean payloadMatched() {
-            return !payloadMatchFields.isEmpty();
-        }
-
+        boolean payloadMatched() { return !payloadMatchFields.isEmpty(); }
         boolean metadataCandidatesPresent() {
             return !channelCandidateFields.isEmpty() && !sampleRateCandidateFields.isEmpty();
         }
@@ -703,26 +672,14 @@ public final class SoundWrapperObservationChild {
             int finalCloseCount) {
         static WrapperOutcome returned(Object value, TrackingInputStream input, boolean closedDuring) {
             return new WrapperOutcome(
-                    true,
-                    value,
-                    Failure.none(),
-                    input.bytesRead(),
-                    input.readCalls(),
-                    input.eofReads(),
-                    closedDuring,
-                    input.closeCount());
+                    true, value, Failure.none(), input.bytesRead(), input.readCalls(), input.eofReads(),
+                    closedDuring, input.closeCount());
         }
 
         static WrapperOutcome failed(Throwable thrown, TrackingInputStream input, boolean closedDuring) {
             return new WrapperOutcome(
-                    false,
-                    null,
-                    failure(thrown),
-                    input.bytesRead(),
-                    input.readCalls(),
-                    input.eofReads(),
-                    closedDuring,
-                    input.closeCount());
+                    false, null, SoundWrapperObservationChild.redactFailure(thrown), input.bytesRead(),
+                    input.readCalls(), input.eofReads(), closedDuring, input.closeCount());
         }
 
         String behaviorKey() {
@@ -744,38 +701,31 @@ public final class SoundWrapperObservationChild {
         }
     }
 
-    record ValidCase(
+    record ValidObservation(
             Fixture fixture,
             byte[] source,
             Decoded direct,
             WrapperOutcome wrapper,
             FieldSummary fields,
             Failure setupFailure) {
-        static ValidCase success(
+        static ValidObservation success(
                 Fixture fixture, byte[] source, Decoded direct, WrapperOutcome wrapper, FieldSummary fields) {
-            return new ValidCase(fixture, source, direct, wrapper, fields, Failure.none());
+            return new ValidObservation(fixture, source, direct, wrapper, fields, Failure.none());
         }
 
-        static ValidCase wrapperFailure(
+        static ValidObservation wrapperFailed(
                 Fixture fixture, byte[] source, Decoded direct, WrapperOutcome wrapper) {
-            return new ValidCase(fixture, source, direct, wrapper, null, Failure.none());
+            return new ValidObservation(fixture, source, direct, wrapper, null, Failure.none());
         }
 
-        static ValidCase failure(Fixture fixture, byte[] source, Throwable failure) {
-            return new ValidCase(fixture, source, null, null, null, SoundWrapperObservationChild.failure(failure));
+        static ValidObservation failed(Fixture fixture, byte[] source, Throwable failure) {
+            return new ValidObservation(
+                    fixture, source, null, null, null, SoundWrapperObservationChild.redactFailure(failure));
         }
 
-        boolean wrapperReturned() {
-            return wrapper != null && wrapper.returned();
-        }
-
-        boolean payloadMatched() {
-            return fields != null && fields.payloadMatched();
-        }
-
-        boolean metadataCandidatesPresent() {
-            return fields != null && fields.metadataCandidatesPresent();
-        }
+        boolean observed() { return direct != null && wrapper != null && wrapper.returned(); }
+        boolean payloadMatched() { return fields != null && fields.payloadMatched(); }
+        boolean metadataCandidatesPresent() { return fields != null && fields.metadataCandidatesPresent(); }
 
         Map<String, Object> toMap() {
             Map<String, Object> value = new LinkedHashMap<>();
@@ -795,7 +745,7 @@ public final class SoundWrapperObservationChild {
             }
             if (wrapper != null) value.put("wrapper", wrapper.toMap(fixture.id()));
             if (fields != null) value.put("returnedObject", fields.toMap());
-            value.put("wrapperReturned", wrapperReturned());
+            value.put("wrapperReturned", observed());
             value.put("payloadMatched", payloadMatched());
             value.put("metadataCandidatesPresent", metadataCandidatesPresent());
             value.put("activationEligible", false);
