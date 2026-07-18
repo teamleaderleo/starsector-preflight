@@ -30,6 +30,12 @@ import java.util.stream.Stream;
  * start the evidence child directly. No game file is edited and no optimization is enabled.</p>
  */
 public final class SoundWrapperObservationRuntimeLauncher {
+    private static final String CHILD_LAUNCH_PROFILE = "starsector-bytecode-verification-disabled-v1";
+    private static final List<String> CHILD_JVM_OPTIONS = List.of(
+            "-noverify",
+            "-XX:+UnlockDiagnosticVMOptions",
+            "-XX:-BytecodeVerificationLocal",
+            "-XX:-BytecodeVerificationRemote");
     private static final int MAX_RUNTIME_CANDIDATES = 64;
     private static final int MAX_CHILD_OUTPUT_BYTES = 1 * 1024 * 1024;
     private static final long MAX_REPORT_BYTES = 2L * 1024 * 1024;
@@ -80,6 +86,7 @@ public final class SoundWrapperObservationRuntimeLauncher {
 
         List<String> command = new ArrayList<>();
         command.add(java.executable().toString());
+        command.addAll(CHILD_JVM_OPTIONS);
         command.add("-cp");
         command.add(String.join(
                 System.getProperty("path.separator"),
@@ -218,6 +225,9 @@ public final class SoundWrapperObservationRuntimeLauncher {
         values.put("childJavaExecutableSha256", evidence.executableSha256());
         values.put("childJavaVersionOutputLength", evidence.versionOutputLength());
         values.put("childJavaVersionOutputSha256", evidence.versionOutputSha256());
+        values.put("childLaunchProfile", CHILD_LAUNCH_PROFILE);
+        values.put("childLaunchJvmOptions", CHILD_JVM_OPTIONS);
+        values.put("childBytecodeVerificationDisabled", true);
         for (String key : values.keySet()) {
             if (original.contains("\"" + key + "\"")) {
                 throw new IOException("Sound-wrapper report already contains reserved runtime key: " + key);
@@ -262,7 +272,11 @@ public final class SoundWrapperObservationRuntimeLauncher {
     }
 
     private static String versionOutput(Path java) throws IOException {
-        Process process = new ProcessBuilder(java.toString(), "-version")
+        List<String> command = new ArrayList<>();
+        command.add(java.toString());
+        command.addAll(CHILD_JVM_OPTIONS);
+        command.add("-version");
+        Process process = new ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .start();
         ByteArrayOutputStream output = new ByteArrayOutputStream();

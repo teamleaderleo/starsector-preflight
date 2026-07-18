@@ -75,10 +75,17 @@ class SoundWrapperObservationRuntimeLauncherIT {
         assertEquals(2, invocations.stream().filter("CALL"::equals).count(), invocations.toString());
         assertEquals(1, invocations.stream().filter("-version"::equals).count(), invocations.toString());
         assertEquals(1, invocations.stream().filter("-cp"::equals).count(), invocations.toString());
+        assertEquals(2, invocations.stream().filter("-noverify"::equals).count(), invocations.toString());
+        assertEquals(2, invocations.stream().filter("-XX:+UnlockDiagnosticVMOptions"::equals).count(), invocations.toString());
+        assertEquals(2, invocations.stream().filter("-XX:-BytecodeVerificationLocal"::equals).count(), invocations.toString());
+        assertEquals(2, invocations.stream().filter("-XX:-BytecodeVerificationRemote"::equals).count(), invocations.toString());
         assertFalse(invocations.contains("-jar"), invocations.toString());
         assertFalse(invocations.contains("audio"), invocations.toString());
         assertTrue(invocations.contains(SoundWrapperObservationChild.class.getName()), invocations.toString());
         int classpathIndex = invocations.indexOf("-cp") + 1;
+        int childCallIndex = invocations.lastIndexOf("CALL");
+        assertEquals("-noverify", invocations.get(childCallIndex + 1));
+        assertTrue(childCallIndex < classpathIndex, invocations.toString());
         String firstClasspathEntry = invocations.get(classpathIndex).split(
                 java.util.regex.Pattern.quote(System.getProperty("path.separator")), -1)[0];
         assertEquals(application.toString(), firstClasspathEntry);
@@ -88,6 +95,8 @@ class SoundWrapperObservationRuntimeLauncherIT {
         assertTrue(json.contains("\"childJavaExecutable\":\"" + selected.toAbsolutePath().normalize() + "\""), json);
         assertTrue(json.contains("\"childJavaSelectionSource\":\"bundled-auto\""), json);
         assertTrue(json.contains("\"childJavaExecutableSha256\":\"" + Hashes.sha256(selected) + "\""), json);
+        assertTrue(json.contains("\"childLaunchProfile\":\"starsector-bytecode-verification-disabled-v1\""), json);
+        assertTrue(json.contains("\"childBytecodeVerificationDisabled\":true"), json);
         assertTrue(json.contains("\"preparedAudioReadsEnabled\":false"), json);
         assertTrue(json.contains("\"preparedAudioWritesEnabled\":false"), json);
         assertTrue(json.contains("\"cacheReadsEnabled\":false"), json);
@@ -104,8 +113,10 @@ class SoundWrapperObservationRuntimeLauncherIT {
             int childExit) {
         return "#!/bin/sh\n"
                 + "printf '%s\\n' CALL >> " + quote(invocationLog) + "\n"
+                + "version=false\n"
                 + "for argument in \"$@\"; do printf '%s\\n' \"$argument\" >> " + quote(invocationLog) + "; done\n"
-                + "if [ \"$1\" = '-version' ]; then\n"
+                + "for argument in \"$@\"; do if [ \"$argument\" = '-version' ]; then version=true; fi; done\n"
+                + "if [ \"$version\" = true ]; then\n"
                 + "  printf '%s\\n' 'synthetic Starsector Java 17'\n"
                 + "  exit 0\n"
                 + "fi\n"
