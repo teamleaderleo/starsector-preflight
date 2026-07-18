@@ -101,9 +101,15 @@ public final class SoundWrapperObservationRuntimeLauncher {
     }
 
     static JavaSelection selectJava(Path game, Path explicitJava) throws IOException {
+        return selectJava(game, explicitJava, SoundWrapperObservationRuntimeLauncher::versionOutput);
+    }
+
+    static JavaSelection selectJava(Path game, Path explicitJava, JavaProbe probe) throws IOException {
         Path root = exactDirectory(game, "Starsector installation");
         if (explicitJava != null) {
-            return new JavaSelection(exactJava(explicitJava), "explicit");
+            Path selected = exactJava(explicitJava);
+            probe.probe(selected);
+            return new JavaSelection(selected, "explicit");
         }
 
         Set<Path> candidates = new LinkedHashSet<>();
@@ -148,13 +154,24 @@ public final class SoundWrapperObservationRuntimeLauncher {
                     + ". Pass --java <path-to-game-java> explicitly.");
         }
 
-        Path selected = candidates.stream()
+        List<Path> ordered = candidates.stream()
                 .sorted(Comparator.comparingInt(SoundWrapperObservationRuntimeLauncher::runtimeScore)
                         .reversed()
                         .thenComparing(Path::toString))
-                .findFirst()
-                .orElseThrow();
-        return new JavaSelection(selected, "bundled-auto");
+                .toList();
+        IOException lastFailure = null;
+        for (Path candidate : ordered) {
+            try {
+                probe.probe(candidate);
+                return new JavaSelection(candidate, "bundled-auto");
+            } catch (IOException failure) {
+                lastFailure = failure;
+            }
+        }
+        throw new IOException(
+                "Could not launch any of " + ordered.size() + " bundled Java candidates under " + root
+                        + ". Pass --java <path-to-game-java> explicitly.",
+                lastFailure);
     }
 
     static void mergeRuntimeEvidence(Path report, RuntimeEvidence evidence) throws IOException {
@@ -280,6 +297,11 @@ public final class SoundWrapperObservationRuntimeLauncher {
 
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    @FunctionalInterface
+    interface JavaProbe {
+        String probe(Path java) throws IOException;
     }
 
     record JavaSelection(Path executable, String source) {
