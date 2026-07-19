@@ -1,0 +1,79 @@
+package dev.starsector.preflight.cli;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.starsector.preflight.core.Hashes;
+import dev.starsector.preflight.core.ResourceIndex;
+import dev.starsector.preflight.core.ResourceIndexIO;
+import dev.starsector.preflight.core.TextureManifest;
+import dev.starsector.preflight.core.TextureManifestIO;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class CurrentTextureCacheTest {
+    @TempDir
+    Path temporaryDirectory;
+
+    @Test
+    void resolvesAndHashesOnlyTheExactCurrentProfileArtifacts() throws Exception {
+        Fixture fixture = fixture();
+
+        CurrentTextureCache.Resolution resolution = CurrentTextureCache.resolve(fixture.game(), fixture.cache());
+
+        assertEquals(fixture.index().toRealPath(), resolution.index());
+        assertEquals(fixture.manifest().toRealPath(), resolution.manifest());
+        assertEquals(fixture.profile(), resolution.profileFingerprint());
+        assertEquals(Hashes.sha256(fixture.index()), resolution.indexSha256());
+        assertEquals(Hashes.sha256(fixture.manifest()), resolution.manifestSha256());
+        assertEquals(1L, resolution.checkedProviders());
+        assertTrue(resolution.indexBuildMillis() >= 0);
+    }
+
+    @Test
+    void changedCurrentProfileFailsClosedInsteadOfSelectingAnOlderCache() throws Exception {
+        Fixture fixture = fixture();
+        Files.writeString(fixture.source(), "changed-size");
+
+        IOException error = assertThrows(
+                IOException.class,
+                () -> CurrentTextureCache.resolve(fixture.game(), fixture.cache()));
+
+        assertTrue(error.getMessage().contains("No prepared texture index matches"), error.getMessage());
+    }
+
+    private Fixture fixture() throws Exception {
+        Path game = temporaryDirectory.resolve("Starsector.app");
+        Path core = game.resolve("starsector-core");
+        Path mods = game.resolve("mods");
+        Path source = core.resolve("graphics/test.png");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(mods);
+        Files.writeString(source, "texture");
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[]}");
+
+        ResourceIndex current = ResourceIndexBuilder.build(game).index();
+        Path cache = temporaryDirectory.resolve("cache");
+        Path index = cache.resolve("resource-indexes")
+                .resolve(current.profileFingerprint() + ".spfi");
+        Path manifest = cache.resolve("manifests")
+                .resolve(current.profileFingerprint() + ".spfm");
+        ResourceIndexIO.write(index, current);
+        TextureManifestIO.write(manifest, new TextureManifest(current.profileFingerprint(), Map.of()));
+        return new Fixture(game, cache, source, index, manifest, current.profileFingerprint());
+    }
+
+    private record Fixture(
+            Path game,
+            Path cache,
+            Path source,
+            Path index,
+            Path manifest,
+            String profile) {
+    }
+}

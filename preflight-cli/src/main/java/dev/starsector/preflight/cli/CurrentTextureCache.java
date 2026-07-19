@@ -1,0 +1,104 @@
+package dev.starsector.preflight.cli;
+
+import dev.starsector.preflight.core.Hashes;
+import dev.starsector.preflight.core.ResourceIndex;
+import dev.starsector.preflight.core.ResourceIndexIO;
+import dev.starsector.preflight.core.ResourceIndexValidator;
+import dev.starsector.preflight.core.TextureManifest;
+import dev.starsector.preflight.core.TextureManifestIO;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/** Resolves only an exact, already-prepared texture cache for the current installed profile. */
+final class CurrentTextureCache {
+    private CurrentTextureCache() {
+    }
+
+    static Resolution resolve(Path installRoot, Path requestedCache) throws IOException {
+        Path cache = (requestedCache == null ? PrepareCommand.defaultCacheDirectory() : requestedCache)
+                .toAbsolutePath()
+                .normalize();
+        if (!Files.isDirectory(cache)) {
+            throw new IOException("Texture cache directory does not exist: " + cache
+                    + ". Run `preflight prepare` first.");
+        }
+        Path realCache = cache.toRealPath();
+        ResourceIndexBuilder.BuildResult currentBuild = ResourceIndexBuilder.build(installRoot);
+        ResourceIndex current = currentBuild.index();
+        String fingerprint = current.profileFingerprint();
+        if (currentBuild.diagnostics().stream()
+                .anyMatch(value -> value.startsWith("Enabled mod directory not found for ID:"))) {
+            throw new IOException("The enabled-mod profile contains missing mod directories; prepare and launch "
+                    + "only after the profile is internally consistent");
+        }
+
+        Path index = firstArtifact(realCache, fingerprint + ".spfi", List.of("resource-indexes", "indexes"));
+        Path manifest = artifact(realCache, realCache.resolve("manifests").resolve(fingerprint + ".spfm"));
+        ResourceIndex stored = ResourceIndexIO.read(index);
+        TextureManifest prepared = TextureManifestIO.read(manifest);
+
+        if (!fingerprint.equals(stored.profileFingerprint())
+                || !fingerprint.equals(prepared.profileFingerprint())) {
+            throw new IOException("Prepared texture artifacts do not match the current profile fingerprint "
+                    + fingerprint);
+        }
+        if (stored.entryCount() > 100_000
+                || stored.providerCount() > 500_000
+                || prepared.entryCount() > 100_000) {
+            throw new IOException("Prepared texture artifacts exceed the live adapter safety limits");
+        }
+        if (!stored.roots().equals(current.roots()) || !stored.entries().equals(current.entries())) {
+            throw new IOException("Prepared texture index does not exactly describe the selected installation");
+        }
+        ResourceIndexValidator.Result validation = ResourceIndexValidator.validate(stored);
+        if (!validation.valid()) {
+            throw new IOException("Prepared texture index is stale: " + validation.invalidProviders()
+                    + " provider entries differ from disk");
+        }
+        return new Resolution(
+                realCache,
+                manifest,
+                index,
+                fingerprint,
+                Hashes.sha256(manifest),
+                Hashes.sha256(index),
+                validation.checkedProviders(),
+                currentBuild.durationMillis());
+    }
+
+    private static Path firstArtifact(Path cache, String fileName, List<String> directories) throws IOException {
+        for (String directory : directories) {
+            Path candidate = cache.resolve(directory).resolve(fileName);
+            if (Files.isRegularFile(candidate)) {
+                return artifact(cache, candidate);
+            }
+        }
+        throw new IOException("No prepared texture index matches the current profile: " + fileName
+                + ". Run `preflight prepare` first.");
+    }
+
+    private static Path artifact(Path cache, Path candidate) throws IOException {
+        if (!Files.isRegularFile(candidate)) {
+            throw new IOException("Prepared texture artifact does not exist: " + candidate
+                    + ". Run `preflight prepare` first.");
+        }
+        Path real = candidate.toRealPath();
+        if (!real.startsWith(cache) || !Files.isRegularFile(real)) {
+            throw new IOException("Prepared texture artifact escapes the cache directory: " + candidate);
+        }
+        return real;
+    }
+
+    record Resolution(
+            Path cacheDirectory,
+            Path manifest,
+            Path index,
+            String profileFingerprint,
+            String manifestSha256,
+            String indexSha256,
+            long checkedProviders,
+            double indexBuildMillis) {
+    }
+}

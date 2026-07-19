@@ -391,7 +391,7 @@ final class PrepareCommand {
         }
     }
 
-    private static Path defaultCacheDirectory() {
+    static Path defaultCacheDirectory() {
         return Path.of(System.getProperty("user.home"), ".starsector-preflight", "cache");
     }
 

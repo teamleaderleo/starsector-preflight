@@ -19,6 +19,7 @@ public final class TexturePreparedPixelRuntime {
     private static final Object LOCK = new Object();
     private static final IdentityHashMap<ByteBuffer, Integer> ACTIVE = new IdentityHashMap<>();
     private static final Telemetry TELEMETRY = new Telemetry();
+    private static volatile boolean selected;
     private static long activeBytes;
     private static long peakBytes;
     private static int pendingBuffers;
@@ -27,6 +28,7 @@ public final class TexturePreparedPixelRuntime {
     }
 
     static void beginSession() {
+        selected = false;
         synchronized (LOCK) {
             ACTIVE.clear();
             activeBytes = 0;
@@ -36,12 +38,19 @@ public final class TexturePreparedPixelRuntime {
         TELEMETRY.reset();
     }
 
+    static void select(TextureAdapterMode mode) {
+        selected = mode == TextureAdapterMode.PREPARED_PIXELS;
+    }
+
     static boolean ready() {
-        return TextureCompatibilityRuntime.ready();
+        return selected && TextureCompatibilityRuntime.ready();
     }
 
     /** Returns a lightweight prepared-texture carrier, or {@code null} for original decode fallback. */
     public static BufferedImage load(String logicalPath) {
+        if (!ready()) {
+            return null;
+        }
         PreparedTexture texture = TextureCompatibilityRuntime.lookup(logicalPath);
         if (texture == null) {
             return null;

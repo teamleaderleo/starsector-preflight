@@ -34,6 +34,7 @@ final class RunCommand {
             printDiscovery(discovery);
             return 3;
         }
+        TextureLaunchContext textureContext = textureContext(options, target);
 
         Path runDirectory = options.traceDirectory() == null
                 ? home.resolve(".starsector-preflight").resolve("runs").resolve(RUN_ID.format(Instant.now()))
@@ -52,14 +53,14 @@ final class RunCommand {
                 options.adapterMode(),
                 adapterReport,
                 options.adapterTargets(),
-                options.textureCacheDirectory(),
-                options.textureManifest(),
-                options.textureIndex(),
+                textureContext == null ? null : textureContext.cacheDirectory(),
+                textureContext == null ? null : textureContext.manifest(),
+                textureContext == null ? null : textureContext.index(),
                 options.textureAdapterMode());
 
         List<String> command = new ArrayList<>(target.command());
         command.addAll(options.forwardedArgs());
-        printPlan(target, runDirectory, adapterReport, command, javaToolOptions, discovery, options);
+        printPlan(target, runDirectory, adapterReport, command, javaToolOptions, discovery, options, textureContext);
         if (options.dryRun()) {
             return 0;
         }
@@ -81,7 +82,7 @@ final class RunCommand {
         StarsectorRunLogEvidence.Snapshot logSnapshot = StarsectorRunLogEvidence.snapshot(target.installRoot());
         writeMetadata(
                 metadata, target, command, started, null, null, null, "RUNNING", null,
-                recordedProfile, options, adapterReport, adapterAnalysis);
+                recordedProfile, options, textureContext, adapterReport, adapterAnalysis);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(target.workingDirectory().toFile());
@@ -123,7 +124,7 @@ final class RunCommand {
 
         writeMetadata(
                 metadata, target, command, started, ended, exitCode, launcherExitCode, outcome,
-                lifecycleEvidence, recordedProfile, options, adapterReport, adapterAnalysis);
+                lifecycleEvidence, recordedProfile, options, textureContext, adapterReport, adapterAnalysis);
         return exitCode;
     }
 
@@ -146,7 +147,8 @@ final class RunCommand {
             List<String> command,
             String javaToolOptions,
             DiscoveryResult discovery,
-            CommandLine options) {
+            CommandLine options,
+            TextureLaunchContext textureContext) {
         System.out.println("Preflight selected:");
         System.out.println("  install:  " + target.installRoot());
         System.out.println("  launcher: " + target.launcher());
@@ -157,11 +159,15 @@ final class RunCommand {
         if (options.adapterTargets() != null) {
             System.out.println("  adapter targets: " + options.adapterTargets().toAbsolutePath().normalize());
         }
-        if (options.textureManifest() != null) {
+        if (textureContext != null) {
             System.out.println("  texture mode: " + options.textureAdapterMode());
-            System.out.println("  texture cache: " + options.textureCacheDirectory().toAbsolutePath().normalize());
-            System.out.println("  texture manifest: " + options.textureManifest().toAbsolutePath().normalize());
-            System.out.println("  texture index: " + options.textureIndex().toAbsolutePath().normalize());
+            System.out.println("  texture artifacts: " + (textureContext.automatic() ? "CURRENT_PROFILE_AUTO" : "EXPLICIT"));
+            System.out.println("  texture cache: " + textureContext.cacheDirectory());
+            System.out.println("  texture manifest: " + textureContext.manifest());
+            System.out.println("  texture index: " + textureContext.index());
+            if (textureContext.profileFingerprint() != null) {
+                System.out.println("  texture profile: " + textureContext.profileFingerprint());
+            }
         }
         System.out.println("  command:  " + renderCommand(command));
         System.out.println("  JAVA_TOOL_OPTIONS: " + javaToolOptions);
@@ -215,6 +221,7 @@ final class RunCommand {
             StarsectorRunLogEvidence.Evidence lifecycleEvidence,
             Path profile,
             CommandLine options,
+            TextureLaunchContext textureContext,
             Path adapterReport,
             Path adapterAnalysis) throws IOException {
         Map<String, Object> values = new LinkedHashMap<>();
@@ -236,11 +243,60 @@ final class RunCommand {
         values.put("adapterAnalysis", Files.isRegularFile(adapterAnalysis) ? adapterAnalysis : null);
         values.put("adapterTargets", options.adapterTargets());
         values.put("textureAdapterMode", options.textureAdapterMode());
-        values.put("textureCacheDirectory", options.textureCacheDirectory());
-        values.put("textureManifest", options.textureManifest());
-        values.put("textureIndex", options.textureIndex());
+        values.put("textureAuto", options.textureAuto());
+        values.put("textureCacheDirectory", textureContext == null ? null : textureContext.cacheDirectory());
+        values.put("textureManifest", textureContext == null ? null : textureContext.manifest());
+        values.put("textureIndex", textureContext == null ? null : textureContext.index());
+        values.put("textureProfileFingerprint", textureContext == null ? null : textureContext.profileFingerprint());
+        values.put("textureManifestSha256", textureContext == null ? null : textureContext.manifestSha256());
+        values.put("textureIndexSha256", textureContext == null ? null : textureContext.indexSha256());
+        values.put("textureIndexCheckedProviders", textureContext == null ? null : textureContext.checkedProviders());
+        values.put("textureCurrentIndexBuildMs", textureContext == null ? null : textureContext.indexBuildMillis());
         values.put("adapterKillSwitchProperty", "preflight.adapter.disabled");
         values.put("adapterKillSwitchEnvironment", "PREFLIGHT_DISABLE_ADAPTER");
         Files.writeString(path, Json.object(values) + System.lineSeparator());
+    }
+
+    private static TextureLaunchContext textureContext(CommandLine options, LaunchTarget target) throws IOException {
+        if (options.textureAuto()) {
+            System.out.println("Preflight is matching prepared textures to the current installed profile...");
+            CurrentTextureCache.Resolution resolved = CurrentTextureCache.resolve(
+                    target.installRoot(), options.textureCacheDirectory());
+            return new TextureLaunchContext(
+                    resolved.cacheDirectory(),
+                    resolved.manifest(),
+                    resolved.index(),
+                    true,
+                    resolved.profileFingerprint(),
+                    resolved.manifestSha256(),
+                    resolved.indexSha256(),
+                    resolved.checkedProviders(),
+                    resolved.indexBuildMillis());
+        }
+        if (options.textureManifest() == null) {
+            return null;
+        }
+        return new TextureLaunchContext(
+                options.textureCacheDirectory().toAbsolutePath().normalize(),
+                options.textureManifest().toAbsolutePath().normalize(),
+                options.textureIndex().toAbsolutePath().normalize(),
+                false,
+                null,
+                null,
+                null,
+                0,
+                0);
+    }
+
+    private record TextureLaunchContext(
+            Path cacheDirectory,
+            Path manifest,
+            Path index,
+            boolean automatic,
+            String profileFingerprint,
+            String manifestSha256,
+            String indexSha256,
+            long checkedProviders,
+            double indexBuildMillis) {
     }
 }

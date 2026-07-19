@@ -1,6 +1,7 @@
 package dev.starsector.preflight.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -9,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -60,6 +62,47 @@ class RunCommandIT {
         assertEquals("COMPLETED", report.get("outcome"));
     }
 
+    @Test
+    void automaticTextureLaunchPassesExactCurrentArtifactsToTheRealLauncher() throws Exception {
+        Path game = temporaryDirectory.resolve("Auto Texture Starsector");
+        Path source = game.resolve("starsector-core/graphics/test.png");
+        Path mods = game.resolve("mods");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(mods);
+        Files.writeString(source, "texture");
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[]}");
+        Path launcher = fakeLauncher(game, false);
+
+        var current = ResourceIndexBuilder.build(game).index();
+        Path cache = temporaryDirectory.resolve("auto-texture-cache");
+        Path index = cache.resolve("resource-indexes/" + current.profileFingerprint() + ".spfi");
+        Path manifest = cache.resolve("manifests/" + current.profileFingerprint() + ".spfm");
+        dev.starsector.preflight.core.ResourceIndexIO.write(index, current);
+        dev.starsector.preflight.core.TextureManifestIO.write(
+                manifest,
+                new dev.starsector.preflight.core.TextureManifest(current.profileFingerprint(), Map.of()));
+        Path trace = temporaryDirectory.resolve("auto-texture-trace");
+
+        ProcessResult result = run(game, launcher, trace, List.of(
+                "--adapter", "--texture-auto", "--texture-cache-dir", cache.toString()));
+
+        assertTrue(result.completed(), result.output());
+        assertEquals(0, result.exitCode(), result.output());
+        Map<String, Object> report = StrictJson.object(Files.readString(trace.resolve("run.json")));
+        assertEquals(Boolean.TRUE, report.get("textureAuto"));
+        assertEquals(current.profileFingerprint(), report.get("textureProfileFingerprint"));
+        assertEquals(cache.toRealPath().toString(), report.get("textureCacheDirectory"));
+        assertEquals(manifest.toRealPath().toString(), report.get("textureManifest"));
+        assertEquals(index.toRealPath().toString(), report.get("textureIndex"));
+        assertEquals("ENABLED", report.get("adapterMode"));
+        String injected = Files.readString(game.resolve("java-tool-options.txt"));
+        assertTrue(injected.contains("textureCache64=" + encoded(cache.toRealPath())), injected);
+        assertTrue(injected.contains("textureManifest64=" + encoded(manifest.toRealPath())), injected);
+        assertTrue(injected.contains("textureIndex64=" + encoded(index.toRealPath())), injected);
+        assertTrue(injected.contains("textureMode=compatibility"), injected);
+        assertFalse(injected.contains("prepared-pixels"), injected);
+    }
+
     private static Path fakeLauncher(Path game, boolean fatal) throws Exception {
         boolean windows = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win");
         String line = fatal
@@ -69,11 +112,13 @@ class RunCommandIT {
         Path launcher = game.resolve(windows ? "starsector.bat" : "starsector.sh");
         if (windows) {
             Files.writeString(launcher, "@echo off\r\n"
+                    + "> \"%~dp0java-tool-options.txt\" echo %JAVA_TOOL_OPTIONS%\r\n"
                     + "> \"%~dp0logs\\starsector.log\" echo " + line + "\r\n"
                     + (fatal ? ">> \"%~dp0logs\\starsector.log\" echo     " + frame + "\r\n" : "")
                     + "exit /b 0\r\n");
         } else {
             Files.writeString(launcher, "#!/bin/sh\n"
+                    + "printf '%s\\n' \"$JAVA_TOOL_OPTIONS\" > java-tool-options.txt\n"
                     + "printf '%s\\n' '" + line + "' > logs/starsector.log\n"
                     + (fatal ? "printf '%s\\n' '    " + frame + "' >> logs/starsector.log\n" : "")
                     + "exit 0\n");
@@ -82,6 +127,11 @@ class RunCommandIT {
     }
 
     private static ProcessResult run(Path game, Path launcher, Path trace) throws Exception {
+        return run(game, launcher, trace, List.of("--no-adapter"));
+    }
+
+    private static ProcessResult run(Path game, Path launcher, Path trace, List<String> adapterArguments)
+            throws Exception {
         boolean windows = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win");
         Path java = Path.of(System.getProperty("java.home"), "bin", windows ? "java.exe" : "java");
         Path jar = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
@@ -94,8 +144,8 @@ class RunCommandIT {
                 "--launcher", launcher.toString(),
                 "--trace-dir", trace.toString(),
                 "--no-scan",
-                "--no-summary",
-                "--no-adapter"));
+                "--no-summary"));
+        command.addAll(adapterArguments);
         Process process = new ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .start();
@@ -106,6 +156,12 @@ class RunCommandIT {
         }
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         return new ProcessResult(completed, process.exitValue(), output);
+    }
+
+    private static String encoded(Path path) {
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(path.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     private record ProcessResult(boolean completed, int exitCode, String output) {

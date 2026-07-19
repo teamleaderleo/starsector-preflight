@@ -152,6 +152,8 @@ Both live consumers use the exact-reviewed `TextureLoader` class, archive, metho
 
 Both version-2 plans preserve the original `com.fs.graphics.L.class(String)` asynchronous preloader handoff before any Preflight lookup. A preloaded image always wins. Preflight is consulted only on the original direct-decode branch after that handoff returns `null`; an absent or ambiguous handoff leaves the class untouched.
 
+Compatibility mode may also use `run --adapter --texture-auto` to resolve the already-prepared manifest and index for the exact current installed profile. This convenience mode remains explicit and read-only; it does not support `prepared-pixels` and fails before launch when the cache is absent or stale.
+
 Compatibility-v2 matches the exact installed class bytes. Prepared-pixels-v2 currently declines those bytes at its color-sink matcher, so the lower path remains fail-closed despite passing repository-owned synthetic tests. It must not be treated as live-ready until its fixture models the installed `TextureLoader` fields and subsequent texture-object setter calls.
 
 Launch the lower consumer with explicit artifacts:

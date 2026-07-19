@@ -33,6 +33,15 @@ class CommandLineAdapterTest {
         assertEquals(Path.of("cache"), enabled.textureCacheDirectory());
         assertEquals(Path.of("cache/manifests/profile.spfm"), enabled.textureManifest());
         assertEquals(Path.of("cache/indexes/profile.spfi"), enabled.textureIndex());
+
+        CommandLine automatic = CommandLine.parse(new String[] {
+                "run", "--adapter", "--texture-auto", "--texture-cache-dir", "cache"
+        }, 1);
+        assertEquals(true, automatic.textureAuto());
+        assertEquals(TextureAdapterMode.COMPATIBILITY, automatic.textureAdapterMode());
+        assertEquals(Path.of("cache"), automatic.textureCacheDirectory());
+        assertEquals(null, automatic.textureManifest());
+        assertEquals(null, automatic.textureIndex());
     }
 
     @Test
@@ -71,5 +80,18 @@ class CommandLineAdapterTest {
                 () -> CommandLine.parse(new String[] {
                         "run", "--texture-mode", "prepared-pixels"
                 }, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {
+                        "run", "--adapter", "--texture-auto", "--texture-mode", "prepared-pixels"
+                }, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {
+                        "run", "--adapter", "--texture-auto", "--texture-manifest", "profile.spfm"
+                }, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandLine.parse(new String[] {"run", "--texture-auto"}, 1));
     }
 }

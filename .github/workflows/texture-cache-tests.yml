@@ -82,6 +82,6 @@ jobs:
         run: >-
           mvn --batch-mode --no-transfer-progress
           -pl preflight-cli -am
-          -Dtest=ResourceIndexBuilderTest,LookupEquivalenceTest,PrepareCommandTest,StarsectorRunLogEvidenceTest
+          -Dtest=ResourceIndexBuilderTest,LookupEquivalenceTest,PrepareCommandTest,CurrentTextureCacheTest,StarsectorRunLogEvidenceTest
           -Dsurefire.failIfNoSpecifiedTests=false
           test
