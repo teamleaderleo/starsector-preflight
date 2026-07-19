@@ -18,6 +18,7 @@ record CommandLine(
         Path textureCacheDirectory,
         Path textureManifest,
         Path textureIndex,
+        boolean textureAuto,
         TextureAdapterMode textureAdapterMode,
         List<String> forwardedArgs) {
     static CommandLine parse(String[] args, int offset) {
@@ -33,6 +34,7 @@ record CommandLine(
         Path textureCacheDirectory = null;
         Path textureManifest = null;
         Path textureIndex = null;
+        boolean textureAuto = false;
         TextureAdapterMode textureAdapterMode = TextureAdapterMode.COMPATIBILITY;
         boolean textureModeSpecified = false;
         List<String> forwarded = new ArrayList<>();
@@ -61,6 +63,7 @@ record CommandLine(
                 case "--texture-cache-dir" -> textureCacheDirectory = Path.of(requireValue(args, ++i, arg));
                 case "--texture-manifest" -> textureManifest = Path.of(requireValue(args, ++i, arg));
                 case "--texture-index" -> textureIndex = Path.of(requireValue(args, ++i, arg));
+                case "--texture-auto" -> textureAuto = true;
                 case "--texture-mode" -> {
                     textureAdapterMode = TextureAdapterMode.valueOf(
                             requireValue(args, ++i, arg).trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_'));
@@ -78,21 +81,27 @@ record CommandLine(
         if (adapterTargets != null && adapterMode == AdapterMode.OFF) {
             throw new IllegalArgumentException("--adapter-targets requires --adapter-probe or --adapter");
         }
-        int textureOptions = (textureCacheDirectory == null ? 0 : 1)
-                + (textureManifest == null ? 0 : 1)
-                + (textureIndex == null ? 0 : 1);
-        if (textureOptions != 0 && textureOptions != 3) {
+        int textureArtifacts = (textureManifest == null ? 0 : 1) + (textureIndex == null ? 0 : 1);
+        boolean manualTextureContext = textureCacheDirectory != null && textureArtifacts == 2;
+        if (!textureAuto && (textureCacheDirectory != null || textureArtifacts != 0) && !manualTextureContext) {
             throw new IllegalArgumentException(
                     "--texture-cache-dir, --texture-manifest, and --texture-index must be supplied together");
         }
-        if (textureOptions == 3 && adapterMode != AdapterMode.ENABLED) {
+        if (textureAuto && textureArtifacts != 0) {
+            throw new IllegalArgumentException(
+                    "--texture-auto resolves the manifest and index; do not supply either artifact path");
+        }
+        if ((manualTextureContext || textureAuto) && adapterMode != AdapterMode.ENABLED) {
             throw new IllegalArgumentException("Texture adapter options require --adapter");
         }
         if (textureModeSpecified && adapterMode != AdapterMode.ENABLED) {
             throw new IllegalArgumentException("--texture-mode requires --adapter");
         }
-        if (textureModeSpecified && textureOptions != 3) {
+        if (textureModeSpecified && !manualTextureContext && !textureAuto) {
             throw new IllegalArgumentException("--texture-mode requires the complete texture cache context");
+        }
+        if (textureAuto && textureAdapterMode != TextureAdapterMode.COMPATIBILITY) {
+            throw new IllegalArgumentException("--texture-auto currently supports only compatibility mode");
         }
         return new CommandLine(
                 game,
@@ -106,6 +115,7 @@ record CommandLine(
                 textureCacheDirectory,
                 textureManifest,
                 textureIndex,
+                textureAuto,
                 textureAdapterMode,
                 List.copyOf(forwarded));
     }

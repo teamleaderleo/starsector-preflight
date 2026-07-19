@@ -47,6 +47,12 @@ class TextureCompatibilityAgentIT {
         assertTrue(report.contains("\"transformationsApplied\":1"), report);
         assertTrue(report.contains("\"hits\":1"), report);
         assertTrue(report.contains("\"fallbacks\":0"), report);
+        Map<String, Object> values = StrictJson.object(report);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> compatibility = (Map<String, Object>) values.get("textureCompatibility");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> preparedPixels = (Map<String, Object>) compatibility.get("preparedPixels");
+        assertEquals(Boolean.FALSE, preparedPixels.get("ready"));
     }
 
     @Test

@@ -116,6 +116,18 @@ java -jar preflight.jar run \
 
 A valid hit reconstructs a compatible `BufferedImage` from the existing bottom-up SPFT pixel payload. Starsector continues through its original texture-object creation, pixel conversion, OpenGL upload, cleanup, and lifetime path.
 
+For a previously prepared full-profile cache, the explicit pilot can resolve the current exact artifacts without copying fingerprint paths into the command:
+
+```bash
+java -jar preflight.jar run \
+  --game "/path/to/Starsector.app" \
+  --adapter \
+  --texture-auto \
+  --texture-cache-dir "$HOME/.starsector-preflight/cache"
+```
+
+`--texture-auto` is compatibility-only. It rebuilds the current read-only resource identity, selects only matching fingerprint-named artifacts, compares the stored roots and provider map with the selected installation, fully validates provider metadata, and hashes the selected manifest and index into `run.json`. It does not build textures. A missing or changed profile fails before launch and asks for a new `preflight prepare`; it never falls back to an older cache.
+
 The `texture-compatibility-v2` plan preserves Starsector's asynchronous image-preloader handoff before consulting Preflight. A preloaded image remains authoritative and is returned without a cache lookup. Only when the original preloader returns `null` does Preflight attempt a prepared hit; a miss then continues into the original direct `ImageIO` branch in the same method. A missing or ambiguous preloader shape declines transformation. Original exceptions propagate unchanged.
 
 ## Prepared-pixel consumer

@@ -2,6 +2,7 @@ package dev.starsector.preflight.agent;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -38,6 +39,7 @@ class TexturePreparedPixelRuntimeTest {
         TexturePreparedPixelRuntime.beginSession();
         assertTrue(TextureCompatibilityRuntime.configure(
                 fixture.cache(), fixture.manifest(), fixture.index()));
+        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
 
         BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
         assertTrue(TexturePreparedPixelRuntime.isCarrier(carrier));
@@ -82,6 +84,27 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(2L, reportedPrepared.get("hits"));
         assertEquals(2L, reportedPrepared.get("conversionCallsBypassed"));
         assertEquals(0, reportedPrepared.get("activeBuffers"));
+    }
+
+    @Test
+    void compatibilitySelectionNeverReportsOrServesPreparedPixels() throws Exception {
+        Fixture fixture = fixture();
+        assertTrue(TextureCompatibilityRuntime.configure(
+                fixture.cache(), fixture.manifest(), fixture.index()));
+        TexturePreparedPixelRuntime.select(TextureAdapterMode.COMPATIBILITY);
+
+        assertFalse(TexturePreparedPixelRuntime.ready());
+        assertFalse(AdapterTransformationRegistry.hasPlan(TexturePreparedPixelRuntime.PLAN_ID));
+        assertEquals(null, TexturePreparedPixelRuntime.load("graphics/test.png"));
+        assertEquals(Boolean.FALSE, TexturePreparedPixelRuntime.telemetry().get("ready"));
+        assertEquals(0L, TextureCompatibilityRuntime.telemetry().get("attempts"));
+
+        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
+        assertTrue(TexturePreparedPixelRuntime.ready());
+        assertTrue(AdapterTransformationRegistry.hasPlan(TexturePreparedPixelRuntime.PLAN_ID));
+
+        TexturePreparedPixelRuntime.beginSession();
+        assertFalse(TexturePreparedPixelRuntime.ready());
     }
 
     private Fixture fixture() throws Exception {
