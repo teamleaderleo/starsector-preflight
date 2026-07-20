@@ -1,5 +1,6 @@
 package dev.starsector.preflight.agent;
 
+import dev.starsector.preflight.core.Json;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -184,7 +185,7 @@ final class SoundLoaderContractReport {
         root.put("diagnosticLimit", DIAGNOSTIC_LIMIT);
         root.put("diagnosticsTruncated", diagnosticsTruncated);
         root.put("diagnostics", List.copyOf(diagnostics));
-        writeAtomic(destination, AgentJson.object(root) + System.lineSeparator());
+        writeAtomic(destination, Json.object(root) + System.lineSeparator());
     }
 
     static String typedIdentityKey(

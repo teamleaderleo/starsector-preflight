@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
@@ -23,7 +24,13 @@ public final class PreflightCli {
                 System.exit(status);
             }
         } catch (Exception error) {
-            System.err.println("preflight: " + error.getMessage());
+            String message = error.getMessage();
+            System.err.println("preflight: " + (message == null || message.isBlank() ? error.toString() : message));
+            if ("1".equals(System.getenv("PREFLIGHT_DEBUG"))) {
+                error.printStackTrace();
+            } else if (!(error instanceof IllegalArgumentException)) {
+                System.err.println("preflight: set PREFLIGHT_DEBUG=1 for a full stack trace");
+            }
             System.exit(1);
         }
     }
@@ -33,8 +40,18 @@ public final class PreflightCli {
                 || "help".equals(args[0])
                 || "--help".equals(args[0])
                 || "-h".equals(args[0])) {
+            if (args.length >= 2 && "help".equals(args[0]) && USAGE.containsKey(args[1])) {
+                commandUsage(args[1], System.out);
+                return 0;
+            }
             usage();
             return args.length == 0 ? 2 : 0;
+        }
+        if (args.length == 2
+                && ("--help".equals(args[1]) || "-h".equals(args[1]))
+                && USAGE.containsKey(args[0])) {
+            commandUsage(args[0], System.out);
+            return 0;
         }
 
         return switch (args[0]) {
@@ -131,36 +148,65 @@ public final class PreflightCli {
         return 0;
     }
 
+    private static final Map<String, List<String>> USAGE = usageByCommand();
+
+    private static Map<String, List<String>> usageByCommand() {
+        Map<String, List<String>> usage = new LinkedHashMap<>();
+        usage.put("run", List.of(
+                "preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [--adapter-probe | --adapter | --no-adapter] [--adapter-targets <path>] [--texture-auto [--texture-cache-dir <path>] | --texture-cache-dir <path> --texture-manifest <path> --texture-index <path>] [--texture-mode compatibility|prepared-pixels] [-- <launcher args>]"));
+        usage.put("prepare", List.of(
+                "preflight prepare [--game <path>] [--launcher <path>] [--cache-dir <path>] [--report <path>] [--workers <count>] [--memory-mb <MiB>] [--deep] [--verify-lookups] [--lookup-queries <count>] [--seed <long>] [--no-resource-index] [--no-classpath] [--no-textures]"));
+        usage.put("doctor", List.of("preflight doctor [--game <path>] [--launcher <path>]"));
+        usage.put("install", List.of("preflight install [--game <path>] [--launcher <path>]"));
+        usage.put("scan", List.of("preflight scan [--game <path>] [--launcher <path>] [--json <profile.json>]"));
+        usage.put("index", List.of(
+                "preflight index build [--game <path>] [--launcher <path>] [--output <index.spfi>]",
+                "preflight index inspect <index.spfi>",
+                "preflight index query <index.spfi> <logical-path> [--all]",
+                "preflight index validate <index.spfi>"));
+        usage.put("texture", List.of(
+                "preflight texture prepare <image> [--output <texture.spft>]",
+                "preflight texture inspect <texture.spft>",
+                "preflight texture verify <image> <texture.spft>",
+                "preflight texture benchmark <image> <texture.spft> [--runs <count>]",
+                "preflight texture build [--game <path> | --index <index.spfi>] [--cache-dir <path>] [--workers <count>] [--memory-mb <MiB>]",
+                "preflight texture manifest inspect <manifest.spfm>",
+                "preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]",
+                "preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]"));
+        usage.put("audio", List.of(
+                "preflight audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]",
+                "preflight audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--java <game-java>] [--output <report.json>]"));
+        usage.put("classpath", List.of(
+                "preflight classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]",
+                "preflight classpath index build [--game <path>] [--launcher <path>] [--cache-dir <path>]",
+                "preflight classpath index inspect <profile.spfc>",
+                "preflight classpath index query <profile.spfc> <entry-name> [--all] [--cache-dir <path>]",
+                "preflight classpath index validate <profile.spfc> [--cache-dir <path>] [--deep]"));
+        usage.put("benchmark", List.of(
+                "preflight benchmark lookups [--resource-index <index.spfi>] [--classpath-index <profile.spfc>] [--queries <count>] [--seed <long>]"));
+        usage.put("analyze", List.of(
+                "preflight analyze probe <adapter.json> <summary.json> [--json <adapter-analysis.json>]"));
+        usage.put("fingerprint", List.of("preflight fingerprint <file-or-directory>"));
+        usage.put("summarize", List.of("preflight summarize <recording.jfr> [--json <report.json>]"));
+        return usage;
+    }
+
+    private static void commandUsage(String command, java.io.PrintStream output) {
+        output.println("Usage:");
+        for (String line : USAGE.get(command)) {
+            output.println("  " + line);
+        }
+    }
+
     private static void usage() {
         System.err.println("Usage:");
-        System.err.println("  preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [--adapter-probe | --adapter | --no-adapter] [--adapter-targets <path>] [--texture-auto [--texture-cache-dir <path>] | --texture-cache-dir <path> --texture-manifest <path> --texture-index <path>] [--texture-mode compatibility|prepared-pixels] [-- <launcher args>]");
-        System.err.println("  preflight prepare [--game <path>] [--launcher <path>] [--cache-dir <path>] [--report <path>] [--workers <count>] [--memory-mb <MiB>] [--deep] [--verify-lookups] [--lookup-queries <count>] [--seed <long>] [--no-resource-index] [--no-classpath] [--no-textures]");
-        System.err.println("  preflight doctor [--game <path>] [--launcher <path>]");
-        System.err.println("  preflight install [--game <path>] [--launcher <path>]");
-        System.err.println("  preflight scan [--game <path>] [--launcher <path>] [--json <profile.json>]");
-        System.err.println("  preflight index build [--game <path>] [--launcher <path>] [--output <index.spfi>]");
-        System.err.println("  preflight index inspect <index.spfi>");
-        System.err.println("  preflight index query <index.spfi> <logical-path> [--all]");
-        System.err.println("  preflight index validate <index.spfi>");
-        System.err.println("  preflight texture prepare <image> [--output <texture.spft>]");
-        System.err.println("  preflight texture inspect <texture.spft>");
-        System.err.println("  preflight texture verify <image> <texture.spft>");
-        System.err.println("  preflight texture benchmark <image> <texture.spft> [--runs <count>]");
-        System.err.println("  preflight texture build [--game <path> | --index <index.spfi>] [--cache-dir <path>] [--workers <count>] [--memory-mb <MiB>]");
-        System.err.println("  preflight texture manifest inspect <manifest.spfm>");
-        System.err.println("  preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]");
-        System.err.println("  preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]");
-        System.err.println("  preflight audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]");
-        System.err.println("  preflight audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--java <game-java>] [--output <report.json>]");
-        System.err.println("  preflight classpath audit [--game <path>] [--launcher <path>] [--json <report.json>]");
-        System.err.println("  preflight classpath index build [--game <path>] [--launcher <path>] [--cache-dir <path>]");
-        System.err.println("  preflight classpath index inspect <profile.spfc>");
-        System.err.println("  preflight classpath index query <profile.spfc> <entry-name> [--all] [--cache-dir <path>]");
-        System.err.println("  preflight classpath index validate <profile.spfc> [--cache-dir <path>] [--deep]");
-        System.err.println("  preflight benchmark lookups [--resource-index <index.spfi>] [--classpath-index <profile.spfc>] [--queries <count>] [--seed <long>]");
-        System.err.println("  preflight analyze probe <adapter.json> <summary.json> [--json <adapter-analysis.json>]");
-        System.err.println("  preflight fingerprint <file-or-directory>");
-        System.err.println("  preflight summarize <recording.jfr> [--json <report.json>]");
+        for (List<String> lines : USAGE.values()) {
+            for (String line : lines) {
+                System.err.println("  " + line);
+            }
+        }
+        System.err.println();
+        System.err.println("Run `preflight <command> --help` for one command's usage.");
     }
 
     @FunctionalInterface

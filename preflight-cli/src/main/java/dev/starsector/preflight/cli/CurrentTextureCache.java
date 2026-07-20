@@ -1,5 +1,6 @@
 package dev.starsector.preflight.cli;
 
+import dev.starsector.preflight.agent.TextureCompatibilityRuntime;
 import dev.starsector.preflight.core.Hashes;
 import dev.starsector.preflight.core.ResourceIndex;
 import dev.starsector.preflight.core.ResourceIndexIO;
@@ -44,9 +45,9 @@ final class CurrentTextureCache {
             throw new IOException("Prepared texture artifacts do not match the current profile fingerprint "
                     + fingerprint);
         }
-        if (stored.entryCount() > 100_000
-                || stored.providerCount() > 500_000
-                || prepared.entryCount() > 100_000) {
+        if (stored.entryCount() > TextureCompatibilityRuntime.MAX_MANIFEST_ENTRIES
+                || stored.providerCount() > TextureCompatibilityRuntime.MAX_INDEX_PROVIDERS
+                || prepared.entryCount() > TextureCompatibilityRuntime.MAX_MANIFEST_ENTRIES) {
             throw new IOException("Prepared texture artifacts exceed the live adapter safety limits");
         }
         if (!stored.roots().equals(current.roots()) || !stored.entries().equals(current.entries())) {

@@ -1,74 +1,102 @@
 package dev.starsector.preflight.core;
 
 import java.lang.reflect.Array;
-import java.util.Iterator;
+import java.nio.file.Path;
+import java.time.temporal.TemporalAccessor;
 import java.util.Map;
 
-/** Minimal JSON serialization for deterministic diagnostic output. */
+/**
+ * Minimal JSON serialization for deterministic diagnostic output.
+ *
+ * <p>This is the single JSON writer for every module, including report code running inside the
+ * launched game JVM, so it must stay dependency-free and bounded by its callers.
+ */
 public final class Json {
     private Json() {
     }
 
     public static String object(Map<String, ?> values) {
-        StringBuilder output = new StringBuilder("{");
-        Iterator<? extends Map.Entry<String, ?>> iterator = values.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, ?> entry = iterator.next();
-            output.append(quote(entry.getKey())).append(':').append(value(entry.getValue()));
-            if (iterator.hasNext()) {
-                output.append(',');
-            }
-        }
-        return output.append('}').toString();
+        StringBuilder output = new StringBuilder(1_024);
+        writeObject(output, values);
+        return output.toString();
     }
 
     public static String value(Object value) {
-        if (value == null) {
-            return "null";
-        }
-        if (value instanceof Number || value instanceof Boolean) {
-            return value.toString();
-        }
-        if (value instanceof CharSequence || value instanceof java.nio.file.Path
-                || value instanceof java.time.temporal.TemporalAccessor || value instanceof Enum<?>) {
-            return quote(value.toString());
-        }
-        if (value instanceof Map<?, ?> map) {
-            @SuppressWarnings("unchecked")
-            Map<String, ?> stringMap = (Map<String, ?>) map;
-            return object(stringMap);
-        }
-        if (value instanceof Iterable<?> iterable) {
-            return iterable(iterable);
-        }
-        if (value.getClass().isArray()) {
-            StringBuilder output = new StringBuilder("[");
-            int length = Array.getLength(value);
-            for (int i = 0; i < length; i++) {
-                if (i > 0) {
-                    output.append(',');
-                }
-                output.append(value(Array.get(value, i)));
-            }
-            return output.append(']').toString();
-        }
-        return quote(value.toString());
-    }
-
-    private static String iterable(Iterable<?> values) {
-        StringBuilder output = new StringBuilder("[");
-        Iterator<?> iterator = values.iterator();
-        while (iterator.hasNext()) {
-            output.append(value(iterator.next()));
-            if (iterator.hasNext()) {
-                output.append(',');
-            }
-        }
-        return output.append(']').toString();
+        StringBuilder output = new StringBuilder(64);
+        writeValue(output, value);
+        return output.toString();
     }
 
     public static String quote(String text) {
-        StringBuilder output = new StringBuilder(text.length() + 2).append('"');
+        StringBuilder output = new StringBuilder(text.length() + 2);
+        writeString(output, text);
+        return output.toString();
+    }
+
+    private static void writeValue(StringBuilder output, Object value) {
+        if (value == null) {
+            output.append("null");
+        } else if (value instanceof Number || value instanceof Boolean) {
+            output.append(value);
+        } else if (value instanceof CharSequence || value instanceof Path
+                || value instanceof TemporalAccessor || value instanceof Enum<?>) {
+            writeString(output, value.toString());
+        } else if (value instanceof Map<?, ?> map) {
+            writeObject(output, map);
+        } else if (value instanceof Iterable<?> iterable) {
+            writeIterable(output, iterable);
+        } else if (value.getClass().isArray()) {
+            writeArray(output, value);
+        } else {
+            writeString(output, value.toString());
+        }
+    }
+
+    private static void writeObject(StringBuilder output, Map<?, ?> values) {
+        output.append('{');
+        boolean first = true;
+        for (Map.Entry<?, ?> entry : values.entrySet()) {
+            if (!(entry.getKey() instanceof String key)) {
+                throw new IllegalArgumentException("JSON object keys must be strings");
+            }
+            if (!first) {
+                output.append(',');
+            }
+            first = false;
+            writeString(output, key);
+            output.append(':');
+            writeValue(output, entry.getValue());
+        }
+        output.append('}');
+    }
+
+    private static void writeIterable(StringBuilder output, Iterable<?> values) {
+        output.append('[');
+        boolean first = true;
+        for (Object value : values) {
+            if (!first) {
+                output.append(',');
+            }
+            first = false;
+            writeValue(output, value);
+        }
+        output.append(']');
+    }
+
+    private static void writeArray(StringBuilder output, Object array) {
+        output.append('[');
+        int length = Array.getLength(array);
+        for (int i = 0; i < length; i++) {
+            if (i > 0) {
+                output.append(',');
+            }
+            writeValue(output, Array.get(array, i));
+        }
+        output.append(']');
+    }
+
+    private static void writeString(StringBuilder output, String text) {
+        output.append('"');
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
             switch (c) {
@@ -80,7 +108,7 @@ public final class Json {
                 case '\r' -> output.append("\\r");
                 case '\t' -> output.append("\\t");
                 default -> {
-                    if (c < 0x20) {
+                    if (c < 0x20 || c == '\u2028' || c == '\u2029') {
                         output.append(String.format("\\u%04x", (int) c));
                     } else {
                         output.append(c);
@@ -88,6 +116,6 @@ public final class Json {
                 }
             }
         }
-        return output.append('"').toString();
+        output.append('"');
     }
 }

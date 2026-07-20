@@ -1,6 +1,7 @@
 package dev.starsector.preflight.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -10,6 +11,16 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class JsonTest {
+    @Test
+    void escapesControlAndLineSeparatorCharacters() {
+        assertEquals("\"a\\u0000b\\u2028c\\u2029d\\ne\"", Json.quote("a\u0000b\u2028c\u2029d\ne"));
+    }
+
+    @Test
+    void rejectsNonStringObjectKeys() {
+        assertThrows(IllegalArgumentException.class, () -> Json.value(Map.of(1, "one")));
+    }
+
     @Test
     void serializesNestedCollectionsAndScalarLikeTypes() {
         Path path = Path.of("mods", "alpha");
