@@ -1,5 +1,7 @@
 # Contributing
 
+By contributing you agree that your contributions are licensed under the repository's [MIT license](LICENSE).
+
 ## Development requirements
 
 - JDK 17
