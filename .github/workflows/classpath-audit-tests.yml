@@ -21,11 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+      - uses: ./.github/actions/setup-build-jdk
       - name: Run focused tests
         id: tests
         shell: bash

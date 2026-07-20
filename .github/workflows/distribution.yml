@@ -17,11 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+        uses: ./.github/actions/setup-build-jdk
 
       - name: Verify and package
         run: mvn --batch-mode --no-transfer-progress verify

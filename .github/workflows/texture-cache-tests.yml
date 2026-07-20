@@ -22,11 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+      - uses: ./.github/actions/setup-build-jdk
       - name: Compile and package
         run: mvn --batch-mode --no-transfer-progress -DskipTests package
 
@@ -51,11 +47,7 @@ jobs:
             tests: TextureBatchCommandTest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+      - uses: ./.github/actions/setup-build-jdk
       - name: Run focused suite
         run: >-
           mvn --batch-mode --no-transfer-progress
@@ -72,11 +64,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+      - uses: ./.github/actions/setup-build-jdk
       - name: Run macOS layout, filesystem identity, and preparation report tests
         shell: bash
         run: >-
