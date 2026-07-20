@@ -10,7 +10,7 @@ The July 2026 unified real-install runs completed the broad discovery gate for t
 - [Real texture preparation and compatibility pilot](evidence/2026-07-18-real-texture-preparation-and-compatibility-pilot.md) records the passing full-profile preparation, the title-screen renderer failure, and the bounded launcher-lifecycle reporting fix.
 - [Next LLM Implementation Handoff](next-llm-handoff.md) provides the concrete starting task, pinned identities, test requirements, and prohibited shortcuts for the next implementation session.
 
-The adapter-OFF control reached the main screen and exited normally. Source review then confirmed that compatibility-v1 bypassed Starsector's asynchronous image-preloader rendezvous; compatibility-v2 preserves that handoff and matches the exact installed bytes. The prepared-pixel prototype remains fail-closed because its synthetic color-sink model differs from the installed dataflow. The immediate sequence is compatibility-v2 review, full real-install compatibility acceptance, exact prepared-pixel dataflow repair, repeated OFF-versus-ENABLED texture measurement, resolution of the negative audio-equivalence evidence, and complete-key Janino reuse.
+The adapter-OFF control reached the main screen and exited normally. Source review then confirmed that compatibility-v1 bypassed Starsector's asynchronous image-preloader rendezvous; compatibility-v2 preserves that handoff and matches the exact installed bytes. Compatibility-v2 passed bounded real-install behavioral acceptance on 2026-07-19 — see [the acceptance evidence](evidence/2026-07-19-real-texture-compatibility-v2-acceptance.md). The prepared-pixel prototype remains fail-closed because its synthetic color-sink model differs from the installed dataflow. The immediate sequence is now repeated OFF-versus-ENABLED texture measurement, exact prepared-pixel dataflow repair, resolution of the negative audio-equivalence evidence, and complete-key Janino reuse.
 
 ## M0: Measurement foundation
 
@@ -66,3 +66,13 @@ Exit condition: representative source-heavy profiles compile once and safely reu
 - Evaluate selective lazy loading only when traces identify a narrow safe target
 
 Exit condition: prepared audio is byte-for-byte and metadata-equivalent, bounded, fail-open, and measurably reduces repeat-launch decoding work.
+
+## Milestone numbering in the issue tracker
+
+M0–M5 above are the original document milestones. Later work continued the numbering in the issue tracker rather than here:
+
+- M6 — synthetic production-cache workload proofs (PRs #67–#68).
+- M7 — self-contained real-install probe kits (PR #72).
+- M8 — exact real-install identity and equivalence gates before live reuse: issues #75 (audio), #77 (Janino), #78 (texture shape).
+- M9 — one exact-profile pre-launch build and launch context: issue #76.
+- M10 — repeated real OFF-versus-ENABLED startup benchmarks: issue #80.
