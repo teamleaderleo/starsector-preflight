@@ -44,6 +44,8 @@ class BenchmarkCampaignComparisonCommandTest {
         assertTrue(json.contains("\"primaryComparison\":{"), json);
         assertTrue(json.contains("\"baselineMode\":\"off-warm\""), json);
         assertTrue(json.contains("\"candidateMode\":\"enabled-warm-hit\""), json);
+        assertTrue(json.contains("\"campaignMinimumSuccessfulRunsPerMode\":5"), json);
+        assertTrue(json.contains("\"campaignMinimumMet\":false"), json);
         assertTrue(json.contains("\"baselineMedianMs\":11000.0"), json);
         assertTrue(json.contains("\"candidateMedianMs\":8500.0"), json);
         assertTrue(json.contains("\"deltaMs\":-2500.0"), json);
