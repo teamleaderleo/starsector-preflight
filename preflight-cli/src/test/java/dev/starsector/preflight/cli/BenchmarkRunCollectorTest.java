@@ -45,7 +45,8 @@ class BenchmarkRunCollectorTest {
         assertTrue(json.contains("\"scope\":\"jfr-recorded-process\""), json);
         assertTrue(json.contains("\"transformationsApplied\":1"), json);
         assertTrue(json.contains("\"hits\":4926"), json);
-        assertTrue(json.contains("\"sha256\":\"" + Hashes.sha256(fixture.runDirectory().resolve("run.json")) + "\""), json);
+        assertTrue(json.contains("\"sha256\":\""
+                + Hashes.sha256(fixture.runDirectory().resolve("run.json")) + "\""), json);
         assertTrue(json.contains("\"runId\":\"enabled-warm-hit-1\""), json);
     }
 
@@ -73,8 +74,9 @@ class BenchmarkRunCollectorTest {
                 missingAdapter.runDirectory(), missingAdapter.scenario()));
 
         Fixture incompleteRuntime = fixture(BenchmarkScenarioMode.OFF_WARM, "OFF", 0, PROFILE);
-        Map<String, Object> summary = summary(false);
-        Files.writeString(incompleteRuntime.runDirectory().resolve("summary.json"), Json.object(summary));
+        Files.writeString(
+                incompleteRuntime.runDirectory().resolve("summary.json"),
+                Json.object(summary(false)));
         assertThrows(IllegalArgumentException.class, () -> BenchmarkRunCollector.collect(
                 incompleteRuntime.runDirectory(), incompleteRuntime.scenario()));
     }
@@ -103,6 +105,21 @@ class BenchmarkRunCollectorTest {
                 fixture.runDirectory(), fixture.scenario()));
     }
 
+    @Test
+    void rejectsRunMetadataThatPointsAtDifferentEvidenceFiles() throws Exception {
+        Fixture fixture = fixture(BenchmarkScenarioMode.OFF_WARM, "OFF", 0, PROFILE);
+        Path otherProfile = temporaryDirectory.resolve("other-profile.json");
+        Files.writeString(otherProfile, Json.object(Map.of("profileFingerprint", PROFILE)));
+
+        Path runFile = fixture.runDirectory().resolve("run.json");
+        Map<String, Object> run = StrictJson.object(Files.readString(runFile));
+        run.put("profile", otherProfile.toAbsolutePath().normalize().toString());
+        Files.writeString(runFile, Json.object(run));
+
+        assertThrows(IllegalArgumentException.class, () -> BenchmarkRunCollector.collect(
+                fixture.runDirectory(), fixture.scenario()));
+    }
+
     private Fixture fixture(
             BenchmarkScenarioMode mode,
             String adapterMode,
@@ -110,6 +127,8 @@ class BenchmarkRunCollectorTest {
             String scenarioProfile) throws Exception {
         Path runDirectory = temporaryDirectory.resolve(mode + "-" + adapterMode + "-" + System.nanoTime());
         Files.createDirectories(runDirectory);
+        Path profilePath = runDirectory.resolve("profile.json").toAbsolutePath().normalize();
+        Path adapterPath = runDirectory.resolve("adapter.json").toAbsolutePath().normalize();
         Instant started = Instant.parse("2026-07-21T10:00:00Z");
         Instant ended = Instant.parse("2026-07-21T10:02:00Z");
 
@@ -121,7 +140,9 @@ class BenchmarkRunCollectorTest {
         run.put("outcome", exitCode == 0 ? "COMPLETED" : "LAUNCHER_EXIT_NONZERO");
         run.put("executionFailure", null);
         run.put("postprocessingFailures", List.of());
+        run.put("profile", profilePath);
         run.put("adapterMode", adapterMode);
+        run.put("adapterReport", adapterPath);
         run.put("runtimeIdentityScope", RunIdentity.SCOPE);
         run.put("preflightJarSha256", PREFLIGHT);
         run.put("wrapperRuntime", Map.of(
@@ -135,12 +156,12 @@ class BenchmarkRunCollectorTest {
         run.put("textureIndexSha256", INDEX);
         run.put("textureAuto", true);
         Files.writeString(runDirectory.resolve("run.json"), Json.object(run));
-        Files.writeString(runDirectory.resolve("profile.json"), Json.object(Map.of(
+        Files.writeString(profilePath, Json.object(Map.of(
                 "profileFingerprint", PROFILE,
                 "enabledModIds", List.of("example"))));
         Files.writeString(runDirectory.resolve("summary.json"), Json.object(summary(true)));
         if (!"OFF".equals(adapterMode)) {
-            Files.writeString(runDirectory.resolve("adapter.json"), Json.object(adapter(adapterMode)));
+            Files.writeString(adapterPath, Json.object(adapter(adapterMode)));
         }
 
         Path scenario = temporaryDirectory.resolve("scenario-" + System.nanoTime() + ".json");
