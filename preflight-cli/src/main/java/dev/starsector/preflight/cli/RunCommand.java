@@ -11,9 +11,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 final class RunCommand {
-    private static final DateTimeFormatter RUN_ID = DateTimeFormatter.ofPattern("uuuuMMdd-HHmmss")
+    private static final DateTimeFormatter RUN_ID = DateTimeFormatter.ofPattern("uuuuMMdd-HHmmss-SSS")
             .withZone(ZoneOffset.UTC);
 
     private RunCommand() {
@@ -37,7 +38,7 @@ final class RunCommand {
         TextureLaunchContext textureContext = textureContext(options, target);
 
         Path runDirectory = options.traceDirectory() == null
-                ? home.resolve(".starsector-preflight").resolve("runs").resolve(RUN_ID.format(Instant.now()))
+                ? defaultRunDirectory(home, Instant.now(), UUID.randomUUID().toString().substring(0, 8))
                 : options.traceDirectory().toAbsolutePath().normalize();
         Path recording = runDirectory.resolve("startup.jfr");
         Path report = runDirectory.resolve("summary.json");
@@ -73,59 +74,102 @@ final class RunCommand {
                 Files.writeString(profile, census.toJson() + System.lineSeparator());
                 System.out.println("Preflight profile: " + profile);
             } catch (Exception error) {
-                System.err.println("Preflight profile scan skipped: " + error.getMessage());
+                System.err.println("Preflight profile scan skipped: " + message(error));
             }
         }
 
         Path recordedProfile = Files.isRegularFile(profile) ? profile : null;
         Instant started = Instant.now();
+        Instant ended = null;
+        Integer exitCode = null;
+        Integer launcherExitCode = null;
+        String outcome = "RUNNING";
+        String executionFailure = null;
+        StarsectorRunLogEvidence.Evidence lifecycleEvidence = null;
+        List<String> postprocessingFailures = new ArrayList<>();
         StarsectorRunLogEvidence.Snapshot logSnapshot = StarsectorRunLogEvidence.snapshot(target.installRoot());
-        writeMetadata(
-                metadata, target, command, started, null, null, null, "RUNNING", null,
-                recordedProfile, options, textureContext, adapterReport, adapterAnalysis);
 
-        ProcessBuilder builder = new ProcessBuilder(command);
-        builder.directory(target.workingDirectory().toFile());
-        builder.environment().put("JAVA_TOOL_OPTIONS", javaToolOptions);
-        builder.environment().put("PREFLIGHT_RUN_DIR", runDirectory.toString());
-        builder.inheritIO();
+        try {
+            writeMetadata(
+                    metadata, target, command, started, null, null, null, outcome, null,
+                    recordedProfile, options, textureContext, adapterReport, adapterAnalysis,
+                    postprocessingFailures, null);
 
-        int launcherExitCode = builder.start().waitFor();
-        Instant ended = Instant.now();
-        StarsectorRunLogEvidence.Evidence lifecycleEvidence = StarsectorRunLogEvidence.inspect(logSnapshot);
-        int exitCode = StarsectorRunLogEvidence.effectiveExitCode(launcherExitCode, lifecycleEvidence);
-        String outcome = lifecycleEvidence.fatalDetected()
-                ? "FATAL_LOG_EVIDENCE"
-                : launcherExitCode == 0 ? "COMPLETED" : "LAUNCHER_EXIT_NONZERO";
-        if (lifecycleEvidence.fatalDetected()) {
-            System.err.println("Preflight detected fatal Starsector lifecycle evidence in logs."
-                    + " Launcher exit " + launcherExitCode + " is not a clean game exit.");
-        }
+            ProcessBuilder builder = new ProcessBuilder(command);
+            builder.directory(target.workingDirectory().toFile());
+            builder.environment().put("JAVA_TOOL_OPTIONS", javaToolOptions);
+            builder.environment().put("PREFLIGHT_RUN_DIR", runDirectory.toString());
+            builder.inheritIO();
 
-        if (options.summarize() && Files.isRegularFile(recording)) {
-            PreflightCli.summarize(recording, report);
-            System.out.println("Preflight report: " + report);
-        } else if (!Files.exists(recording)) {
-            System.err.println("Preflight recording was not created. Run `doctor` and inspect the selected launcher.");
-        }
-        if (Files.isRegularFile(adapterReport)) {
-            System.out.println("Preflight adapter report: " + adapterReport);
-            if (Files.isRegularFile(report)) {
-                try {
-                    AdapterProbeAnalysis.analyze(adapterReport, report, adapterAnalysis);
-                    System.out.println("Preflight adapter analysis: " + adapterAnalysis);
-                } catch (Exception error) {
-                    System.err.println("Preflight adapter analysis skipped: " + error.getMessage());
-                }
+            launcherExitCode = builder.start().waitFor();
+            lifecycleEvidence = StarsectorRunLogEvidence.inspect(logSnapshot);
+            exitCode = StarsectorRunLogEvidence.effectiveExitCode(launcherExitCode, lifecycleEvidence);
+            outcome = lifecycleEvidence.fatalDetected()
+                    ? "FATAL_LOG_EVIDENCE"
+                    : launcherExitCode == 0 ? "COMPLETED" : "LAUNCHER_EXIT_NONZERO";
+            if (lifecycleEvidence.fatalDetected()) {
+                System.err.println("Preflight detected fatal Starsector lifecycle evidence in logs."
+                        + " Launcher exit " + launcherExitCode + " is not a clean game exit.");
             }
-        } else if (options.adapterMode() != dev.starsector.preflight.agent.AdapterMode.OFF) {
-            System.err.println("Preflight adapter report was not created: " + adapterReport);
-        }
 
-        writeMetadata(
-                metadata, target, command, started, ended, exitCode, launcherExitCode, outcome,
-                lifecycleEvidence, recordedProfile, options, textureContext, adapterReport, adapterAnalysis);
-        return exitCode;
+            if (options.summarize() && Files.isRegularFile(recording)) {
+                try {
+                    PreflightCli.summarize(recording, report);
+                    System.out.println("Preflight report: " + report);
+                } catch (Exception error) {
+                    addPostprocessingFailure(postprocessingFailures, "summary", error);
+                    System.err.println("Preflight summary skipped: " + message(error));
+                }
+            } else if (!Files.exists(recording)) {
+                System.err.println("Preflight recording was not created. Run `doctor` and inspect the selected launcher.");
+            }
+            if (Files.isRegularFile(adapterReport)) {
+                System.out.println("Preflight adapter report: " + adapterReport);
+                if (Files.isRegularFile(report)) {
+                    try {
+                        AdapterProbeAnalysis.analyze(adapterReport, report, adapterAnalysis);
+                        System.out.println("Preflight adapter analysis: " + adapterAnalysis);
+                    } catch (Exception error) {
+                        addPostprocessingFailure(postprocessingFailures, "adapter-analysis", error);
+                        System.err.println("Preflight adapter analysis skipped: " + message(error));
+                    }
+                }
+            } else if (options.adapterMode() != dev.starsector.preflight.agent.AdapterMode.OFF) {
+                System.err.println("Preflight adapter report was not created: " + adapterReport);
+            }
+            return exitCode;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            exitCode = 1;
+            outcome = launcherExitCode == null ? "LAUNCH_FAILED" : "PREFLIGHT_FAILED";
+            executionFailure = message(error);
+            throw error;
+        } catch (Exception error) {
+            exitCode = 1;
+            outcome = launcherExitCode == null ? "LAUNCH_FAILED" : "PREFLIGHT_FAILED";
+            executionFailure = message(error);
+            throw error;
+        } finally {
+            ended = Instant.now();
+            try {
+                writeMetadata(
+                        metadata, target, command, started, ended, exitCode, launcherExitCode, outcome,
+                        lifecycleEvidence, recordedProfile, options, textureContext, adapterReport, adapterAnalysis,
+                        postprocessingFailures, executionFailure);
+            } catch (IOException error) {
+                System.err.println("Preflight could not finalize run metadata: " + message(error));
+            }
+        }
+    }
+
+    static Path defaultRunDirectory(Path home, Instant started, String nonce) {
+        if (nonce == null || !nonce.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new IllegalArgumentException("Run directory nonce must contain 1-64 safe characters");
+        }
+        return home.toAbsolutePath().normalize()
+                .resolve(".starsector-preflight")
+                .resolve("runs")
+                .resolve(RUN_ID.format(started) + "-" + nonce);
     }
 
     static int doctor(CommandLine options) throws IOException {
@@ -209,6 +253,17 @@ final class RunCommand {
         return value;
     }
 
+    private static void addPostprocessingFailure(List<String> failures, String stage, Exception error) {
+        if (failures.size() < 16) {
+            failures.add(stage + ": " + message(error));
+        }
+    }
+
+    private static String message(Throwable error) {
+        String value = error.getMessage();
+        return value == null || value.isBlank() ? error.getClass().getSimpleName() : value;
+    }
+
     private static void writeMetadata(
             Path path,
             LaunchTarget target,
@@ -223,13 +278,17 @@ final class RunCommand {
             CommandLine options,
             TextureLaunchContext textureContext,
             Path adapterReport,
-            Path adapterAnalysis) throws IOException {
+            Path adapterAnalysis,
+            List<String> postprocessingFailures,
+            String executionFailure) throws IOException {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("started", started);
         values.put("ended", ended);
         values.put("exitCode", exitCode);
         values.put("launcherExitCode", launcherExitCode);
         values.put("outcome", outcome);
+        values.put("executionFailure", executionFailure);
+        values.put("postprocessingFailures", List.copyOf(postprocessingFailures));
         values.put("lifecycleEvidence", lifecycleEvidence == null ? null : lifecycleEvidence.toMap());
         values.put("platform", Platform.current());
         values.put("javaVersion", System.getProperty("java.version"));
