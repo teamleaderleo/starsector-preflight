@@ -30,24 +30,47 @@ public final class PreflightAgent {
         try {
             options = AgentOptions.parse(agentArgs);
         } catch (Throwable error) {
-            log("Agent disabled: " + error.getMessage());
+            log("Agent disabled: " + message(error));
             return;
         }
 
-        AdapterRuntime.Session adapterSession = AdapterRuntime.start(options, instrumentation);
+        AdapterRuntime.Session adapterSession = contain(
+                "Adapter initialization",
+                () -> AdapterRuntime.start(options, instrumentation));
         Recording recording = startRecording(options);
         try {
             Runtime.getRuntime().addShutdownHook(new Thread(
                     () -> {
                         stopRecording(recording, options.destination());
-                        adapterSession.close();
+                        closeAdapter(adapterSession);
                     },
                     "Preflight-Shutdown"));
         } catch (Throwable error) {
-            log("Could not register shutdown hook: " + error.getMessage());
+            log("Could not register shutdown hook: " + message(error));
             stopRecording(recording, options.destination());
-            adapterSession.close();
+            closeAdapter(adapterSession);
         }
+    }
+
+    static <T> T contain(String component, Startup<T> startup) {
+        try {
+            return startup.start();
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
+        } catch (Throwable error) {
+            log(component + " disabled: " + message(error));
+            return null;
+        }
+    }
+
+    private static void closeAdapter(AdapterRuntime.Session adapterSession) {
+        if (adapterSession == null) {
+            return;
+        }
+        contain("Adapter report finalization", () -> {
+            adapterSession.close();
+            return null;
+        });
     }
 
     private static Recording startRecording(AgentOptions options) {
@@ -78,7 +101,7 @@ public final class PreflightAgent {
             }
             return recording;
         } catch (Throwable error) {
-            log("Profiler disabled: " + error.getMessage());
+            log("Profiler disabled: " + message(error));
             return null;
         }
     }
@@ -118,12 +141,22 @@ public final class PreflightAgent {
                 log("Recording ended without creating " + destination);
             }
         } catch (Throwable error) {
-            log("Failed to finish recording: " + error.getMessage());
+            log("Failed to finish recording: " + message(error));
         }
+    }
+
+    private static String message(Throwable error) {
+        String value = error.getMessage();
+        return value == null || value.isBlank() ? error.getClass().getSimpleName() : value;
     }
 
     private static void log(String message) {
         System.err.println("[Preflight] " + message);
+    }
+
+    @FunctionalInterface
+    interface Startup<T> {
+        T start() throws Throwable;
     }
 
     @Name("preflight.AgentStarted")
