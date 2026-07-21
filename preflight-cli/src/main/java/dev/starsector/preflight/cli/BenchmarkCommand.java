@@ -33,7 +33,7 @@ final class BenchmarkCommand {
             case "scenario" -> executeScenario(args, offset + 1);
             case "collect" -> BenchmarkRunCollector.execute(args, offset + 1);
             case "compare" -> BenchmarkScenarioComparison.execute(args, offset + 1);
-            case "compare-runs" -> BenchmarkCollectedRunComparison.execute(args, offset + 1);
+            case "compare-runs" -> BenchmarkCampaignComparisonCommand.execute(args, offset + 1);
             default -> throw expectedCommand();
         };
     }
