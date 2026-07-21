@@ -68,6 +68,31 @@ The version 1 schema records:
 
 Counter names use lowercase letters, digits, dots, underscores, and hyphens. Each adapter/cache domain accepts at most 64 counters. A result accepts at most 16 disable reasons. Counter ordering and disable-reason ordering are canonical in the JSON output.
 
+## Scenario comparison
+
+Compare two or more version 1 scenario records with:
+
+```bash
+java -jar preflight.jar benchmark compare \
+  results/off-warm-1.json \
+  results/off-warm-2.json \
+  results/enabled-warm-hit-1.json \
+  results/enabled-warm-hit-2.json \
+  --output comparison.json
+```
+
+The comparison command:
+
+- requires one scenario ID and one non-null profile fingerprint across every input;
+- rejects duplicate run IDs and duplicate mode/iteration pairs;
+- reconstructs every record through the versioned result validator;
+- verifies that stored durations agree with the milestone timestamps;
+- preserves every successful and unsuccessful run in deterministic mode/iteration order;
+- reports successful and failed counts per mode;
+- reports minimum, median, and maximum for each successful-run duration metric.
+
+Statistics exclude nonzero-exit runs while retaining those runs in the report. The current scenario schema does not carry JVM, Preflight commit, launcher, artifact, or run-directory identity. The upcoming run collector must supply and enforce those identities before an OFF-versus-ENABLED result is treated as a complete campaign comparison.
+
 ## Procedure
 
 1. Use one fixed enabled-mod profile and launch target.
