@@ -2,40 +2,79 @@
 
 ## Principles
 
-1. Source mods and saves remain untouched.
+1. Source mods, saves, launcher files, and VM parameter files remain untouched.
 2. Cache deletion is always safe.
-3. Cache failures return to the original loading path.
-4. Every cache format and integration interface is versioned.
-5. Content identity, enabled-mod order, and transformation configuration participate in invalidation.
-6. First-build and repeat-launch performance are reported separately.
+3. Cache failures return to the original Starsector loading path.
+4. Every persisted format and runtime integration interface is versioned.
+5. Content identity, enabled-mod order, source bindings, and transformation configuration participate in invalidation.
+6. Existing files are resolved through canonical roots; links that escape an approved root are rejected.
+7. First-build and repeat-launch performance are reported separately.
+8. A performance claim requires repeated successful real-install comparisons.
 
-## Components
+## Modules
 
-### preflight-core
+### `preflight-core`
 
-Portable cache-key, format, validation, and report utilities. It has no dependency on Starsector or Fast Rendering artifacts.
+Portable identity, format, validation, and report code. Current persisted formats include the resource-provider index, texture manifest, prepared texture blob, classpath profile/archive indexes, and generated-bytecode records. Files use explicit versions, bounds, checksums, and atomic replacement where applicable.
 
-### preflight-agent
+### `preflight-agent`
 
-A Java 17 javaagent that begins JFR recording in `premain`, before Starsector's main method. The first implementation uses only JDK events and writes a `.jfr` file at process shutdown.
+A Java 17 agent injected into the selected child launcher through process-local `JAVA_TOOL_OPTIONS`. It starts JFR in `premain`, records bounded evidence, applies exact source-bound adapter targets, and leaves unknown or changed installations untouched.
 
-### preflight-cli
+The current live texture plans are:
 
-Developer-facing commands for content fingerprints and JFR summaries. It will grow into the cache builder after resource ordering and profile discovery are specified.
+- `texture-compatibility-v2`: reconstructs a decoded image from a verified prepared blob while preserving Starsector's asynchronous preloader and the rest of the original texture path. It passed bounded behavioral acceptance on Starsector 0.98a-RC8 on 2026-07-19. Repeated timing remains pending.
+- `texture-prepared-pixels-v2`: retains Starsector's upload and lifetime path while aiming to bypass decode and pixel conversion. It remains fail-closed until the installed color-transfer dataflow is represented exactly.
 
-### Runtime adapter
+The generated-bytecode wrapper also remains fail-open: incomplete Janino dependency evidence always calls the original generator and bypasses cache storage.
 
-A future narrow adapter will connect core interfaces to Fast Rendering's resource, texture, and script loading paths. Keeping this adapter separate limits compatibility work and allows the builder and formats to remain reusable.
+### `preflight-cli`
 
-## Planned cache layout
+The runnable wrapper and cache builder. It discovers the existing launcher, inventories the enabled profile, builds and validates caches, injects the agent, records run evidence, summarizes JFR, and exposes deterministic benchmark scenario records.
+
+Important commands include `doctor`, `scan`, `prepare`, `run`, `index`, `texture`, `classpath`, `audio`, `analyze`, and `benchmark`.
+
+### `preflight-synthetic-startup`
+
+Packaged child-JVM fixtures used to verify agent startup, exact target selection, fallback behavior, reporting, and cross-platform launch behavior without distributing Starsector binaries.
+
+## Launch flow
 
 ```text
-preflight-cache/
-  profiles/PROFILE_FINGERPRINT/manifest.json
-  indexes/INDEX_FINGERPRINT.bin
-  textures/CONTENT_HASH.pft
-  bytecode/COMPILE_KEY/CLASS_NAME.class
-  traces/
+preflight.jar run
+  -> discover the existing Starsector or Fast Rendering launcher
+  -> resolve the selected profile and optional exact prepared artifacts
+  -> create an isolated run directory
+  -> add the same JAR as a process-local javaagent
+  -> start the original launcher as a child process
+  -> preserve the child's result and bounded fatal-log evidence
+  -> write final run, adapter, profile, and JFR-derived reports
 ```
 
-Content-addressed blobs can be shared by multiple enabled-mod profiles. Profile manifests are replaced atomically.
+Adapter mode is OFF by default. Cache preparation alone never enables a transformation. A live texture run requires explicit adapter activation plus validated matching artifacts. The environment/property kill switch remains authoritative.
+
+## Current cache and run layout
+
+```text
+~/.starsector-preflight/
+  cache/
+    resource-indexes/PROFILE.spfi
+    classpath/profiles/PROFILE.spfc
+    manifests/PROFILE.spfm
+    blobs/HH/SOURCE_HASH-identity.spft
+    quarantine/
+    reports/preparation-latest.json
+  runs/YYYYMMDD-HHMMSS-SSS-NONCE/
+    run.json
+    profile.json
+    startup.jfr
+    summary.json
+    adapter.json
+    adapter-analysis.json
+```
+
+Content-addressed blobs may be shared by multiple profiles. Fingerprint-named manifests and indexes bind a launch to one exact profile. Corrupt or identity-mismatched artifacts are bounded and quarantined; missing, stale, ambiguous, unsupported, or escaped paths use the original game path.
+
+## Current evidence boundary
+
+Compatibility-v2 has a real behavioral acceptance result and no performance claim. The next decision point is a repeated OFF-versus-ENABLED campaign collected under one stable profile and comparable JVM/run identities. Prepared pixels, audio reuse, and Janino reuse remain gated by their exact equivalence and context requirements.
