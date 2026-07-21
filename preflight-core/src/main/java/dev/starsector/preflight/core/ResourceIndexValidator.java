@@ -25,12 +25,11 @@ public final class ResourceIndexValidator {
             throw new IllegalArgumentException("problemLimit must be positive");
         }
         List<Problem> problems = new ArrayList<>();
-        boolean[] rootAvailable = new boolean[index.roots().size()];
+        Path[] realRoots = new Path[index.roots().size()];
         for (int i = 0; i < index.roots().size(); i++) {
             ResourceIndex.Root root = index.roots().get(i);
             try {
-                PathContainment.realDirectory(root.path());
-                rootAvailable[i] = true;
+                realRoots[i] = PathContainment.realDirectory(root.path());
             } catch (IOException | IllegalArgumentException error) {
                 add(problems, problemLimit, new Problem(
                         Kind.ROOT_MISSING,
@@ -48,14 +47,15 @@ public final class ResourceIndexValidator {
             for (ResourceIndex.Provider provider : entry.getValue()) {
                 checkedProviders++;
                 ResourceIndex.Root root = index.roots().get(provider.rootIndex());
-                if (!rootAvailable[provider.rootIndex()]) {
+                Path realRoot = realRoots[provider.rootIndex()];
+                if (realRoot == null) {
                     invalidProviders++;
                     continue;
                 }
 
                 Path file;
                 try {
-                    file = index.resolveExisting(provider);
+                    file = PathContainment.existingInsideRealRoot(realRoot, index.resolve(provider));
                 } catch (IllegalArgumentException error) {
                     invalidProviders++;
                     add(problems, problemLimit, new Problem(
