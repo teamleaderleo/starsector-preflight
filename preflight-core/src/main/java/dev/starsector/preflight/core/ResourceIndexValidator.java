@@ -25,18 +25,19 @@ public final class ResourceIndexValidator {
             throw new IllegalArgumentException("problemLimit must be positive");
         }
         List<Problem> problems = new ArrayList<>();
-        boolean[] rootAvailable = new boolean[index.roots().size()];
+        Path[] realRoots = new Path[index.roots().size()];
         for (int i = 0; i < index.roots().size(); i++) {
             ResourceIndex.Root root = index.roots().get(i);
-            rootAvailable[i] = Files.isDirectory(root.path());
-            if (!rootAvailable[i]) {
+            try {
+                realRoots[i] = PathContainment.realDirectory(root.path());
+            } catch (IOException | IllegalArgumentException error) {
                 add(problems, problemLimit, new Problem(
                         Kind.ROOT_MISSING,
                         root.id(),
                         null,
                         null,
                         root.path().toString(),
-                        null));
+                        message(error)));
             }
         }
 
@@ -46,14 +47,15 @@ public final class ResourceIndexValidator {
             for (ResourceIndex.Provider provider : entry.getValue()) {
                 checkedProviders++;
                 ResourceIndex.Root root = index.roots().get(provider.rootIndex());
-                if (!rootAvailable[provider.rootIndex()]) {
+                Path realRoot = realRoots[provider.rootIndex()];
+                if (realRoot == null) {
                     invalidProviders++;
                     continue;
                 }
 
                 Path file;
                 try {
-                    file = index.resolve(provider);
+                    file = PathContainment.existingInsideRealRoot(realRoot, index.resolve(provider));
                 } catch (IllegalArgumentException error) {
                     invalidProviders++;
                     add(problems, problemLimit, new Problem(
@@ -63,6 +65,26 @@ public final class ResourceIndexValidator {
                             provider.relativePath(),
                             null,
                             error.getMessage()));
+                    continue;
+                } catch (NoSuchFileException error) {
+                    invalidProviders++;
+                    add(problems, problemLimit, new Problem(
+                            Kind.FILE_MISSING,
+                            root.id(),
+                            entry.getKey(),
+                            provider.relativePath(),
+                            "regular file",
+                            "missing"));
+                    continue;
+                } catch (IOException error) {
+                    invalidProviders++;
+                    add(problems, problemLimit, new Problem(
+                            Kind.FILE_UNREADABLE,
+                            root.id(),
+                            entry.getKey(),
+                            provider.relativePath(),
+                            null,
+                            message(error)));
                     continue;
                 }
 
@@ -87,7 +109,7 @@ public final class ResourceIndexValidator {
                             entry.getKey(),
                             provider.relativePath(),
                             null,
-                            error.getMessage()));
+                            message(error)));
                     continue;
                 }
                 if (!attributes.isRegularFile()) {
@@ -131,6 +153,11 @@ public final class ResourceIndexValidator {
                 invalidProviders,
                 List.copyOf(problems),
                 invalidProviders > problems.size());
+    }
+
+    private static String message(Throwable error) {
+        String value = error.getMessage();
+        return value == null || value.isBlank() ? error.getClass().getSimpleName() : value;
     }
 
     private static void add(List<Problem> problems, int limit, Problem problem) {

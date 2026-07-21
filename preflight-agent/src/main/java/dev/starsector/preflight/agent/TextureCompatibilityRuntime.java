@@ -1,6 +1,7 @@
 package dev.starsector.preflight.agent;
 
 import dev.starsector.preflight.core.Hashes;
+import dev.starsector.preflight.core.PathContainment;
 import dev.starsector.preflight.core.PreparedTexture;
 import dev.starsector.preflight.core.PreparedTextureIO;
 import dev.starsector.preflight.core.ResourceIndex;
@@ -47,15 +48,11 @@ public final class TextureCompatibilityRuntime {
             disable(DisableReason.MISSING_CONFIGURATION);
             return false;
         }
-        Path cacheRoot = cacheDirectory.toAbsolutePath().normalize();
-        Path manifestFile = manifestPath.toAbsolutePath().normalize();
-        Path indexFile = indexPath.toAbsolutePath().normalize();
         try {
-            if (!Files.isDirectory(cacheRoot)
-                    || !Files.isRegularFile(manifestFile)
-                    || !Files.isRegularFile(indexFile)
-                    || !manifestFile.startsWith(cacheRoot)
-                    || !indexFile.startsWith(cacheRoot)) {
+            Path cacheRoot = PathContainment.realDirectory(cacheDirectory);
+            Path manifestFile = PathContainment.existingInsideRealRoot(cacheRoot, manifestPath);
+            Path indexFile = PathContainment.existingInsideRealRoot(cacheRoot, indexPath);
+            if (!Files.isRegularFile(manifestFile) || !Files.isRegularFile(indexFile)) {
                 disable(DisableReason.INVALID_CONFIGURATION);
                 return false;
             }
@@ -75,7 +72,11 @@ public final class TextureCompatibilityRuntime {
                 disable(DisableReason.INDEX_STALE);
                 return false;
             }
-            state = new State(cacheRoot, manifest, index);
+            List<Path> sourceRoots = new ArrayList<>(index.roots().size());
+            for (ResourceIndex.Root root : index.roots()) {
+                sourceRoots.add(PathContainment.realDirectory(root.path()));
+            }
+            state = new State(cacheRoot, manifest, index, List.copyOf(sourceRoots));
             TELEMETRY.configured();
             return true;
         } catch (ThreadDeath | VirtualMachineError fatal) {
@@ -149,7 +150,18 @@ public final class TextureCompatibilityRuntime {
                 TELEMETRY.fallback(FallbackReason.SOURCE_MISSING);
                 return null;
             }
-            Path source = current.index.resolve(winner);
+            Path source;
+            try {
+                source = PathContainment.existingInsideRealRoot(
+                        current.sourceRoots.get(winner.rootIndex()),
+                        current.index.resolve(winner));
+            } catch (IllegalArgumentException error) {
+                TELEMETRY.fallback(FallbackReason.PATH_INVALID);
+                return null;
+            } catch (IOException error) {
+                TELEMETRY.fallback(FallbackReason.SOURCE_MISSING);
+                return null;
+            }
             if (!Files.isRegularFile(source)) {
                 TELEMETRY.fallback(FallbackReason.SOURCE_MISSING);
                 return null;
@@ -163,8 +175,15 @@ public final class TextureCompatibilityRuntime {
                 return null;
             }
 
-            Path blob = current.cacheRoot.resolve(entry.blobRelativePath()).normalize();
-            if (!blob.startsWith(current.cacheRoot) || !Files.isRegularFile(blob)) {
+            Path blob;
+            try {
+                Path candidate = current.cacheRoot.resolve(entry.blobRelativePath()).normalize();
+                blob = PathContainment.existingInsideRealRoot(current.cacheRoot, candidate);
+            } catch (IllegalArgumentException | IOException error) {
+                TELEMETRY.fallback(FallbackReason.BLOB_MISSING);
+                return null;
+            }
+            if (!Files.isRegularFile(blob)) {
                 TELEMETRY.fallback(FallbackReason.BLOB_MISSING);
                 return null;
             }
@@ -257,8 +276,9 @@ public final class TextureCompatibilityRuntime {
             return;
         }
         try {
-            Path directory = current.cacheRoot.resolve("quarantine").normalize();
-            Files.createDirectories(directory);
+            Path candidate = current.cacheRoot.resolve("quarantine").normalize();
+            Files.createDirectories(candidate);
+            Path directory = PathContainment.existingInsideRealRoot(current.cacheRoot, candidate);
             String name = blob.getFileName() + "." + reason + "." + Instant.now().toEpochMilli() + "." + ordinal;
             Path target = directory.resolve(name).normalize();
             if (!target.startsWith(directory)) {
@@ -266,7 +286,7 @@ public final class TextureCompatibilityRuntime {
             }
             Files.move(blob, target, StandardCopyOption.REPLACE_EXISTING);
             TELEMETRY.quarantined();
-        } catch (IOException ignored) {
+        } catch (IOException | IllegalArgumentException ignored) {
             // The original Starsector path remains authoritative even when quarantine cannot be written.
         }
     }
@@ -300,15 +320,17 @@ public final class TextureCompatibilityRuntime {
         private final Path cacheRoot;
         private final TextureManifest manifest;
         private final ResourceIndex index;
+        private final List<Path> sourceRoots;
         private final boolean ready;
         private final AtomicInteger internalErrors = new AtomicInteger();
         private final AtomicInteger quarantines = new AtomicInteger();
         private final AtomicBoolean circuitBreaker = new AtomicBoolean();
 
-        private State(Path cacheRoot, TextureManifest manifest, ResourceIndex index) {
+        private State(Path cacheRoot, TextureManifest manifest, ResourceIndex index, List<Path> sourceRoots) {
             this.cacheRoot = cacheRoot;
             this.manifest = manifest;
             this.index = index;
+            this.sourceRoots = sourceRoots;
             this.ready = true;
         }
 
@@ -316,6 +338,7 @@ public final class TextureCompatibilityRuntime {
             this.cacheRoot = null;
             this.manifest = null;
             this.index = null;
+            this.sourceRoots = List.of();
             this.ready = false;
         }
 

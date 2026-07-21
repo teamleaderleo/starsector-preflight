@@ -1,5 +1,6 @@
 package dev.starsector.preflight.core;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -113,6 +114,12 @@ public final class ResourceIndex {
             throw new IllegalArgumentException("Provider escapes its resource root: " + provider.relativePath());
         }
         return resolved;
+    }
+
+    /** Resolves an existing provider after following links and checking the resulting real path. */
+    public Path resolveExisting(Provider provider) throws IOException {
+        Path resolved = resolve(provider);
+        return PathContainment.existingInside(roots.get(provider.rootIndex()).path(), resolved);
     }
 
     public static String normalizeLogicalPath(String raw) {
