@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 class PreflightCliHelpTest {
     @Test
-    void benchmarkHelpIncludesScenarioRecorder() throws Exception {
+    void benchmarkHelpIncludesScenarioRecorderAndComparison() throws Exception {
         PrintStream original = System.out;
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (PrintStream capture = new PrintStream(bytes, true, StandardCharsets.UTF_8)) {
@@ -23,5 +23,6 @@ class PreflightCliHelpTest {
         String output = bytes.toString(StandardCharsets.UTF_8);
         assertTrue(output.contains("preflight benchmark lookups"), output);
         assertTrue(output.contains("preflight benchmark scenario"), output);
+        assertTrue(output.contains("preflight benchmark compare"), output);
     }
 }
