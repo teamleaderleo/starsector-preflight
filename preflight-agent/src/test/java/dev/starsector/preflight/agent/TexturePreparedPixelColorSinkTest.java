@@ -1,6 +1,7 @@
 package dev.starsector.preflight.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -26,13 +27,20 @@ class TexturePreparedPixelColorSinkTest {
         addColorWrites(convert, TexturePreparedPixelPlan.TEXTURE_OBJECT, "color");
         owner.methods.add(convert);
 
+        TexturePreparedPixelColorSink.Review review =
+                TexturePreparedPixelColorSink.inspect(owner, convert);
         List<TexturePreparedPixelColorSink.SinkField> fields =
                 TexturePreparedPixelColorSink.reviewed(owner, convert);
 
+        assertTrue(review.eligible(), review.problems().toString());
+        assertEquals(TexturePreparedPixelColorSink.MODEL_DIRECT_TEXTURE_FIELDS, review.model());
+        assertEquals(3, review.directFields().size());
+        assertTrue(review.stagedFields().isEmpty());
         assertEquals(3, fields.size());
         assertTrue(fields.stream().allMatch(field ->
                 TexturePreparedPixelPlan.TEXTURE_OBJECT.equals(field.owner())
                         && field.receiverLocal() == 2));
+        assertEquals(3, ((List<?>) review.toMap().get("reviewedFields")).size());
     }
 
     @Test
@@ -44,9 +52,15 @@ class TexturePreparedPixelColorSinkTest {
         owner.methods.add(convert);
         owner.methods.add(transferMethod("derived", false, TEXTURE_ARGUMENT, 1));
 
+        TexturePreparedPixelColorSink.Review review =
+                TexturePreparedPixelColorSink.inspect(owner, convert);
         List<TexturePreparedPixelColorSink.SinkField> fields =
                 TexturePreparedPixelColorSink.reviewed(owner, convert);
 
+        assertTrue(review.eligible(), review.problems().toString());
+        assertEquals(TexturePreparedPixelColorSink.MODEL_STAGED_LOADER_SETTERS, review.model());
+        assertTrue(review.stagedFieldsDeclared());
+        assertTrue(review.stagedSetterFlowExact());
         assertEquals(3, fields.size());
         assertTrue(fields.stream().allMatch(field ->
                 TexturePreparedPixelPlan.TARGET_CLASS.equals(field.owner())
@@ -102,6 +116,24 @@ class TexturePreparedPixelColorSinkTest {
         owner.methods.add(transferMethod("derived", false, "(Ljava/lang/String;)V", 1));
 
         assertTrue(TexturePreparedPixelColorSink.reviewed(owner, convert).isEmpty());
+    }
+
+    @Test
+    void rejectsStaticTransferMethodWithTypedArguments() {
+        ClassNode owner = owner();
+        declareLoaderColors(owner, "derived");
+        MethodNode convert = convertWithRasterRead();
+        addColorWrites(convert, TexturePreparedPixelPlan.TARGET_CLASS, "derived");
+        owner.methods.add(convert);
+        owner.methods.add(staticTransferMethod("derived"));
+
+        TexturePreparedPixelColorSink.Review review =
+                TexturePreparedPixelColorSink.inspect(owner, convert);
+
+        assertFalse(review.eligible());
+        assertEquals(TexturePreparedPixelColorSink.MODEL_UNSUPPORTED, review.model());
+        assertFalse(review.stagedSetterFlowExact());
+        assertTrue(review.problems().stream().anyMatch(problem -> problem.contains("static")));
     }
 
     @Test
@@ -179,9 +211,32 @@ class TexturePreparedPixelColorSinkTest {
                 descriptor,
                 null,
                 null);
+        addTransfers(transfer, fieldPrefix, oneSetter, receiverLocal, 0);
+        return transfer;
+    }
+
+    private static MethodNode staticTransferMethod(String fieldPrefix) {
+        MethodNode transfer = new MethodNode(
+                Opcodes.ASM9,
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "transferColorsStatic",
+                "(L" + TexturePreparedPixelPlan.TARGET_CLASS
+                        + ";L" + TexturePreparedPixelPlan.TEXTURE_OBJECT + ";)V",
+                null,
+                null);
+        addTransfers(transfer, fieldPrefix, false, 1, 0);
+        return transfer;
+    }
+
+    private static void addTransfers(
+            MethodNode transfer,
+            String fieldPrefix,
+            boolean oneSetter,
+            int receiverLocal,
+            int loaderLocal) {
         for (int i = 0; i < 3; i++) {
             transfer.instructions.add(new VarInsnNode(Opcodes.ALOAD, receiverLocal));
-            transfer.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            transfer.instructions.add(new VarInsnNode(Opcodes.ALOAD, loaderLocal));
             transfer.instructions.add(new FieldInsnNode(
                     Opcodes.GETFIELD,
                     TexturePreparedPixelPlan.TARGET_CLASS,
@@ -195,6 +250,5 @@ class TexturePreparedPixelColorSinkTest {
                     false));
         }
         transfer.instructions.add(new InsnNode(Opcodes.RETURN));
-        return transfer;
     }
 }
