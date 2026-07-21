@@ -171,6 +171,7 @@ final class BenchmarkRunCollector {
         Map<String, Object> summaryEvidence = new LinkedHashMap<>();
         copyOptional(summaryEvidence, summary, "traceStart");
         copyOptional(summaryEvidence, summary, "traceEnd");
+        copyOptional(summaryEvidence, summary, "traceDurationMs");
         copyOptional(summaryEvidence, summary, "fileReadMs");
         copyOptional(summaryEvidence, summary, "fileReadBytes");
         copyOptional(summaryEvidence, summary, "fileWriteMs");
