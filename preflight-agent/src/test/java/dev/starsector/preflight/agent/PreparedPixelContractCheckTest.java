@@ -15,7 +15,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
@@ -52,7 +51,7 @@ class PreparedPixelContractCheckTest {
         assertNotNull(result.transformed());
         assertEquals(64, result.transformed().get("sha256").toString().length());
         assertTrue(result.problems().isEmpty(), result.toJson());
-        assertEquals(classBytes.length, result.source().get("inputBytes"));
+        assertEquals(classBytes.length, ((Number) result.source().get("inputBytes")).intValue());
         assertEquals(classBytes.length, result.source().get("classBytes"));
         assertEquals(Hashes.sha256(classBytes), result.source().get("inputSha256"));
         assertEquals(Hashes.sha256(classBytes), result.source().get("classSha256"));
@@ -73,14 +72,7 @@ class PreparedPixelContractCheckTest {
     void readsDefaultTextureLoaderEntryFromJar() throws Exception {
         byte[] classBytes = fixture(TransferModel.TYPED_INSTANCE);
         Path archive = temporaryDirectory.resolve("starsector-obf.jar");
-        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(archive))) {
-            output.putNextEntry(new ZipEntry(PreparedPixelContractCheck.DEFAULT_ARCHIVE_ENTRY));
-            output.write(classBytes);
-            output.closeEntry();
-            output.putNextEntry(new ZipEntry("identity.txt"));
-            output.write("archive identity".getBytes(StandardCharsets.UTF_8));
-            output.closeEntry();
-        }
+        writeArchive(archive, classBytes, true);
 
         PreparedPixelContractCheck.Result inspected = PreparedPixelContractCheck.inspect(
                 archive,
@@ -174,11 +166,7 @@ class PreparedPixelContractCheckTest {
     @Test
     void rejectsUnsafeArchiveEntrySegments() throws Exception {
         Path archive = temporaryDirectory.resolve("target.jar");
-        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(archive))) {
-            output.putNextEntry(new ZipEntry(PreparedPixelContractCheck.DEFAULT_ARCHIVE_ENTRY));
-            output.write(fixture(TransferModel.TYPED_INSTANCE));
-            output.closeEntry();
-        }
+        writeArchive(archive, fixture(TransferModel.TYPED_INSTANCE), false);
 
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
@@ -189,6 +177,19 @@ class PreparedPixelContractCheckTest {
                         new PrintStream(stdout, true, StandardCharsets.UTF_8),
                         new PrintStream(stderr, true, StandardCharsets.UTF_8)));
         assertTrue(error.getMessage().contains("Invalid archive entry"));
+    }
+
+    private static void writeArchive(Path archive, byte[] classBytes, boolean extraEntry) throws Exception {
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(archive))) {
+            output.putNextEntry(new ZipEntry(PreparedPixelContractCheck.DEFAULT_ARCHIVE_ENTRY));
+            output.write(classBytes);
+            output.closeEntry();
+            if (extraEntry) {
+                output.putNextEntry(new ZipEntry("identity.txt"));
+                output.write("archive identity".getBytes(StandardCharsets.UTF_8));
+                output.closeEntry();
+            }
+        }
     }
 
     private static void assertBounded(List<String> problems) {
@@ -214,6 +215,17 @@ class PreparedPixelContractCheckTest {
                     null).visitEnd();
         }
 
+        decodeMethod().accept(writer);
+        convertMethod().accept(writer);
+        cleanupMethod().accept(writer);
+        addRequiredMethodStubs(writer);
+        transferMethod(transferModel).accept(writer);
+
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private static MethodNode decodeMethod() {
         MethodNode decode = new MethodNode(
                 Opcodes.ASM9,
                 Opcodes.ACC_PUBLIC,
@@ -237,8 +249,10 @@ class PreparedPixelContractCheckTest {
         decode.instructions.add(direct);
         decode.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
         decode.instructions.add(new InsnNode(Opcodes.ARETURN));
-        decode.accept(writer);
+        return decode;
+    }
 
+    private static MethodNode convertMethod() {
         MethodNode convert = new MethodNode(
                 Opcodes.ASM9,
                 Opcodes.ACC_PUBLIC,
@@ -265,8 +279,10 @@ class PreparedPixelContractCheckTest {
         }
         convert.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
         convert.instructions.add(new InsnNode(Opcodes.ARETURN));
-        convert.accept(writer);
+        return convert;
+    }
 
+    private static MethodNode cleanupMethod() {
         MethodNode cleanup = new MethodNode(
                 Opcodes.ASM9,
                 Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
@@ -275,13 +291,7 @@ class PreparedPixelContractCheckTest {
                 null,
                 null);
         cleanup.instructions.add(new InsnNode(Opcodes.RETURN));
-        cleanup.accept(writer);
-
-        addRequiredMethodStubs(writer);
-        transferMethod(transferModel).accept(writer);
-
-        writer.visitEnd();
-        return writer.toByteArray();
+        return cleanup;
     }
 
     private static void addRequiredMethodStubs(ClassWriter writer) {
@@ -301,40 +311,19 @@ class PreparedPixelContractCheckTest {
                     required.descriptor(),
                     null,
                     null);
-            addDefaultReturn(method, Type.getReturnType(required.descriptor()));
+            Type returnType = Type.getReturnType(required.descriptor());
+            if (returnType.getSort() == Type.VOID) {
+                method.instructions.add(new InsnNode(Opcodes.RETURN));
+            } else {
+                method.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+                method.instructions.add(new InsnNode(Opcodes.ARETURN));
+            }
             method.accept(writer);
         }
     }
 
     private static boolean same(AdapterTarget.RequiredMethod required, String name, String descriptor) {
         return name.equals(required.name()) && descriptor.equals(required.descriptor());
-    }
-
-    private static void addDefaultReturn(MethodNode method, Type returnType) {
-        switch (returnType.getSort()) {
-            case Type.VOID -> method.instructions.add(new InsnNode(Opcodes.RETURN));
-            case Type.BOOLEAN, Type.BYTE, Type.CHAR, Type.SHORT, Type.INT -> {
-                method.instructions.add(new InsnNode(Opcodes.ICONST_0));
-                method.instructions.add(new InsnNode(Opcodes.IRETURN));
-            }
-            case Type.FLOAT -> {
-                method.instructions.add(new InsnNode(Opcodes.FCONST_0));
-                method.instructions.add(new InsnNode(Opcodes.FRETURN));
-            }
-            case Type.LONG -> {
-                method.instructions.add(new InsnNode(Opcodes.LCONST_0));
-                method.instructions.add(new InsnNode(Opcodes.LRETURN));
-            }
-            case Type.DOUBLE -> {
-                method.instructions.add(new InsnNode(Opcodes.DCONST_0));
-                method.instructions.add(new InsnNode(Opcodes.DRETURN));
-            }
-            case Type.ARRAY, Type.OBJECT -> {
-                method.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
-                method.instructions.add(new InsnNode(Opcodes.ARETURN));
-            }
-            default -> throw new IllegalArgumentException("Unsupported return type: " + returnType);
-        }
     }
 
     private static MethodNode transferMethod(TransferModel transferModel) {
