@@ -1,15 +1,12 @@
 package dev.starsector.preflight.agent;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
@@ -20,6 +17,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.VarInsnNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 
 /** Exact target rewrite for upload-ready prepared pixels below the ImageIO compatibility seam. */
 final class TexturePreparedPixelPlan {
@@ -40,7 +38,6 @@ final class TexturePreparedPixelPlan {
     private static final String PRELOADER = "com/fs/graphics/L";
     private static final String PRELOADER_METHOD = "class";
     private static final String PREPARED_PIXEL = RUNTIME + "$PreparedPixel";
-    private static final String COLOR_DESCRIPTOR = "Ljava/awt/Color;";
 
     private TexturePreparedPixelPlan() {
     }
@@ -74,7 +71,8 @@ final class TexturePreparedPixelPlan {
             return null;
         }
 
-        List<ColorField> colors = reviewedColorFields(convert);
+        List<TexturePreparedPixelColorSink.SinkField> colors =
+                TexturePreparedPixelColorSink.reviewed(owner, convert);
         if (colors.size() != 3) {
             return null;
         }
@@ -95,31 +93,10 @@ final class TexturePreparedPixelPlan {
         return writer.toByteArray();
     }
 
-    private static List<ColorField> reviewedColorFields(MethodNode convert) {
-        Map<String, ColorField> fields = new LinkedHashMap<>();
-        boolean rasterRead = false;
-        for (AbstractInsnNode instruction = convert.instructions.getFirst();
-                instruction != null;
-                instruction = instruction.getNext()) {
-            if (instruction instanceof FieldInsnNode field
-                    && field.getOpcode() == Opcodes.PUTFIELD
-                    && TEXTURE_OBJECT.equals(field.owner)
-                    && COLOR_DESCRIPTOR.equals(field.desc)) {
-                fields.putIfAbsent(field.name + field.desc, new ColorField(field.name, field.desc));
-            }
-            if (instruction instanceof MethodInsnNode call
-                    && "java/awt/image/BufferedImage".equals(call.owner)
-                    && ("getData".equals(call.name) || "getRaster".equals(call.name))) {
-                rasterRead = true;
-            }
-        }
-        return rasterRead && fields.size() == 3 ? List.copyOf(fields.values()) : List.of();
-    }
-
     private static MethodNode convertWrapper(
             String owner,
             MethodMetadata metadata,
-            List<ColorField> colors) {
+            List<TexturePreparedPixelColorSink.SinkField> colors) {
         MethodNode wrapper = method(metadata, CONVERT_METHOD, CONVERT_DESCRIPTOR);
         LabelNode ordinary = new LabelNode();
         LabelNode preparedFallback = new LabelNode();
@@ -144,7 +121,8 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new JumpInsnNode(Opcodes.IFNULL, preparedFallback));
 
         for (int i = 0; i < colors.size(); i++) {
-            wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+            TexturePreparedPixelColorSink.SinkField field = colors.get(i);
+            wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, field.receiverLocal()));
             wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 3));
             wrapper.instructions.add(new MethodInsnNode(
                     Opcodes.INVOKEVIRTUAL,
@@ -152,9 +130,8 @@ final class TexturePreparedPixelPlan {
                     "color" + i,
                     "()Ljava/awt/Color;",
                     false));
-            ColorField field = colors.get(i);
             wrapper.instructions.add(new FieldInsnNode(
-                    Opcodes.PUTFIELD, TEXTURE_OBJECT, field.name(), field.descriptor()));
+                    Opcodes.PUTFIELD, field.owner(), field.name(), field.descriptor()));
         }
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 3));
         wrapper.instructions.add(new MethodInsnNode(
@@ -400,9 +377,6 @@ final class TexturePreparedPixelPlan {
                         : Opcodes.INVOKESPECIAL);
             }
         }
-    }
-
-    private record ColorField(String name, String descriptor) {
     }
 
     private record PreloaderHandoff(
