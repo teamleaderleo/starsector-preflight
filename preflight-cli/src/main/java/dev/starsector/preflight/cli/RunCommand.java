@@ -47,7 +47,6 @@ final class RunCommand {
         Path metadata = runDirectory.resolve("run.json");
         Path profile = runDirectory.resolve("profile.json");
         Path agentJar = SelfJar.locate();
-        RunIdentity runIdentity = RunIdentity.capture(agentJar);
         String javaToolOptions = AgentInjection.append(
                 System.getenv("JAVA_TOOL_OPTIONS"),
                 agentJar,
@@ -67,6 +66,7 @@ final class RunCommand {
             return 0;
         }
 
+        RunIdentity runIdentity = RunIdentity.capture(agentJar);
         Files.createDirectories(runDirectory);
         if (options.scan()) {
             try {
