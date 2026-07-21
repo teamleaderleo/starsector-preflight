@@ -4,6 +4,7 @@ import dev.starsector.preflight.core.BenchmarkScenarioMode;
 import dev.starsector.preflight.core.BenchmarkScenarioResult;
 import dev.starsector.preflight.core.Json;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -23,6 +24,7 @@ final class BenchmarkScenarioComparison {
     private static final String COMPARISON_SCHEMA = "starsector-preflight-benchmark-comparison";
     private static final int COMPARISON_VERSION = 1;
     private static final int MAX_INPUTS = 10_000;
+    private static final long MAX_RESULT_BYTES = 1024L * 1024L;
 
     private BenchmarkScenarioComparison() {
     }
@@ -92,6 +94,10 @@ final class BenchmarkScenarioComparison {
         Path path = input.toAbsolutePath().normalize();
         if (!Files.isRegularFile(path)) {
             throw new IOException("Benchmark scenario result does not exist: " + path);
+        }
+        long bytes = Files.size(path);
+        if (bytes > MAX_RESULT_BYTES) {
+            throw new IOException("Benchmark scenario result exceeds " + MAX_RESULT_BYTES + " bytes: " + path);
         }
         Map<String, Object> root = StrictJson.object(Files.readString(path));
         requireKeys(root, Set.of("schema", "version", "identity", "milestones", "durationsMs", "telemetry", "exit"), "result");
@@ -172,9 +178,10 @@ final class BenchmarkScenarioComparison {
         if ((sorted.size() & 1) == 1) {
             return sorted.get(middle);
         }
-        long left = sorted.get(middle - 1);
-        long right = sorted.get(middle);
-        return left / 2.0 + right / 2.0;
+        return BigDecimal.valueOf(sorted.get(middle - 1))
+                .add(BigDecimal.valueOf(sorted.get(middle)))
+                .divide(BigDecimal.valueOf(2))
+                .setScale(1);
     }
 
     private static void validateComparable(List<LoadedResult> loaded) {
