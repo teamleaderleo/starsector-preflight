@@ -31,6 +31,7 @@ final class BenchmarkCommand {
         return switch (args[offset]) {
             case "lookups" -> executeLookups(args, offset + 1);
             case "scenario" -> executeScenario(args, offset + 1);
+            case "collect" -> BenchmarkRunCollector.execute(args, offset + 1);
             case "compare" -> BenchmarkScenarioComparison.execute(args, offset + 1);
             default -> throw expectedCommand();
         };
@@ -241,7 +242,7 @@ final class BenchmarkCommand {
 
     private static IllegalArgumentException expectedCommand() {
         return new IllegalArgumentException(
-                "Expected: benchmark lookups ..., benchmark scenario ..., or benchmark compare <scenario-result.json> <scenario-result.json>...");
+                "Expected: benchmark lookups ..., benchmark scenario ..., benchmark collect ..., or benchmark compare ...");
     }
 
     private record Options(Path resourceIndex, Path classpathIndex, int queries, long seed) {
