@@ -58,12 +58,12 @@ class IoTraceJfrIntegrationTest {
         assertTrue(json.contains("\"eventsWithStack\":"), json);
         assertTrue(json.contains("\"recordingRuntimeIdentity\""), json);
         assertTrue(json.contains("\"scope\":\"" + JfrRuntimeIdentity.SCOPE + "\""), json);
-        assertTrue(json.contains("\"java.version\":\""
-                + System.getProperty("java.version").replace("\\", "\\\\").replace("\"", "\\\"")
+        assertTrue(json.contains("\"comparisonIdentity\""), json);
+        assertTrue(json.contains("\"jvmName\":\""
+                + System.getProperty("java.vm.name").replace("\\", "\\\\").replace("\"", "\\\"")
                 + "\""), json);
-        assertTrue(json.contains("\"os.arch\":\""
-                + System.getProperty("os.arch").replace("\\", "\\\\").replace("\"", "\\\"")
-                + "\""), json);
+        assertTrue(json.contains("\"osVersion\":"), json);
+        assertTrue(json.contains("\"cpu\":"), json);
         assertTrue(json.contains("\"complete\":true"), json);
     }
 }
