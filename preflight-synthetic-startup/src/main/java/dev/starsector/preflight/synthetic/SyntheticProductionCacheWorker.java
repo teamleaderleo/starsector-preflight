@@ -19,6 +19,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -411,7 +412,7 @@ public final class SyntheticProductionCacheWorker {
     }
 
     private static String javaExecutableIdentity() throws IOException {
-        String executable = System.getProperty("os.name", "").toLowerCase().contains("win")
+        String executable = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
                 ? "java.exe"
                 : "java";
         Path path = Path.of(System.getProperty("java.home"), "bin", executable).toRealPath();

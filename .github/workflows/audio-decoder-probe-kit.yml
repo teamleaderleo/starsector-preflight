@@ -36,7 +36,7 @@ jobs:
       KIT_NAME: starsector-preflight-startup-contract-probe-kit-macos
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-build-jdk
       - name: Verify macOS runner from a home-directory working folder
         shell: bash
@@ -76,7 +76,7 @@ jobs:
             zip -q -r "$KIT_NAME.zip" "$KIT_NAME"
           )
       - name: Upload self-contained kit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: starsector-preflight-startup-contract-probe-kit-macos
           path: dist/starsector-preflight-startup-contract-probe-kit-macos.zip
