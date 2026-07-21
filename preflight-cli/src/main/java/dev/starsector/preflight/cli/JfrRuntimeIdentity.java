@@ -42,6 +42,7 @@ final class JfrRuntimeIdentity {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("scope", SCOPE);
         values.put("complete", complete());
+        values.put("comparisonIdentity", comparisonIdentity());
         values.put("jvmInformation", orderedCopy(jvmInformation));
         values.put("systemProperties", orderedSystemProperties());
         values.put("osInformation", orderedCopy(osInformation));
@@ -75,11 +76,40 @@ final class JfrRuntimeIdentity {
     }
 
     private boolean complete() {
-        return systemProperties.containsKey("java.version")
-                && systemProperties.containsKey("java.vm.name")
-                && systemProperties.containsKey("java.vm.version")
-                && systemProperties.containsKey("os.name")
-                && systemProperties.containsKey("os.arch");
+        return jvmInformation.containsKey("jvmName")
+                && jvmInformation.containsKey("jvmVersion")
+                && osInformation.containsKey("osVersion")
+                && cpuInformation.containsKey("cpu");
+    }
+
+    private Map<String, Object> comparisonIdentity() {
+        Map<String, Object> identity = new LinkedHashMap<>();
+        copy(identity, jvmInformation, "jvmName");
+        copy(identity, jvmInformation, "jvmVersion");
+        copy(identity, jvmInformation, "jvmFlags");
+        for (String key : new String[] {
+                "java.version",
+                "java.vendor",
+                "java.runtime.name",
+                "java.runtime.version",
+                "java.vm.name",
+                "java.vm.vendor",
+                "java.vm.version",
+                "os.name",
+                "os.version",
+                "os.arch"
+        }) {
+            if (systemProperties.containsKey(key)) {
+                identity.put(key, systemProperties.get(key));
+            }
+        }
+        copy(identity, osInformation, "osVersion");
+        copy(identity, cpuInformation, "cpu");
+        copy(identity, cpuInformation, "description");
+        copy(identity, cpuInformation, "sockets");
+        copy(identity, cpuInformation, "cores");
+        copy(identity, cpuInformation, "hwThreads");
+        return Collections.unmodifiableMap(identity);
     }
 
     private Map<String, Object> orderedSystemProperties() {
@@ -105,6 +135,12 @@ final class JfrRuntimeIdentity {
 
     private static Map<String, Object> orderedCopy(Map<String, Object> values) {
         return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
+    private static void copy(Map<String, Object> target, Map<String, Object> source, String key) {
+        if (source.containsKey(key)) {
+            target.put(key, source.get(key));
+        }
     }
 
     private static void putString(Map<String, Object> target, RecordedEvent event, String field) {
