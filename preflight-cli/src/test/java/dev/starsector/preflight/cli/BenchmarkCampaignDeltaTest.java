@@ -1,7 +1,9 @@
 package dev.starsector.preflight.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.starsector.preflight.core.BenchmarkScenarioMode;
 import dev.starsector.preflight.core.BenchmarkScenarioResult;
@@ -27,12 +29,31 @@ class BenchmarkCampaignDeltaTest {
         assertEquals("enabled-warm-hit", comparison.get("candidateMode"));
         assertEquals(2, comparison.get("baselineSuccessfulRuns"));
         assertEquals(2, comparison.get("candidateSuccessfulRuns"));
+        assertEquals(5, comparison.get("campaignMinimumSuccessfulRunsPerMode"));
+        assertFalse((Boolean) comparison.get("campaignMinimumMet"));
 
         Map<String, Object> metric = metric(comparison, "processToMainMenuMs");
         assertEquals(new BigDecimal("11000.0"), metric.get("baselineMedianMs"));
         assertEquals(new BigDecimal("8500.0"), metric.get("candidateMedianMs"));
         assertEquals(new BigDecimal("-2500.0"), metric.get("deltaMs"));
         assertEquals(new BigDecimal("22.727"), metric.get("improvementPercent"));
+    }
+
+    @Test
+    void marksCampaignMinimumMetAtFiveSuccessfulRunsPerMode() {
+        List<BenchmarkCollectedRunComparison.CollectedRun> runs = List.of(
+                collected(result("off-1", BenchmarkScenarioMode.OFF_WARM, 1, 10_000, 0)),
+                collected(result("off-2", BenchmarkScenarioMode.OFF_WARM, 2, 10_100, 0)),
+                collected(result("off-3", BenchmarkScenarioMode.OFF_WARM, 3, 10_200, 0)),
+                collected(result("off-4", BenchmarkScenarioMode.OFF_WARM, 4, 10_300, 0)),
+                collected(result("off-5", BenchmarkScenarioMode.OFF_WARM, 5, 10_400, 0)),
+                collected(result("enabled-1", BenchmarkScenarioMode.ENABLED_WARM_HIT, 1, 8_000, 0)),
+                collected(result("enabled-2", BenchmarkScenarioMode.ENABLED_WARM_HIT, 2, 8_100, 0)),
+                collected(result("enabled-3", BenchmarkScenarioMode.ENABLED_WARM_HIT, 3, 8_200, 0)),
+                collected(result("enabled-4", BenchmarkScenarioMode.ENABLED_WARM_HIT, 4, 8_300, 0)),
+                collected(result("enabled-5", BenchmarkScenarioMode.ENABLED_WARM_HIT, 5, 8_400, 0)));
+
+        assertTrue((Boolean) BenchmarkCampaignDelta.compare(runs).get("campaignMinimumMet"));
     }
 
     @Test
