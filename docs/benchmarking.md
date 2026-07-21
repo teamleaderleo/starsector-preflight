@@ -68,7 +68,7 @@ The version 1 schema records:
 
 Counter names use lowercase letters, digits, dots, underscores, and hyphens. Each adapter/cache domain accepts at most 64 counters. A result accepts at most 16 disable reasons. Counter ordering and disable-reason ordering are canonical in the JSON output.
 
-## Scenario comparison
+## Raw scenario comparison
 
 Compare two or more version 1 scenario records with:
 
@@ -78,10 +78,10 @@ java -jar preflight.jar benchmark compare \
   results/off-warm-2.json \
   results/enabled-warm-hit-1.json \
   results/enabled-warm-hit-2.json \
-  --output comparison.json
+  --output raw-comparison.json
 ```
 
-The comparison command:
+The raw comparison command:
 
 - requires one scenario ID and one non-null profile fingerprint across every input;
 - rejects duplicate run IDs and duplicate mode/iteration pairs;
@@ -91,16 +91,69 @@ The comparison command:
 - reports successful and failed counts per mode;
 - reports minimum, median, and maximum for each successful-run duration metric.
 
-Statistics exclude nonzero-exit runs while retaining those runs in the report. The current scenario schema does not carry JVM, Preflight commit, launcher, artifact, or run-directory identity. The upcoming run collector must supply and enforce those identities before an OFF-versus-ENABLED result is treated as a complete campaign comparison.
+Statistics exclude nonzero-exit runs while retaining those runs in the report. Raw scenario comparison is useful for recorder validation and early diagnostics. It does not carry the binary, runtime, launcher, or artifact identity needed for a campaign claim.
+
+## Collect run evidence
+
+After Starsector exits and `run.json` is finalized, bind the scenario result to the run directory:
+
+```bash
+java -jar preflight.jar benchmark collect \
+  ~/.starsector-preflight/runs/20260717-100000-000-ab12cd34 \
+  --scenario results/enabled-warm-hit-1.json \
+  --output results/enabled-warm-hit-1.collected.json
+```
+
+The collector reads `run.json`, `profile.json`, `summary.json`, optional `adapter.json`, and the scenario record into bounded byte snapshots. Parsing and SHA-256 use the same bytes. Collection rejects:
+
+- unfinished runs or scenario milestones outside the finalized run interval;
+- profile or exit-code disagreement;
+- OFF/ENABLED adapter-mode disagreement;
+- missing enabled-mode adapter evidence;
+- incomplete wrapper or JFR-recorded process identity;
+- `run.json` paths that do not identify the collected profile and adapter evidence;
+- evidence files that escape the run directory through symbolic links.
+
+The collected version 1 record retains the full scenario, selected run/JFR/adapter evidence, wrapper and child-runtime comparison identities, texture artifact identity, and exact hashes of every parsed source file.
+
+## Campaign comparison
+
+Compare collected records for the reportable campaign result:
+
+```bash
+java -jar preflight.jar benchmark compare-runs \
+  results/off-warm-1.collected.json \
+  results/off-warm-2.collected.json \
+  results/enabled-warm-hit-1.collected.json \
+  results/enabled-warm-hit-2.collected.json \
+  --output campaign.json
+```
+
+Campaign comparison rejects mixed:
+
+- scenario IDs and enabled-mod profile fingerprints;
+- Preflight JAR hashes;
+- wrapper JVM identities;
+- JFR-recorded child JVM, OS, and CPU identities;
+- launcher kinds;
+- texture artifact identities within one mode;
+- run IDs and mode/iteration pairs.
+
+Enabled records require exact texture profile, manifest, and index hashes. Every input record is retained in the output, including unsuccessful runs. Duration statistics use successful runs and report minimum, median, and maximum per mode.
+
+A changed-profile fallback case intentionally has a different profile identity. Collect and report it separately from the fixed-profile OFF-versus-ENABLED campaign.
 
 ## Procedure
 
 1. Use one fixed enabled-mod profile and launch target.
 2. Perform one discarded setup launch after changing software.
-3. Capture at least five successful measured runs per mode.
-4. Keep raw traces, console output, timestamps, and failed result records.
-5. Report median, minimum, maximum, and every individual result.
-6. Reject runs with obvious updates, indexing jobs, thermal throttling, or severe swap activity.
-7. Classify unsuccessful exits separately and preserve their result files.
+3. Capture at least five successful `off-warm` runs.
+4. Capture at least five successful `enabled-warm-hit` runs.
+5. Capture one `enabled-build-miss` and one `enabled-corrupt-artifact` case.
+6. Record one changed-profile fallback case as a separate report.
+7. Preserve raw run directories, JFR files, scenario records, collected records, console notes, and unsuccessful results.
+8. Generate the campaign report from collected records.
+9. Report median, minimum, maximum, and every individual result.
+10. Exclude runs affected by updates, indexing jobs, thermal throttling, or severe swap activity, while preserving them with an exclusion reason.
 
-Filesystem cache state differs by platform. Describe the exact method used instead of calling a result fully cold. The scenario schema establishes comparable evidence; it makes no performance claim by itself.
+Filesystem cache state differs by platform. Describe the exact method used instead of calling a result fully cold. The benchmark contracts establish comparable evidence; they make no performance claim by themselves.
