@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
@@ -21,6 +22,7 @@ import org.objectweb.asm.tree.VarInsnNode;
 final class TexturePreparedPixelColorSink {
     private static final String TARGET_CLASS = TexturePreparedPixelPlan.TARGET_CLASS;
     private static final String TEXTURE_OBJECT = TexturePreparedPixelPlan.TEXTURE_OBJECT;
+    private static final String TEXTURE_OBJECT_DESCRIPTOR = "L" + TEXTURE_OBJECT + ";";
     private static final String COLOR_DESCRIPTOR = "Ljava/awt/Color;";
     private static final String COLOR_SETTER_DESCRIPTOR = "(Ljava/awt/Color;)V";
 
@@ -123,7 +125,7 @@ final class TexturePreparedPixelColorSink {
                         || loadedThis.var != 0
                         || !(receiverLoad instanceof VarInsnNode receiver)
                         || receiver.getOpcode() != Opcodes.ALOAD
-                        || receiver.var == 0
+                        || !isTextureObjectLocal(method, receiver.var)
                         || !(setterInstruction instanceof MethodInsnNode setter)
                         || setter.getOpcode() != Opcodes.INVOKEVIRTUAL
                         || !TEXTURE_OBJECT.equals(setter.owner)
@@ -142,6 +144,17 @@ final class TexturePreparedPixelColorSink {
             distinctSetters.add(setters.iterator().next());
         }
         return distinctSetters.size() == 3;
+    }
+
+    private static boolean isTextureObjectLocal(MethodNode method, int local) {
+        int cursor = (method.access & Opcodes.ACC_STATIC) == 0 ? 1 : 0;
+        for (Type argument : Type.getArgumentTypes(method.desc)) {
+            if (cursor == local) {
+                return TEXTURE_OBJECT_DESCRIPTOR.equals(argument.getDescriptor());
+            }
+            cursor += argument.getSize();
+        }
+        return false;
     }
 
     private static AbstractInsnNode previousOpcode(AbstractInsnNode instruction) {
