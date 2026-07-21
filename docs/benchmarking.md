@@ -148,6 +148,8 @@ The version 2 campaign report also includes `primaryComparison` when both `off-w
 - `deltaMs` as candidate minus baseline, so a negative value means the enabled median is lower;
 - `improvementPercent` as `(baseline - candidate) / baseline * 100`, so a positive value means the enabled median is lower.
 
+`primaryComparison` records `campaignMinimumSuccessfulRunsPerMode: 5` and sets `campaignMinimumMet` only after each primary mode has five successful runs. This keeps early diagnostic deltas visible while distinguishing them from the planned campaign threshold.
+
 Nonzero-exit runs remain in the campaign record and stay out of the median calculation. `primaryComparison` is `null` until both primary modes have a successful run. A zero baseline median produces a `null` improvement percentage rather than an undefined division result.
 
 A changed-profile fallback case intentionally has a different profile identity. Collect and report it separately from the fixed-profile OFF-versus-ENABLED campaign.
