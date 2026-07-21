@@ -4,6 +4,7 @@ import dev.starsector.preflight.core.Hashes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -19,7 +20,7 @@ record RunIdentity(
         if (!preflightJarSha256.matches("[0-9a-f]{64}")) {
             throw new IllegalArgumentException("Preflight JAR identity must be a SHA-256 value");
         }
-        wrapperRuntime = Map.copyOf(wrapperRuntime);
+        wrapperRuntime = Collections.unmodifiableMap(new LinkedHashMap<>(wrapperRuntime));
     }
 
     static RunIdentity capture(Path jar) throws IOException {
