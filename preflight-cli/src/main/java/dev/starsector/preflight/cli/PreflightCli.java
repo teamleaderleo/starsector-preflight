@@ -185,7 +185,9 @@ public final class PreflightCli {
         usage.put("benchmark", List.of(
                 "preflight benchmark lookups [--resource-index <index.spfi>] [--classpath-index <profile.spfc>] [--queries <count>] [--seed <long>]",
                 "preflight benchmark scenario --run-id <id> [--scenario-id <id>] --mode <mode> [--iteration <count>] [--profile-fingerprint <sha256>] --process-start <instant> --main-menu-ready <instant> --campaign-ready <instant> --first-combat-ready <instant> --exit-code <code> [--adapter-counter <name=value>] [--cache-counter <name=value>] [--disable-reason <reason>] [--output <benchmark.json>]",
-                "preflight benchmark compare <scenario-result.json> <scenario-result.json>... [--output <comparison.json>]"));
+                "preflight benchmark collect <run-directory> --scenario <scenario-result.json> [--output <collected-run.json>]",
+                "preflight benchmark compare <scenario-result.json> <scenario-result.json>... [--output <comparison.json>]",
+                "preflight benchmark compare-runs <collected-run.json> <collected-run.json>... [--output <campaign.json>]"));
         usage.put("analyze", List.of(
                 "preflight analyze probe <adapter.json> <summary.json> [--json <adapter-analysis.json>]"));
         usage.put("fingerprint", List.of("preflight fingerprint <file-or-directory>"));
