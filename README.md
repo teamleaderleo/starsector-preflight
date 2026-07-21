@@ -171,10 +171,10 @@ See [automatic launch and discovery](docs/automatic-launch.md) for the full beha
 
 ## Benchmark records
 
-Record a deterministic manual scenario result with:
+Inspect the available benchmark commands with:
 
 ```bash
-java -jar preflight.jar benchmark scenario --help
+java -jar preflight.jar benchmark --help
 ```
 
 The current scenario command records supplied milestones, run identity, mode, exit status, adapter counters, and disable reasons. Automated run-directory collection and repeated OFF-versus-ENABLED comparison remain the next measurement task. See [benchmarking](docs/benchmarking.md).
