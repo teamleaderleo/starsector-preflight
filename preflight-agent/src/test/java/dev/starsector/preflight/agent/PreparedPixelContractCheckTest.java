@@ -78,7 +78,7 @@ class PreparedPixelContractCheckTest {
                 archive,
                 PreparedPixelContractCheck.DEFAULT_ARCHIVE_ENTRY);
         assertTrue(inspected.eligible(), inspected.toJson());
-        assertEquals(Files.size(archive), inspected.source().get("inputBytes"));
+        assertEquals(Files.size(archive), ((Number) inspected.source().get("inputBytes")).longValue());
         assertEquals(Hashes.sha256(archive), inspected.source().get("inputSha256"));
         assertEquals(Hashes.sha256(classBytes), inspected.source().get("classSha256"));
         assertNotEquals(inspected.source().get("inputSha256"), inspected.source().get("classSha256"));
