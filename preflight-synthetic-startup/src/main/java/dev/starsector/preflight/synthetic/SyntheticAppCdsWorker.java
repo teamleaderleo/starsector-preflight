@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 
 /** Separate-process caller for the production AppCDS capability detector. */
 public final class SyntheticAppCdsWorker {
@@ -83,7 +84,7 @@ public final class SyntheticAppCdsWorker {
     }
 
     private static Path currentJavaExecutable() {
-        String executable = System.getProperty("os.name", "").toLowerCase().contains("win")
+        String executable = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
                 ? "java.exe"
                 : "java";
         return Path.of(System.getProperty("java.home"), "bin", executable);

@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -263,7 +264,7 @@ public final class AppCdsCapabilityDetector {
     }
 
     private static Status classifyFailure(String output) {
-        String normalized = output == null ? "" : output.toLowerCase();
+        String normalized = output == null ? "" : output.toLowerCase(Locale.ROOT);
         if (normalized.contains("unrecognized vm option")
                 || normalized.contains("unrecognized option")
                 || normalized.contains("is not supported")

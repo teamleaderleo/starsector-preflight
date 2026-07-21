@@ -23,6 +23,7 @@
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit.version>5.10.2</junit.version>
+    <error-prone.version>2.50.0</error-prone.version>
   </properties>
 
   <dependencyManagement>
@@ -94,6 +95,52 @@
   </build>
 
   <profiles>
+    <!-- Opt-in static analysis: mvn -Panalysis verify runs Error Prone during compilation.
+         Kept out of the default build so a new finding never breaks an unrelated change;
+         run it deliberately (locally or in a dedicated job) and triage what it reports. -->
+    <profile>
+      <id>analysis</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <fork>true</fork>
+              <compilerArgs>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <!-- Required by Error Prone on JDK 21+; ignored on JDK 17. -->
+                <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                <!-- SelfAssignment misfires on compact record constructor normalization
+                     (component = Objects.requireNonNull(component, ...)), which this codebase
+                     uses pervasively. Surface everything else as advisory warnings so an
+                     opt-in analysis run reports findings instead of failing on false positives. -->
+                <arg>-Xplugin:ErrorProne -Xep:SelfAssignment:OFF -XepAllErrorsAsWarnings</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+              </annotationProcessorPaths>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
     <!-- Opt-in coverage: mvn -Pcoverage verify, reports under each module's target/site/jacoco. -->
     <profile>
       <id>coverage</id>

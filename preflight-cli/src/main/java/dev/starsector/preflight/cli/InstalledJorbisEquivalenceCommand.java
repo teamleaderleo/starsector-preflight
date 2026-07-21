@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /** Launches the exact installed decoder jars in an isolated application-classloader child JVM. */
@@ -154,7 +155,7 @@ final class InstalledJorbisEquivalenceCommand {
     }
 
     private static String executable(String name) {
-        return System.getProperty("os.name", "").toLowerCase().contains("win") ? name + ".exe" : name;
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? name + ".exe" : name;
     }
 
     record Options(Path jogg, Path jorbis, Path output) {

@@ -13,6 +13,20 @@ Run the verification suite:
 mvn verify
 ```
 
+## Optional analysis profiles
+
+Two opt-in Maven profiles are available and are intentionally kept out of the default
+build so an unrelated change never breaks on them:
+
+```bash
+mvn -Panalysis verify   # Error Prone static analysis; reports findings as warnings
+mvn -Pcoverage verify   # JaCoCo coverage, reported under each module's target/site/jacoco
+```
+
+`-Panalysis` reports findings as advisory warnings rather than failing the build. The
+`SelfAssignment` check is disabled because it misfires on this codebase's compact record
+constructor normalization. Treat new findings as a triage prompt, not an automatic gate.
+
 ## Performance changes
 
 A performance pull request should include:
