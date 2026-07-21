@@ -13,7 +13,6 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
-import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
@@ -27,7 +26,7 @@ class TexturePreparedPixelLoaderColorPlanTest {
     private static final String COLOR = "Ljava/awt/Color;";
 
     @Test
-    void transformedWrapperWritesPreparedColorsToLoaderFields() {
+    void transformedWrapperWritesPreparedColorsToLoaderFields() throws Exception {
         byte[] fixture = fixture();
         byte[] transformed = TexturePreparedPixelPlan.transform(ClassSignature.parse(fixture), fixture);
         assertNotNull(transformed);
