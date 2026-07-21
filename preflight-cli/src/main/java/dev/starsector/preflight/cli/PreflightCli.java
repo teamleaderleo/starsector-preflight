@@ -222,6 +222,7 @@ public final class PreflightCli {
         private final ImageReadStackAttribution imageReadStacks = new ImageReadStackAttribution();
         private final StartupCodeAttribution code = new StartupCodeAttribution();
         private final StartupCpuAttribution cpu = new StartupCpuAttribution();
+        private final JfrRuntimeIdentity runtimeIdentity = new JfrRuntimeIdentity();
         private Instant first;
         private Instant last;
         private long fileReadNanos;
@@ -236,6 +237,7 @@ public final class PreflightCli {
         void accept(RecordedEvent event) {
             String name = event.getEventType().getName();
             counts.merge(name, 1L, Long::sum);
+            runtimeIdentity.record(event);
             Instant start = event.getStartTime();
             Instant end = event.getEndTime();
             first = first == null || start.isBefore(first) ? start : first;
@@ -289,6 +291,7 @@ public final class PreflightCli {
             values.put("classDefineEvents", counts.getOrDefault("jdk.ClassDefine", 0L));
             values.put("executionSamples", counts.getOrDefault("jdk.ExecutionSample", 0L));
             values.put("preflightAgentStartedEvents", counts.getOrDefault("preflight.AgentStarted", 0L));
+            values.put("recordingRuntimeIdentity", runtimeIdentity.toMap());
             values.put("ioAttribution", io.toMap());
             values.put("imageReadStackAttribution", imageReadStacks.toMap());
             values.put("codeAttribution", code.toMap());

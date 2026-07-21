@@ -16,7 +16,7 @@ class IoTraceJfrIntegrationTest {
     Path temporaryDirectory;
 
     @Test
-    void summarizeIncludesKnownReadWritePathsAndImageStackFramesFromRealJfr() throws Exception {
+    void summarizeIncludesKnownPathsStacksAndRecordedProcessIdentityFromRealJfr() throws Exception {
         Path image = temporaryDirectory.resolve("Example Mod/graphics/test image.PNG");
         Path cache = temporaryDirectory.resolve("cache/profile.SPFM");
         Path recordingFile = temporaryDirectory.resolve("startup.jfr");
@@ -28,6 +28,10 @@ class IoTraceJfrIntegrationTest {
         try (Recording recording = new Recording()) {
             recording.enable("jdk.FileRead").withThreshold(Duration.ZERO).withStackTrace();
             recording.enable("jdk.FileWrite").withThreshold(Duration.ZERO).withStackTrace();
+            recording.enable("jdk.InitialSystemProperty");
+            recording.enable("jdk.JVMInformation");
+            recording.enable("jdk.OSInformation");
+            recording.enable("jdk.CPUInformation");
             recording.start();
             SyntheticImageReader.loadTextureImage(image);
             SyntheticImageReader.loadTextureImage(image);
@@ -52,5 +56,14 @@ class IoTraceJfrIntegrationTest {
         assertTrue(json.contains("\"methodName\":\"decodeResource\""), json);
         assertTrue(json.contains("\"methodName\":\"loadTextureImage\""), json);
         assertTrue(json.contains("\"eventsWithStack\":"), json);
+        assertTrue(json.contains("\"recordingRuntimeIdentity\""), json);
+        assertTrue(json.contains("\"scope\":\"" + JfrRuntimeIdentity.SCOPE + "\""), json);
+        assertTrue(json.contains("\"comparisonIdentity\""), json);
+        assertTrue(json.contains("\"jvmName\":\""
+                + System.getProperty("java.vm.name").replace("\\", "\\\\").replace("\"", "\\\"")
+                + "\""), json);
+        assertTrue(json.contains("\"osVersion\":"), json);
+        assertTrue(json.contains("\"cpu\":"), json);
+        assertTrue(json.contains("\"complete\":true"), json);
     }
 }

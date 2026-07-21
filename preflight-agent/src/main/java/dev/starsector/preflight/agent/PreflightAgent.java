@@ -108,6 +108,10 @@ public final class PreflightAgent {
     }
 
     private static void configureStartupEvents(Recording recording) {
+        recording.enable("jdk.InitialSystemProperty");
+        recording.enable("jdk.JVMInformation");
+        recording.enable("jdk.OSInformation");
+        recording.enable("jdk.CPUInformation");
         recording.enable("jdk.FileRead").withThreshold(Duration.ofMillis(1)).withStackTrace();
         recording.enable("jdk.FileWrite").withThreshold(Duration.ofMillis(1)).withStackTrace();
         recording.enable("jdk.ClassLoad").withStackTrace();
