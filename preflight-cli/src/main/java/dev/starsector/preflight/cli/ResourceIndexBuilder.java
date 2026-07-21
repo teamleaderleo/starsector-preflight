@@ -167,7 +167,7 @@ final class ResourceIndexBuilder {
             Set<Path> visited) throws IOException {
         Path realDirectory;
         try {
-            realDirectory = PathContainment.existingInside(root.directory(), directory);
+            realDirectory = PathContainment.existingInsideRealRoot(root.directory(), directory);
         } catch (IOException | IllegalArgumentException error) {
             diagnostics.add("Could not resolve " + directory + ": " + error.getMessage());
             return;
@@ -190,7 +190,7 @@ final class ResourceIndexBuilder {
         }
         for (Path child : children) {
             try {
-                Path realChild = PathContainment.existingInside(root.directory(), child);
+                Path realChild = PathContainment.existingInsideRealRoot(root.directory(), child);
                 BasicFileAttributes attributes = Files.readAttributes(realChild, BasicFileAttributes.class);
                 if (attributes.isDirectory()) {
                     scanDirectory(root, rootIndex, child, entries, fingerprint, diagnostics, visited);
