@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /** Immutable identity captured by the Preflight wrapper before the child launcher starts. */
 record RunIdentity(
@@ -16,15 +17,17 @@ record RunIdentity(
     static final String SCOPE = "preflight-wrapper-process";
 
     RunIdentity {
-        preflightJar = preflightJar.toAbsolutePath().normalize();
+        preflightJar = Objects.requireNonNull(preflightJar, "preflightJar").toAbsolutePath().normalize();
+        preflightJarSha256 = Objects.requireNonNull(preflightJarSha256, "preflightJarSha256");
         if (!preflightJarSha256.matches("[0-9a-f]{64}")) {
             throw new IllegalArgumentException("Preflight JAR identity must be a SHA-256 value");
         }
-        wrapperRuntime = Collections.unmodifiableMap(new LinkedHashMap<>(wrapperRuntime));
+        wrapperRuntime = Collections.unmodifiableMap(
+                new LinkedHashMap<>(Objects.requireNonNull(wrapperRuntime, "wrapperRuntime")));
     }
 
     static RunIdentity capture(Path jar) throws IOException {
-        Path realJar = jar.toAbsolutePath().normalize().toRealPath();
+        Path realJar = Objects.requireNonNull(jar, "jar").toAbsolutePath().normalize().toRealPath();
         if (!Files.isRegularFile(realJar)) {
             throw new IOException("Expected the Preflight runtime to be a regular file: " + realJar);
         }
