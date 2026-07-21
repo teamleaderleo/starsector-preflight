@@ -191,6 +191,8 @@ java -javaagent:preflight.jar=dest=preflight-startup.jfr -jar your-application.j
 
 Agent options are comma-separated. `dest64` is used internally for paths containing spaces or commas.
 
+Run `preflight <command> --help` (or `preflight help <command>`) for a single command's usage. Set `PREFLIGHT_DEBUG=1` to print a full stack trace when a command fails unexpectedly.
+
 ## Project documents
 
 - [Roadmap](docs/roadmap.md)
@@ -208,4 +210,4 @@ Experimental. No Starsector or Fast Rendering binaries are included.
 
 ## License
 
-License selection is pending.
+[MIT](LICENSE). Starsector, Fast Rendering, and mod content remain the property of their respective owners and are never included in this repository or its releases.

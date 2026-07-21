@@ -1,5 +1,6 @@
 package dev.starsector.preflight.agent;
 
+import dev.starsector.preflight.core.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -114,7 +115,7 @@ final class AudioDecoderSignatureReport {
         root.put("entries", entries.values().stream().map(Entry::toMap).toList());
         root.put("diagnosticsTruncated", diagnosticsTruncated);
         root.put("diagnostics", List.copyOf(diagnostics));
-        writeAtomic(destination, AgentJson.object(root) + System.lineSeparator());
+        writeAtomic(destination, Json.object(root) + System.lineSeparator());
     }
 
     private void retainIdentity(IdentityKey key, Entry entry) {
