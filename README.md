@@ -6,9 +6,9 @@ Preflight aims to shorten repeat launch times through measured, independently sw
 
 - **Preflight Trace** — launch-time JFR profiling and reports
 - **Preflight Index** — persistent resource-provider index
-- **Preflight Textures** — upload-ready prepared texture cache
-- **Preflight Scripts** — persistent Janino bytecode cache
-- **Preflight Scheduler** — adaptive loading concurrency and memory limits
+- **Preflight Textures** — prepared texture cache and exact-gated runtime consumers
+- **Preflight Scripts** — persistent Janino bytecode records and fail-open reuse wrapper
+- **Preflight Scheduler** — bounded loading concurrency and memory limits
 - **Preflight Builder** — cross-platform cache generation and diagnostics
 
 ## Quick start
@@ -25,10 +25,10 @@ Preflight will:
 2. Read the enabled mod profile and inventory its startup workload.
 3. Inject the same JAR as a launch-time Java agent through the child process environment.
 4. Start the selected existing launcher without editing the game, mods, saves, launcher, or VM parameter files.
-5. Capture a timestamped JFR startup recording.
-6. Write workload and startup summaries after the game process exits.
+5. Capture a JFR startup recording in an isolated run directory.
+6. Write workload, lifecycle, adapter, and startup summaries after the game process exits.
 
-Preflight is an additional wrapper entry point. The selected vanilla or Fast Rendering launcher remains the child process that starts Starsector.
+Preflight is an additional wrapper entry point. The selected vanilla or Fast Rendering launcher remains the child process that starts Starsector. Adapter mode is OFF by default.
 
 Run discovery without launching anything:
 
@@ -50,9 +50,7 @@ java -jar preflight.jar install
 
 On macOS this creates `~/Applications/Starsector Preflight.app`. Linux receives a command and desktop entry. Windows receives a local command launcher.
 
-## Optional vanilla adapter probe
-
-The live adapter is OFF by default. Normal profiling installs no adapter transformer and writes no adapter report.
+## Vanilla runtime adapter
 
 Collect read-only class signatures from the selected Starsector build with:
 
@@ -60,9 +58,24 @@ Collect read-only class signatures from the selected Starsector build with:
 java -jar preflight.jar run --adapter-probe
 ```
 
-Probe mode writes `adapter.json` and always retains the original class bytes. `--adapter` selects the fail-closed enabled mode, which still requires an exact allowlisted class hash, required method descriptors, and a registered transformation plan. This build ships with zero live transformation plans.
+Probe mode writes `adapter.json` and always retains the original class bytes. `--adapter` selects fail-closed enabled mode. A class changes only when its exact class hash, source archive, loader identity, required descriptors, and registered transformation plan all match.
 
-See [vanilla runtime adapter](docs/vanilla-adapter.md) for the kill switch, target format, safety rules, and the point where a real Starsector installation is required.
+The exact-gated `texture-compatibility-v2` plan passed bounded behavioral acceptance on Starsector 0.98a-RC8 on 2026-07-19. That run applied one reviewed transformation, served 4,926 prepared decoded-image hits, used the original path three times, reached the main screen, and exited normally. This is a behavioral acceptance result; repeated OFF-versus-ENABLED timing remains pending.
+
+After `prepare`, launch the exact current prepared profile explicitly with:
+
+```bash
+java -jar preflight.jar run \
+  --adapter \
+  --texture-auto \
+  --texture-cache-dir "$HOME/.starsector-preflight/cache"
+```
+
+`--texture-auto` selects only fingerprint-named artifacts that exactly describe the current installation. Missing, changed, stale, corrupt, escaped, unsupported, or ambiguous inputs use the original game path or fail before launch with a preparation instruction.
+
+The lower `prepared-pixels` consumer remains fail-closed until its installed color-transfer dataflow is repaired and reviewed. Preparation alone never enables either consumer.
+
+See [vanilla runtime adapter](docs/vanilla-adapter.md) for target identities, texture modes, telemetry, kill switches, and acceptance rules.
 
 ## Workload census
 
@@ -100,9 +113,9 @@ java -jar preflight.jar index query ~/.starsector-preflight/indexes/PROFILE.spfi
 java -jar preflight.jar index validate ~/.starsector-preflight/indexes/PROFILE.spfi
 ```
 
-The index stores ordered providers, a direct winning provider, and complete negative lookup results. It uses atomic replacement and validates its version, bounds, path rules, provider ordering, and SHA-256 payload checksum when read. The validation command checks that roots and provider file metadata still match disk.
+The index stores ordered providers, a direct winning provider, and complete negative lookup results. It validates version, bounds, path rules, provider ordering, and SHA-256 payload checksum when read. Validation checks current provider metadata and resolved real paths. Resource links may target files inside their canonical root; links that escape the root are skipped or rejected.
 
-See [resource provider index](docs/resource-index.md) for the format and current resolution semantics.
+See [resource provider index](docs/resource-index.md) for the format and resolution semantics.
 
 ## Prepared textures
 
@@ -120,7 +133,7 @@ java -jar preflight.jar texture verify example.png example.spft
 java -jar preflight.jar texture benchmark example.png example.spft --runs 10
 ```
 
-Version 1 stores raw bottom-up RGB/RGBA bytes, original and upload dimensions, three loader-derived colors, transformation metadata, and the source SHA-256. The checksummed blob is a correctness baseline for future compression, pack-file, memory-mapping, and bulk-raster experiments.
+Version 1 stores raw bottom-up RGB/RGBA bytes, original and upload dimensions, three loader-derived colors, transformation metadata, and the source SHA-256. The checksummed blob is a correctness baseline for compression, pack-file, memory-mapping, and bulk-raster experiments.
 
 See [prepared texture blobs](docs/prepared-textures.md) for the conversion semantics and binary format.
 
@@ -143,15 +156,28 @@ java -jar preflight.jar run -- --some-launcher-option
 Run data defaults to:
 
 ```text
-~/.starsector-preflight/runs/YYYYMMDD-HHMMSS/
+~/.starsector-preflight/runs/YYYYMMDD-HHMMSS-SSS-NONCE/
   run.json
   profile.json
   startup.jfr
   summary.json
-  adapter.json      probe/enabled runs only
+  adapter.json           probe/enabled runs only
+  adapter-analysis.json  when adapter and JFR reports are available
 ```
 
+`run.json` is finalized for successful child exits, nonzero exits, fatal lifecycle evidence, launch failures, and bounded postprocessing failures.
+
 See [automatic launch and discovery](docs/automatic-launch.md) for the full behavior and troubleshooting path.
+
+## Benchmark records
+
+Record a deterministic manual scenario result with:
+
+```bash
+java -jar preflight.jar benchmark scenario --help
+```
+
+The current scenario command records supplied milestones, run identity, mode, exit status, adapter counters, and disable reasons. Automated run-directory collection and repeated OFF-versus-ENABLED comparison remain the next measurement task. See [benchmarking](docs/benchmarking.md).
 
 ## Build
 
@@ -159,6 +185,12 @@ Requires JDK 17 and Maven 3.9 or newer:
 
 ```bash
 mvn verify
+```
+
+Optional static analysis is available with:
+
+```bash
+mvn -Panalysis verify
 ```
 
 The self-contained executable and agent JAR is produced at:
@@ -197,6 +229,7 @@ Run `preflight <command> --help` (or `preflight help <command>`) for a single co
 
 - [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
+- [Optimization North Star](docs/optimization-north-star.md)
 - [Benchmarking](docs/benchmarking.md)
 - [Automatic launch and discovery](docs/automatic-launch.md)
 - [Vanilla runtime adapter](docs/vanilla-adapter.md)
@@ -206,7 +239,7 @@ Run `preflight <command> --help` (or `preflight help <command>`) for a single co
 
 ## Status
 
-Experimental. No Starsector or Fast Rendering binaries are included.
+Experimental. Compatibility-v2 has bounded real-install behavioral acceptance and no timing claim. Prepared pixels, audio reuse, and Janino reuse remain exact-evidence gated. No Starsector or Fast Rendering binaries are included.
 
 ## License
 
