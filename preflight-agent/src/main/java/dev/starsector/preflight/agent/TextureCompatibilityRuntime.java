@@ -50,8 +50,8 @@ public final class TextureCompatibilityRuntime {
         }
         try {
             Path cacheRoot = PathContainment.realDirectory(cacheDirectory);
-            Path manifestFile = PathContainment.existingInside(cacheRoot, manifestPath);
-            Path indexFile = PathContainment.existingInside(cacheRoot, indexPath);
+            Path manifestFile = PathContainment.existingInsideRealRoot(cacheRoot, manifestPath);
+            Path indexFile = PathContainment.existingInsideRealRoot(cacheRoot, indexPath);
             if (!Files.isRegularFile(manifestFile) || !Files.isRegularFile(indexFile)) {
                 disable(DisableReason.INVALID_CONFIGURATION);
                 return false;
@@ -72,7 +72,11 @@ public final class TextureCompatibilityRuntime {
                 disable(DisableReason.INDEX_STALE);
                 return false;
             }
-            state = new State(cacheRoot, manifest, index);
+            List<Path> sourceRoots = new ArrayList<>(index.roots().size());
+            for (ResourceIndex.Root root : index.roots()) {
+                sourceRoots.add(PathContainment.realDirectory(root.path()));
+            }
+            state = new State(cacheRoot, manifest, index, List.copyOf(sourceRoots));
             TELEMETRY.configured();
             return true;
         } catch (ThreadDeath | VirtualMachineError fatal) {
@@ -148,7 +152,9 @@ public final class TextureCompatibilityRuntime {
             }
             Path source;
             try {
-                source = current.index.resolveExisting(winner);
+                source = PathContainment.existingInsideRealRoot(
+                        current.sourceRoots.get(winner.rootIndex()),
+                        current.index.resolve(winner));
             } catch (IllegalArgumentException error) {
                 TELEMETRY.fallback(FallbackReason.PATH_INVALID);
                 return null;
@@ -172,7 +178,7 @@ public final class TextureCompatibilityRuntime {
             Path blob;
             try {
                 Path candidate = current.cacheRoot.resolve(entry.blobRelativePath()).normalize();
-                blob = PathContainment.existingInside(current.cacheRoot, candidate);
+                blob = PathContainment.existingInsideRealRoot(current.cacheRoot, candidate);
             } catch (IllegalArgumentException | IOException error) {
                 TELEMETRY.fallback(FallbackReason.BLOB_MISSING);
                 return null;
@@ -272,7 +278,7 @@ public final class TextureCompatibilityRuntime {
         try {
             Path candidate = current.cacheRoot.resolve("quarantine").normalize();
             Files.createDirectories(candidate);
-            Path directory = PathContainment.existingInside(current.cacheRoot, candidate);
+            Path directory = PathContainment.existingInsideRealRoot(current.cacheRoot, candidate);
             String name = blob.getFileName() + "." + reason + "." + Instant.now().toEpochMilli() + "." + ordinal;
             Path target = directory.resolve(name).normalize();
             if (!target.startsWith(directory)) {
@@ -314,15 +320,17 @@ public final class TextureCompatibilityRuntime {
         private final Path cacheRoot;
         private final TextureManifest manifest;
         private final ResourceIndex index;
+        private final List<Path> sourceRoots;
         private final boolean ready;
         private final AtomicInteger internalErrors = new AtomicInteger();
         private final AtomicInteger quarantines = new AtomicInteger();
         private final AtomicBoolean circuitBreaker = new AtomicBoolean();
 
-        private State(Path cacheRoot, TextureManifest manifest, ResourceIndex index) {
+        private State(Path cacheRoot, TextureManifest manifest, ResourceIndex index, List<Path> sourceRoots) {
             this.cacheRoot = cacheRoot;
             this.manifest = manifest;
             this.index = index;
+            this.sourceRoots = sourceRoots;
             this.ready = true;
         }
 
@@ -330,6 +338,7 @@ public final class TextureCompatibilityRuntime {
             this.cacheRoot = null;
             this.manifest = null;
             this.index = null;
+            this.sourceRoots = List.of();
             this.ready = false;
         }
 
