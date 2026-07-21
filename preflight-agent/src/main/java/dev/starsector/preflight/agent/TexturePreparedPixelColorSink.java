@@ -1,6 +1,5 @@
 package dev.starsector.preflight.agent;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -12,6 +11,7 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.FrameNode;
+import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -146,7 +146,7 @@ final class TexturePreparedPixelColorSink {
 
     private static AbstractInsnNode previousOpcode(AbstractInsnNode instruction) {
         AbstractInsnNode current = instruction == null ? null : instruction.getPrevious();
-        while (current instanceof LabelNodeLike
+        while (current instanceof LabelNode
                 || current instanceof LineNumberNode
                 || current instanceof FrameNode) {
             current = current.getPrevious();
@@ -156,16 +156,12 @@ final class TexturePreparedPixelColorSink {
 
     private static AbstractInsnNode nextOpcode(AbstractInsnNode instruction) {
         AbstractInsnNode current = instruction == null ? null : instruction.getNext();
-        while (current instanceof LabelNodeLike
+        while (current instanceof LabelNode
                 || current instanceof LineNumberNode
                 || current instanceof FrameNode) {
             current = current.getNext();
         }
         return current;
-    }
-
-    /** Marker interface bridge used only to group label-like ASM nodes without broad opcode checks. */
-    private interface LabelNodeLike {
     }
 
     record SinkField(String owner, String name, String descriptor, int receiverLocal) {
