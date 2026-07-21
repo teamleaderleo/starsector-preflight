@@ -13,11 +13,13 @@ import dev.starsector.preflight.core.ResourceIndexIO;
 import dev.starsector.preflight.core.TextureManifest;
 import dev.starsector.preflight.core.TextureManifestIO;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -102,6 +104,55 @@ class TextureCompatibilityRuntimeTest {
         assertTrue(reasons.contains("index-stale"), reasons.toString());
     }
 
+    @Test
+    void configurationRejectsMetadataLinksOutsideTheCache() throws Exception {
+        Fixture fixture = fixture();
+        Path externalManifest = temporaryDirectory.resolve("external.spfm");
+        Files.move(fixture.manifest(), externalManifest);
+        createSymbolicLinkOrSkip(fixture.manifest(), externalManifest);
+
+        assertFalse(TextureCompatibilityRuntime.configure(
+                fixture.cache(), fixture.manifest(), fixture.index()));
+
+        @SuppressWarnings("unchecked")
+        List<String> reasons = (List<String>) TextureCompatibilityRuntime.telemetry().get("disableReasons");
+        assertTrue(reasons.contains("invalid-configuration"), reasons.toString());
+    }
+
+    @Test
+    void lookupRejectsSourceLinkRetargetedOutsideItsRoot() throws Exception {
+        Fixture fixture = fixture();
+        assertTrue(TextureCompatibilityRuntime.configure(
+                fixture.cache(), fixture.manifest(), fixture.index()));
+        Path externalSource = temporaryDirectory.resolve("external-source.png");
+        Files.move(fixture.source(), externalSource);
+        createSymbolicLinkOrSkip(fixture.source(), externalSource);
+
+        assertNull(TextureCompatibilityRuntime.load("graphics/test.png"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reasons =
+                (Map<String, Object>) TextureCompatibilityRuntime.telemetry().get("fallbackReasons");
+        assertEquals(1L, reasons.get("path-invalid"));
+    }
+
+    @Test
+    void lookupRejectsBlobLinkRetargetedOutsideTheCache() throws Exception {
+        Fixture fixture = fixture();
+        assertTrue(TextureCompatibilityRuntime.configure(
+                fixture.cache(), fixture.manifest(), fixture.index()));
+        Path externalBlob = temporaryDirectory.resolve("external.spft");
+        Files.move(fixture.blob(), externalBlob);
+        createSymbolicLinkOrSkip(fixture.blob(), externalBlob);
+
+        assertNull(TextureCompatibilityRuntime.load("graphics/test.png"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reasons =
+                (Map<String, Object>) TextureCompatibilityRuntime.telemetry().get("fallbackReasons");
+        assertEquals(1L, reasons.get("blob-missing"));
+    }
+
     private Fixture fixture() throws Exception {
         Path cache = temporaryDirectory.resolve("cache");
         Path sourceRoot = temporaryDirectory.resolve("game");
@@ -156,6 +207,14 @@ class TextureCompatibilityRuntimeTest {
         Path manifestPath = cache.resolve("manifests").resolve(profile + ".spfm");
         TextureManifestIO.write(manifestPath, manifest);
         return new Fixture(cache, source, indexPath, manifestPath, blob);
+    }
+
+    private static void createSymbolicLinkOrSkip(Path link, Path target) throws IOException {
+        try {
+            Files.createSymbolicLink(link, target.toAbsolutePath());
+        } catch (UnsupportedOperationException | SecurityException | IOException error) {
+            Assumptions.assumeTrue(false, "symbolic links are unavailable: " + error.getMessage());
+        }
     }
 
     private record Fixture(Path cache, Path source, Path index, Path manifest, Path blob) {
