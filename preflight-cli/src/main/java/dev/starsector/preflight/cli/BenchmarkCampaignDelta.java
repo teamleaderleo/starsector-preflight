@@ -13,6 +13,8 @@ import java.util.Map;
 
 /** Direct median comparison for the primary warm OFF-versus-ENABLED campaign modes. */
 final class BenchmarkCampaignDelta {
+    static final int CAMPAIGN_MINIMUM_SUCCESSFUL_RUNS_PER_MODE = 5;
+
     private static final BenchmarkScenarioMode BASELINE_MODE = BenchmarkScenarioMode.OFF_WARM;
     private static final BenchmarkScenarioMode CANDIDATE_MODE = BenchmarkScenarioMode.ENABLED_WARM_HIT;
 
@@ -54,6 +56,10 @@ final class BenchmarkCampaignDelta {
         output.put("candidateMode", CANDIDATE_MODE.toString());
         output.put("baselineSuccessfulRuns", baseline.size());
         output.put("candidateSuccessfulRuns", candidate.size());
+        output.put("campaignMinimumSuccessfulRunsPerMode", CAMPAIGN_MINIMUM_SUCCESSFUL_RUNS_PER_MODE);
+        output.put("campaignMinimumMet",
+                baseline.size() >= CAMPAIGN_MINIMUM_SUCCESSFUL_RUNS_PER_MODE
+                        && candidate.size() >= CAMPAIGN_MINIMUM_SUCCESSFUL_RUNS_PER_MODE);
         output.put("deltaConvention", "candidate-minus-baseline");
         output.put("improvementConvention", "positive-means-candidate-lower");
         output.put("metrics", Collections.unmodifiableMap(metrics));
