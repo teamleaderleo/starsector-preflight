@@ -1,5 +1,6 @@
 package dev.starsector.preflight.cli;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -41,10 +42,10 @@ final class JfrRuntimeIdentity {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("scope", SCOPE);
         values.put("complete", complete());
-        values.put("jvmInformation", Map.copyOf(jvmInformation));
+        values.put("jvmInformation", orderedCopy(jvmInformation));
         values.put("systemProperties", orderedSystemProperties());
-        values.put("osInformation", Map.copyOf(osInformation));
-        values.put("cpuInformation", Map.copyOf(cpuInformation));
+        values.put("osInformation", orderedCopy(osInformation));
+        values.put("cpuInformation", orderedCopy(cpuInformation));
         return values;
     }
 
@@ -99,7 +100,11 @@ final class JfrRuntimeIdentity {
                 ordered.put(key, systemProperties.get(key));
             }
         }
-        return ordered;
+        return Collections.unmodifiableMap(ordered);
+    }
+
+    private static Map<String, Object> orderedCopy(Map<String, Object> values) {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
     }
 
     private static void putString(Map<String, Object> target, RecordedEvent event, String field) {
