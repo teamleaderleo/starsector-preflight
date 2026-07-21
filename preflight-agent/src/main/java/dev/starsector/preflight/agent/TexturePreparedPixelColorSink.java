@@ -1,5 +1,7 @@
 package dev.starsector.preflight.agent;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,6 +22,10 @@ import org.objectweb.asm.tree.VarInsnNode;
 
 /** Exact color sink evidence for the prepared-pixel conversion bypass. */
 final class TexturePreparedPixelColorSink {
+    static final String MODEL_DIRECT_TEXTURE_FIELDS = "direct-texture-fields";
+    static final String MODEL_STAGED_LOADER_SETTERS = "staged-loader-setters";
+    static final String MODEL_UNSUPPORTED = "unsupported";
+
     private static final String TARGET_CLASS = TexturePreparedPixelPlan.TARGET_CLASS;
     private static final String TEXTURE_OBJECT = TexturePreparedPixelPlan.TEXTURE_OBJECT;
     private static final String TEXTURE_OBJECT_DESCRIPTOR = "L" + TEXTURE_OBJECT + ";";
@@ -30,21 +36,63 @@ final class TexturePreparedPixelColorSink {
     }
 
     static List<SinkField> reviewed(ClassNode owner, MethodNode convert) {
-        if (!hasRasterRead(convert)) {
-            return List.of();
-        }
+        Review review = inspect(owner, convert);
+        return review.eligible() ? review.reviewedFields() : List.of();
+    }
 
+    static Review inspect(ClassNode owner, MethodNode convert) {
+        boolean rasterRead = hasRasterRead(convert);
         List<SinkField> direct = colorFields(convert, TEXTURE_OBJECT, 2);
         List<SinkField> staged = colorFields(convert, TARGET_CLASS, 0);
-        boolean directEligible = direct.size() == 3;
-        boolean stagedEligible = staged.size() == 3
-                && fieldsExistOnOwner(owner, staged)
+        boolean stagedFieldsDeclared = staged.size() == 3 && fieldsExistOnOwner(owner, staged);
+        boolean stagedSetterFlowExact = stagedFieldsDeclared
                 && hasReviewedSetterTransfers(owner, convert, staged);
+        boolean directEligible = rasterRead && direct.size() == 3;
+        boolean stagedEligible = rasterRead
+                && staged.size() == 3
+                && stagedFieldsDeclared
+                && stagedSetterFlowExact;
 
-        if (directEligible == stagedEligible) {
-            return List.of();
+        String model = MODEL_UNSUPPORTED;
+        List<SinkField> reviewed = List.of();
+        if (directEligible != stagedEligible) {
+            model = directEligible ? MODEL_DIRECT_TEXTURE_FIELDS : MODEL_STAGED_LOADER_SETTERS;
+            reviewed = directEligible ? direct : staged;
         }
-        return directEligible ? direct : staged;
+
+        List<String> problems = new ArrayList<>();
+        if (!rasterRead) {
+            problems.add("converter has no reviewed raster read");
+        }
+        if (!direct.isEmpty() && direct.size() != 3) {
+            problems.add("direct texture color sink count is " + direct.size() + ", expected exactly 3");
+        }
+        if (!staged.isEmpty() && staged.size() != 3) {
+            problems.add("staged loader color sink count is " + staged.size() + ", expected exactly 3");
+        }
+        if (staged.size() == 3 && !stagedFieldsDeclared) {
+            problems.add("staged loader color fields are absent, static, or incorrectly typed");
+        }
+        if (staged.size() == 3 && stagedFieldsDeclared && !stagedSetterFlowExact) {
+            problems.add("staged loader color setter targets are incomplete, ambiguous, static, or incorrectly typed");
+        }
+        if (directEligible && stagedEligible) {
+            problems.add("direct and staged color sink models are both eligible");
+        }
+        if (MODEL_UNSUPPORTED.equals(model) && problems.isEmpty()) {
+            problems.add("no exact prepared-pixel color sink model is eligible");
+        }
+
+        return new Review(
+                model,
+                !MODEL_UNSUPPORTED.equals(model),
+                rasterRead,
+                direct,
+                staged,
+                stagedFieldsDeclared,
+                stagedSetterFlowExact,
+                reviewed,
+                problems);
     }
 
     private static boolean hasRasterRead(MethodNode convert) {
@@ -77,7 +125,7 @@ final class TexturePreparedPixelColorSink {
                         new SinkField(field.owner, field.name, field.desc, receiverLocal));
             }
         }
-        return fields.size() == 3 ? List.copyOf(fields.values()) : List.of();
+        return List.copyOf(fields.values());
     }
 
     private static boolean fieldsExistOnOwner(ClassNode owner, List<SinkField> fields) {
@@ -100,7 +148,7 @@ final class TexturePreparedPixelColorSink {
         }
 
         for (MethodNode method : owner.methods) {
-            if (method == convert) {
+            if (method == convert || (method.access & Opcodes.ACC_STATIC) != 0) {
                 continue;
             }
             for (AbstractInsnNode instruction = method.instructions.getFirst();
@@ -147,7 +195,7 @@ final class TexturePreparedPixelColorSink {
     }
 
     private static boolean isTextureObjectLocal(MethodNode method, int local) {
-        int cursor = (method.access & Opcodes.ACC_STATIC) == 0 ? 1 : 0;
+        int cursor = 1;
         for (Type argument : Type.getArgumentTypes(method.desc)) {
             if (cursor == local) {
                 return TEXTURE_OBJECT_DESCRIPTOR.equals(argument.getDescriptor());
@@ -177,6 +225,44 @@ final class TexturePreparedPixelColorSink {
         return current;
     }
 
+    record Review(
+            String model,
+            boolean eligible,
+            boolean rasterRead,
+            List<SinkField> directFields,
+            List<SinkField> stagedFields,
+            boolean stagedFieldsDeclared,
+            boolean stagedSetterFlowExact,
+            List<SinkField> reviewedFields,
+            List<String> problems) {
+        Review {
+            directFields = List.copyOf(directFields);
+            stagedFields = List.copyOf(stagedFields);
+            reviewedFields = List.copyOf(reviewedFields);
+            problems = List.copyOf(problems);
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("model", model);
+            values.put("eligible", eligible);
+            values.put("rasterRead", rasterRead);
+            values.put("directFieldCount", directFields.size());
+            values.put("directFields", fieldMaps(directFields));
+            values.put("stagedFieldCount", stagedFields.size());
+            values.put("stagedFields", fieldMaps(stagedFields));
+            values.put("stagedFieldsDeclared", stagedFieldsDeclared);
+            values.put("stagedSetterFlowExact", stagedSetterFlowExact);
+            values.put("reviewedFields", fieldMaps(reviewedFields));
+            values.put("problems", problems);
+            return Collections.unmodifiableMap(values);
+        }
+
+        private static List<Map<String, Object>> fieldMaps(List<SinkField> fields) {
+            return fields.stream().map(SinkField::toMap).toList();
+        }
+    }
+
     record SinkField(String owner, String name, String descriptor, int receiverLocal) {
         SinkField {
             if ((!TARGET_CLASS.equals(owner) && !TEXTURE_OBJECT.equals(owner))
@@ -186,6 +272,15 @@ final class TexturePreparedPixelColorSink {
                     || (receiverLocal != 0 && receiverLocal != 2)) {
                 throw new IllegalArgumentException("Invalid prepared-pixel color sink field");
             }
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("owner", owner);
+            values.put("name", name);
+            values.put("descriptor", descriptor);
+            values.put("receiverLocal", receiverLocal);
+            return Collections.unmodifiableMap(values);
         }
     }
 }

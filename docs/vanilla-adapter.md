@@ -158,13 +158,35 @@ java -jar preflight.jar run \
   --texture-index "$HOME/.starsector-preflight/cache/resource-indexes/PROFILE.spfi"
 ```
 
-The bytecode plan additionally requires a reviewed conversion pattern: a raster read, exactly three distinct `java.awt.Color` writes on `com/fs/graphics/Object`, and the static ByteBuffer cleanup descriptor. Missing or ambiguous evidence declines transformation.
+The bytecode plan requires a reviewed raster read and exactly one color-sink model. It accepts either three distinct `java.awt.Color` writes on `com/fs/graphics/Object`, or three declared non-static `TextureLoader` color fields that each flow through an instance method into one distinct, exactly typed texture-object setter. Mixed, incomplete, ambiguous, static, and incorrectly typed flows decline transformation.
 
 A valid hit supplies a fresh direct ByteBuffer containing the stored bottom-up SPFT bytes and writes the three stored derived colors. It bypasses ImageIO decode, raster traversal, row reversal, RGB/RGBA conversion, transparent-texel normalization, and derived-color calculation. Starsector retains its original texture allocation, OpenGL upload, filtering, mipmaps, cleanup call, flags, and texture lifetime.
 
 The `texture-prepared-pixels-v2` plan also executes the original asynchronous preloader first. It retains a direct-decode-only clone for a prepared-carrier failure, plus the original conversion and cleanup bodies under private synthetic names. Misses and unsupported cases call direct decode and conversion once, without repeating or bypassing the preloader handoff. Original cleanup always executes, and Preflight releases its buffer accounting afterward, including the exceptional path. Original exceptions propagate.
 
-Current status: the packaged synthetic prepared-pixel tests pass, but a read-only transform check against the exact installed 0.98a-RC8 class declines at the color-sink matcher. The installed converter stores colors on `TextureLoader` and later transfers them through texture-object setters; the fixture modeled direct texture-object fields. Treat prepared-pixels as fail-closed, not live-ready, until that exact dataflow is corrected and reviewed.
+The installed-style staged color flow is implemented and synthetic transformation coverage passes. Prepared pixels remain fail-closed until the exact installed class passes the offline contract check and a real opt-in lifecycle run completes.
+
+### Offline prepared-pixel contract check
+
+Build the runnable JAR, then inspect either an extracted class or the installed archive:
+
+```bash
+mvn --batch-mode --no-transfer-progress -pl preflight-cli -am package
+
+java -cp preflight-cli/target/preflight.jar \
+  dev.starsector.preflight.agent.PreparedPixelContractCheck \
+  /path/to/TextureLoader.class
+
+java -cp preflight-cli/target/preflight.jar \
+  dev.starsector.preflight.agent.PreparedPixelContractCheck \
+  "/path/to/Starsector/Contents/Resources/Java/fs.common_obf.jar"
+```
+
+JAR input defaults to `com/fs/graphics/TextureLoader.class`. Use `--entry <path>` for a different safe archive entry.
+
+The command writes one bounded JSON report to standard output. It includes the whole-input and class-entry SHA-256 values, all nine required methods, direct and staged color-sink evidence, reviewed sink fields, full transformation status, and the transformed-byte SHA-256 when successful. Exit status `0` means the supplied class completed the exact offline transform; status `6` means the contract declined.
+
+This report supplies offline bytecode evidence. Live acceptance also requires the compiled class, archive, source, and loader identities plus a successful opt-in lifecycle run on the same installation.
 
 Prepared direct-buffer ownership is bounded:
 
