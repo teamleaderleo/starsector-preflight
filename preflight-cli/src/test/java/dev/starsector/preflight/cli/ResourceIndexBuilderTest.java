@@ -1,13 +1,16 @@
 package dev.starsector.preflight.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.starsector.preflight.core.ResourceIndex;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -81,8 +84,38 @@ class ResourceIndexBuilderTest {
         ResourceIndexBuilder.BuildResult result = ResourceIndexBuilder.build(app);
 
         assertEquals(List.of("core"), result.index().roots().stream().map(ResourceIndex.Root::id).toList());
-        assertEquals(core.toAbsolutePath().normalize(), result.index().roots().get(0).path());
+        assertEquals(core.toRealPath(), result.index().roots().get(0).path());
         assertTrue(result.index().winner("graphics/core.png").isPresent());
         assertTrue(result.diagnostics().stream().noneMatch(value -> value.contains("mod-only")));
+    }
+
+    @Test
+    void indexesInternalLinksAndSkipsLinksOutsideTheCanonicalRoot() throws Exception {
+        Path core = temporaryDirectory.resolve("starsector-core");
+        Path graphics = core.resolve("graphics");
+        Path mods = temporaryDirectory.resolve("mods");
+        Files.createDirectories(graphics);
+        Files.createDirectories(mods);
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[]}");
+        Path internal = graphics.resolve("internal.png");
+        Path outside = temporaryDirectory.resolve("outside.png");
+        Files.writeString(internal, "inside");
+        Files.writeString(outside, "outside");
+        createSymbolicLinkOrSkip(graphics.resolve("alias.png"), internal);
+        createSymbolicLinkOrSkip(graphics.resolve("escaped.png"), outside);
+
+        ResourceIndexBuilder.BuildResult result = ResourceIndexBuilder.build(temporaryDirectory);
+
+        assertTrue(result.index().winner("graphics/alias.png").isPresent());
+        assertFalse(result.index().winner("graphics/escaped.png").isPresent());
+        assertTrue(result.diagnostics().stream().anyMatch(value -> value.contains("escapes its root")));
+    }
+
+    private static void createSymbolicLinkOrSkip(Path link, Path target) throws IOException {
+        try {
+            Files.createSymbolicLink(link, target.toAbsolutePath());
+        } catch (UnsupportedOperationException | SecurityException | IOException error) {
+            Assumptions.assumeTrue(false, "symbolic links are unavailable: " + error.getMessage());
+        }
     }
 }
