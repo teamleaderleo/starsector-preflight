@@ -22,15 +22,23 @@ public final class PathContainment {
     }
 
     public static Path existingInside(Path root, Path candidate) throws IOException {
+        return existingInsideRealRoot(realDirectory(root), candidate);
+    }
+
+    /** Resolves a candidate beneath a root previously returned by {@link #realDirectory(Path)}. */
+    public static Path existingInsideRealRoot(Path realRoot, Path candidate) throws IOException {
+        if (realRoot == null) {
+            throw new IllegalArgumentException("Real root is required");
+        }
         if (candidate == null) {
             throw new IllegalArgumentException("Candidate path is required");
         }
-        Path realRoot = realDirectory(root);
+        Path normalizedRoot = realRoot.toAbsolutePath().normalize();
         Path realCandidate = candidate.toAbsolutePath().normalize().toRealPath();
-        if (!realCandidate.startsWith(realRoot)) {
+        if (!realCandidate.startsWith(normalizedRoot)) {
             throw new IllegalArgumentException(
                     "Path escapes its root: " + candidate + " resolves to " + realCandidate
-                            + " outside " + realRoot);
+                            + " outside " + normalizedRoot);
         }
         return realCandidate;
     }
