@@ -73,7 +73,7 @@ java -jar preflight.jar run \
 
 `--texture-auto` selects only fingerprint-named artifacts that exactly describe the current installation. Missing, changed, stale, corrupt, escaped, unsupported, or ambiguous inputs use the original game path or fail before launch with a preparation instruction.
 
-The lower `prepared-pixels` consumer remains fail-closed until its installed color-transfer dataflow is repaired and reviewed. Preparation alone never enables either consumer.
+The lower `prepared-pixels` consumer remains fail-closed until the exact installed class passes the offline contract check and a real opt-in lifecycle run completes. Preparation alone never enables either consumer.
 
 See [vanilla runtime adapter](docs/vanilla-adapter.md) for target identities, texture modes, telemetry, kill switches, and acceptance rules.
 
@@ -177,7 +177,7 @@ Inspect the available benchmark commands with:
 java -jar preflight.jar benchmark --help
 ```
 
-The current scenario command records supplied milestones, run identity, mode, exit status, adapter counters, and disable reasons. Automated run-directory collection and repeated OFF-versus-ENABLED comparison remain the next measurement task. See [benchmarking](docs/benchmarking.md).
+The campaign commands collect run directories, validate identities, preserve failed runs, report every run, and compute OFF-warm versus ENABLED-warm-hit median deltas. A primary campaign completes after five successful runs per mode. See [benchmarking](docs/benchmarking.md).
 
 ## Build
 
