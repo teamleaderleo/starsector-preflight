@@ -153,7 +153,7 @@ public final class PreflightCli {
     private static Map<String, List<String>> usageByCommand() {
         Map<String, List<String>> usage = new LinkedHashMap<>();
         usage.put("run", List.of(
-                "preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [--adapter-probe | --adapter | --no-adapter] [--adapter-targets <path>] [--texture-auto [--texture-cache-dir <path>] | --texture-cache-dir <path> --texture-manifest <path> --texture-index <path>] [--texture-mode compatibility|prepared-pixels] [-- <launcher args>]") );
+                "preflight run [--game <path>] [--launcher <path>] [--trace-dir <path>] [--dry-run] [--no-summary] [--no-scan] [--adapter-probe | --adapter | --no-adapter] [--adapter-targets <path>] [--texture-auto [--texture-cache-dir <path>] | --texture-cache-dir <path> --texture-manifest <path> --texture-index <path>] [--texture-mode compatibility|prepared-pixels] [-- <launcher args>]"));
         usage.put("prepare", List.of(
                 "preflight prepare [--game <path>] [--launcher <path>] [--cache-dir <path>] [--report <path>] [--workers <count>] [--memory-mb <MiB>] [--deep] [--verify-lookups] [--lookup-queries <count>] [--seed <long>] [--no-resource-index] [--no-classpath] [--no-textures]"));
         usage.put("doctor", List.of("preflight doctor [--game <path>] [--launcher <path>]"));
