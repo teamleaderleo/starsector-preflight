@@ -6,6 +6,8 @@ import dev.starsector.preflight.core.Hashes;
 import dev.starsector.preflight.core.Json;
 import dev.starsector.preflight.core.PathContainment;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -25,6 +27,7 @@ final class BenchmarkRunCollector {
     private static final long MAX_PROFILE_BYTES = 32L * 1024 * 1024;
     private static final long MAX_SUMMARY_BYTES = 32L * 1024 * 1024;
     private static final long MAX_ADAPTER_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_SCENARIO_BYTES = 1024L * 1024L;
 
     private BenchmarkRunCollector() {
     }
@@ -54,14 +57,26 @@ final class BenchmarkRunCollector {
         Path summaryFile = requiredRunFile(runRoot, "summary.json");
         Path adapterFile = optionalRunFile(runRoot, "adapter.json");
         Path scenarioFile = scenarioPath.toAbsolutePath().normalize().toRealPath();
+        if (!Files.isRegularFile(scenarioFile)) {
+            throw new IOException("Expected benchmark scenario evidence: " + scenarioFile);
+        }
 
-        Map<String, Object> run = readObject(runFile, MAX_RUN_BYTES, "run evidence");
-        Map<String, Object> profile = readObject(profileFile, MAX_PROFILE_BYTES, "profile evidence");
-        Map<String, Object> summary = readObject(summaryFile, MAX_SUMMARY_BYTES, "summary evidence");
-        Map<String, Object> adapter = adapterFile == null
+        JsonSnapshot runSnapshot = readSnapshot(runFile, MAX_RUN_BYTES, "run evidence");
+        JsonSnapshot profileSnapshot = readSnapshot(profileFile, MAX_PROFILE_BYTES, "profile evidence");
+        JsonSnapshot summarySnapshot = readSnapshot(summaryFile, MAX_SUMMARY_BYTES, "summary evidence");
+        JsonSnapshot adapterSnapshot = adapterFile == null
                 ? null
-                : readObject(adapterFile, MAX_ADAPTER_BYTES, "adapter evidence");
-        BenchmarkScenarioResult scenario = BenchmarkScenarioComparison.read(scenarioFile);
+                : readSnapshot(adapterFile, MAX_ADAPTER_BYTES, "adapter evidence");
+        ScenarioSnapshot scenarioSnapshot = readScenarioSnapshot(scenarioFile);
+
+        Map<String, Object> run = runSnapshot.object();
+        Map<String, Object> profile = profileSnapshot.object();
+        Map<String, Object> summary = summarySnapshot.object();
+        Map<String, Object> adapter = adapterSnapshot == null ? null : adapterSnapshot.object();
+        BenchmarkScenarioResult scenario = scenarioSnapshot.result();
+
+        requireRecordedExistingPath(runRoot, run, "profile", profileFile);
+        requireRecordedAdapterPath(runRoot, run, adapterFile);
 
         String profileFingerprint = requiredSha256(profile, "profileFingerprint");
         if (!profileFingerprint.equals(scenario.profileFingerprint())) {
@@ -107,9 +122,7 @@ final class BenchmarkRunCollector {
         }
         String preflightJarSha256 = requiredSha256(run, "preflightJarSha256");
         Map<String, Object> wrapperRuntime = requiredObject(run, "wrapperRuntime");
-        if (wrapperRuntime.isEmpty()) {
-            throw new IllegalArgumentException("run.json wrapperRuntime is empty");
-        }
+        validateScalarMap(wrapperRuntime, "run.json wrapperRuntime");
 
         Map<String, Object> recordingIdentity = requiredObject(summary, "recordingRuntimeIdentity");
         if (!JfrRuntimeIdentity.SCOPE.equals(requiredString(recordingIdentity, "scope"))) {
@@ -119,16 +132,14 @@ final class BenchmarkRunCollector {
             throw new IllegalArgumentException("summary.json recording runtime identity is incomplete");
         }
         Map<String, Object> comparisonIdentity = requiredObject(recordingIdentity, "comparisonIdentity");
-        if (comparisonIdentity.isEmpty()) {
-            throw new IllegalArgumentException("summary.json comparisonIdentity is empty");
-        }
+        validateScalarMap(comparisonIdentity, "summary.json comparisonIdentity");
 
         Map<String, Object> files = new LinkedHashMap<>();
-        files.put("run", fileIdentity(runRoot, runFile));
-        files.put("profile", fileIdentity(runRoot, profileFile));
-        files.put("summary", fileIdentity(runRoot, summaryFile));
-        files.put("adapter", adapterFile == null ? null : fileIdentity(runRoot, adapterFile));
-        files.put("scenario", externalFileIdentity(scenarioFile));
+        files.put("run", fileIdentity(runRoot, runSnapshot));
+        files.put("profile", fileIdentity(runRoot, profileSnapshot));
+        files.put("summary", fileIdentity(runRoot, summarySnapshot));
+        files.put("adapter", adapterSnapshot == null ? null : fileIdentity(runRoot, adapterSnapshot));
+        files.put("scenario", externalFileIdentity(scenarioSnapshot));
 
         Map<String, Object> textureIdentity = new LinkedHashMap<>();
         textureIdentity.put("mode", optionalString(run, "textureAdapterMode"));
@@ -153,7 +164,7 @@ final class BenchmarkRunCollector {
         runEvidence.put("launcherExitCode", optionalLong(run, "launcherExitCode"));
         runEvidence.put("outcome", outcome);
         runEvidence.put("executionFailure", optionalString(run, "executionFailure"));
-        runEvidence.put("postprocessingFailures", requiredStringList(run, "postprocessingFailures"));
+        runEvidence.put("postprocessingFailures", requiredStringList(run, "postprocessingFailures", 16));
         runEvidence.put("adapterMode", adapterMode);
         runEvidence.put("textureAuto", optionalBoolean(run, "textureAuto"));
 
@@ -209,19 +220,19 @@ final class BenchmarkRunCollector {
         return Collections.unmodifiableMap(evidence);
     }
 
-    private static Map<String, Object> fileIdentity(Path runRoot, Path file) throws IOException {
+    private static Map<String, Object> fileIdentity(Path runRoot, JsonSnapshot snapshot) {
         Map<String, Object> identity = new LinkedHashMap<>();
-        identity.put("path", runRoot.relativize(file));
-        identity.put("bytes", Files.size(file));
-        identity.put("sha256", Hashes.sha256(file));
+        identity.put("path", runRoot.relativize(snapshot.path()));
+        identity.put("bytes", snapshot.bytes().length);
+        identity.put("sha256", Hashes.sha256(snapshot.bytes()));
         return Collections.unmodifiableMap(identity);
     }
 
-    private static Map<String, Object> externalFileIdentity(Path file) throws IOException {
+    private static Map<String, Object> externalFileIdentity(ScenarioSnapshot snapshot) {
         Map<String, Object> identity = new LinkedHashMap<>();
-        identity.put("path", file);
-        identity.put("bytes", Files.size(file));
-        identity.put("sha256", Hashes.sha256(file));
+        identity.put("path", snapshot.path());
+        identity.put("bytes", snapshot.bytes().length);
+        identity.put("sha256", Hashes.sha256(snapshot.bytes()));
         return Collections.unmodifiableMap(identity);
     }
 
@@ -245,12 +256,56 @@ final class BenchmarkRunCollector {
         return file;
     }
 
-    private static Map<String, Object> readObject(Path file, long maximumBytes, String kind) throws IOException {
-        long size = Files.size(file);
-        if (size > maximumBytes) {
-            throw new IOException(kind + " exceeds " + maximumBytes + " bytes: " + file);
+    private static JsonSnapshot readSnapshot(Path file, long maximumBytes, String kind) throws IOException {
+        byte[] bytes = readBounded(file, maximumBytes, kind);
+        return new JsonSnapshot(file, bytes, StrictJson.object(new String(bytes, StandardCharsets.UTF_8)));
+    }
+
+    private static ScenarioSnapshot readScenarioSnapshot(Path file) throws IOException {
+        byte[] bytes = readBounded(file, MAX_SCENARIO_BYTES, "scenario evidence");
+        BenchmarkScenarioResult result = BenchmarkScenarioSnapshot.parse(
+                file,
+                new String(bytes, StandardCharsets.UTF_8));
+        return new ScenarioSnapshot(file, bytes, result);
+    }
+
+    private static byte[] readBounded(Path file, long maximumBytes, String kind) throws IOException {
+        try (InputStream stream = Files.newInputStream(file)) {
+            byte[] bytes = stream.readNBytes(Math.toIntExact(maximumBytes + 1));
+            if (bytes.length > maximumBytes) {
+                throw new IOException(kind + " exceeds " + maximumBytes + " bytes: " + file);
+            }
+            return bytes;
         }
-        return StrictJson.object(Files.readString(file));
+    }
+
+    private static void requireRecordedExistingPath(
+            Path runRoot,
+            Map<String, Object> run,
+            String field,
+            Path expected) throws IOException {
+        Path recorded = Path.of(requiredString(run, field)).toAbsolutePath().normalize();
+        Path real = PathContainment.existingInsideRealRoot(runRoot, recorded);
+        if (!real.equals(expected)) {
+            throw new IllegalArgumentException("run.json " + field + " does not identify " + expected.getFileName());
+        }
+    }
+
+    private static void requireRecordedAdapterPath(
+            Path runRoot,
+            Map<String, Object> run,
+            Path existingAdapter) throws IOException {
+        Path recorded = Path.of(requiredString(run, "adapterReport")).toAbsolutePath().normalize();
+        Path expected = runRoot.resolve("adapter.json").normalize();
+        if (!recorded.equals(expected)) {
+            throw new IllegalArgumentException("run.json adapterReport does not identify adapter.json in the run directory");
+        }
+        if (existingAdapter != null) {
+            Path real = PathContainment.existingInsideRealRoot(runRoot, recorded);
+            if (!real.equals(existingAdapter)) {
+                throw new IllegalArgumentException("run.json adapterReport disagrees with collected adapter evidence");
+            }
+        }
     }
 
     private static boolean enabledMode(BenchmarkScenarioMode mode) {
@@ -387,19 +442,46 @@ final class BenchmarkRunCollector {
         return (Map<String, Object>) map;
     }
 
-    private static List<String> requiredStringList(Map<String, Object> values, String field) {
+    private static List<String> requiredStringList(
+            Map<String, Object> values,
+            String field,
+            int maximumEntries) {
         Object value = values.get(field);
         if (!(value instanceof List<?> list)) {
             throw new IllegalArgumentException("Expected array field " + field);
+        }
+        if (list.size() > maximumEntries) {
+            throw new IllegalArgumentException(field + " exceeds " + maximumEntries + " entries");
         }
         List<String> output = new ArrayList<>();
         for (Object item : list) {
             if (!(item instanceof String text)) {
                 throw new IllegalArgumentException("Expected string entries in " + field);
             }
+            if (text.length() > 16_384) {
+                throw new IllegalArgumentException(field + " entry is too long");
+            }
             output.add(text);
         }
         return List.copyOf(output);
+    }
+
+    private static void validateScalarMap(Map<String, Object> values, String name) {
+        if (values.isEmpty() || values.size() > 64) {
+            throw new IllegalArgumentException(name + " must contain 1-64 fields");
+        }
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            if (entry.getKey().isBlank() || entry.getKey().length() > 128) {
+                throw new IllegalArgumentException("Invalid key in " + name);
+            }
+            Object value = entry.getValue();
+            if (!(value instanceof String || value instanceof Long || value instanceof Boolean)) {
+                throw new IllegalArgumentException(name + " values must be scalar");
+            }
+            if (value instanceof String text && text.length() > 16_384) {
+                throw new IllegalArgumentException(name + " value is too long");
+            }
+        }
     }
 
     private static void copyOptional(Map<String, Object> target, Map<String, Object> source, String field) {
@@ -410,6 +492,12 @@ final class BenchmarkRunCollector {
 
     private static Map<String, Object> orderedCopy(Map<String, Object> values) {
         return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
+    private record JsonSnapshot(Path path, byte[] bytes, Map<String, Object> object) {
+    }
+
+    private record ScenarioSnapshot(Path path, byte[] bytes, BenchmarkScenarioResult result) {
     }
 
     private record Options(Path runDirectory, Path scenario, Path output) {
