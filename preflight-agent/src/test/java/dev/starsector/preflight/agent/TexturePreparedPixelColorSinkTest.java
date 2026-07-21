@@ -16,6 +16,8 @@ import org.objectweb.asm.tree.VarInsnNode;
 
 class TexturePreparedPixelColorSinkTest {
     private static final String COLOR = "Ljava/awt/Color;";
+    private static final String TEXTURE_ARGUMENT =
+            "(L" + TexturePreparedPixelPlan.TEXTURE_OBJECT + ";)V";
 
     @Test
     void acceptsThreeDirectTextureObjectColorFields() {
@@ -40,7 +42,7 @@ class TexturePreparedPixelColorSinkTest {
         MethodNode convert = convertWithRasterRead();
         addColorWrites(convert, TexturePreparedPixelPlan.TARGET_CLASS, "derived");
         owner.methods.add(convert);
-        owner.methods.add(transferMethod("derived", false));
+        owner.methods.add(transferMethod("derived", false, TEXTURE_ARGUMENT, 1));
 
         List<TexturePreparedPixelColorSink.SinkField> fields =
                 TexturePreparedPixelColorSink.reviewed(owner, convert);
@@ -49,6 +51,22 @@ class TexturePreparedPixelColorSinkTest {
         assertTrue(fields.stream().allMatch(field ->
                 TexturePreparedPixelPlan.TARGET_CLASS.equals(field.owner())
                         && field.receiverLocal() == 0));
+    }
+
+    @Test
+    void acceptsTextureArgumentAfterWideLocalSlots() {
+        ClassNode owner = owner();
+        declareLoaderColors(owner, "derived");
+        MethodNode convert = convertWithRasterRead();
+        addColorWrites(convert, TexturePreparedPixelPlan.TARGET_CLASS, "derived");
+        owner.methods.add(convert);
+        owner.methods.add(transferMethod(
+                "derived",
+                false,
+                "(JL" + TexturePreparedPixelPlan.TEXTURE_OBJECT + ";)V",
+                3));
+
+        assertEquals(3, TexturePreparedPixelColorSink.reviewed(owner, convert).size());
     }
 
     @Test
@@ -69,7 +87,19 @@ class TexturePreparedPixelColorSinkTest {
         MethodNode convert = convertWithRasterRead();
         addColorWrites(convert, TexturePreparedPixelPlan.TARGET_CLASS, "derived");
         owner.methods.add(convert);
-        owner.methods.add(transferMethod("derived", true));
+        owner.methods.add(transferMethod("derived", true, TEXTURE_ARGUMENT, 1));
+
+        assertTrue(TexturePreparedPixelColorSink.reviewed(owner, convert).isEmpty());
+    }
+
+    @Test
+    void rejectsSetterReceiverWhoseLocalTypeIsNotTextureObject() {
+        ClassNode owner = owner();
+        declareLoaderColors(owner, "derived");
+        MethodNode convert = convertWithRasterRead();
+        addColorWrites(convert, TexturePreparedPixelPlan.TARGET_CLASS, "derived");
+        owner.methods.add(convert);
+        owner.methods.add(transferMethod("derived", false, "(Ljava/lang/String;)V", 1));
 
         assertTrue(TexturePreparedPixelColorSink.reviewed(owner, convert).isEmpty());
     }
@@ -82,7 +112,7 @@ class TexturePreparedPixelColorSinkTest {
         addColorWrites(convert, TexturePreparedPixelPlan.TEXTURE_OBJECT, "color");
         addColorWrites(convert, TexturePreparedPixelPlan.TARGET_CLASS, "derived");
         owner.methods.add(convert);
-        owner.methods.add(transferMethod("derived", false));
+        owner.methods.add(transferMethod("derived", false, TEXTURE_ARGUMENT, 1));
 
         assertTrue(TexturePreparedPixelColorSink.reviewed(owner, convert).isEmpty());
     }
@@ -137,16 +167,20 @@ class TexturePreparedPixelColorSinkTest {
         }
     }
 
-    private static MethodNode transferMethod(String fieldPrefix, boolean oneSetter) {
+    private static MethodNode transferMethod(
+            String fieldPrefix,
+            boolean oneSetter,
+            String descriptor,
+            int receiverLocal) {
         MethodNode transfer = new MethodNode(
                 Opcodes.ASM9,
                 Opcodes.ACC_PUBLIC,
                 "transferColors",
-                "(L" + TexturePreparedPixelPlan.TEXTURE_OBJECT + ";)V",
+                descriptor,
                 null,
                 null);
         for (int i = 0; i < 3; i++) {
-            transfer.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            transfer.instructions.add(new VarInsnNode(Opcodes.ALOAD, receiverLocal));
             transfer.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
             transfer.instructions.add(new FieldInsnNode(
                     Opcodes.GETFIELD,
