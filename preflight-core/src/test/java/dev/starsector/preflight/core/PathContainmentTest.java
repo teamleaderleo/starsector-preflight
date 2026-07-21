@@ -23,7 +23,9 @@ class PathContainmentTest {
         Files.writeString(target, "inside");
         createSymbolicLinkOrSkip(link, target);
 
+        Path realRoot = PathContainment.realDirectory(root);
         assertEquals(target.toRealPath(), PathContainment.existingInside(root, link));
+        assertEquals(target.toRealPath(), PathContainment.existingInsideRealRoot(realRoot, link));
     }
 
     @Test
@@ -35,16 +37,16 @@ class PathContainmentTest {
         Files.writeString(outside, "outside");
         createSymbolicLinkOrSkip(link, outside);
 
+        Path realRoot = PathContainment.realDirectory(root);
         assertThrows(IllegalArgumentException.class, () -> PathContainment.existingInside(root, link));
+        assertThrows(IllegalArgumentException.class, () -> PathContainment.existingInsideRealRoot(realRoot, link));
     }
 
     private static void createSymbolicLinkOrSkip(Path link, Path target) throws IOException {
         try {
             Files.createSymbolicLink(link, target.toAbsolutePath());
-        } catch (UnsupportedOperationException | SecurityException error) {
-            Assumptions.abort("symbolic links are unavailable: " + error.getMessage());
-        } catch (IOException error) {
-            Assumptions.abort("symbolic links are unavailable: " + error.getMessage());
+        } catch (UnsupportedOperationException | SecurityException | IOException error) {
+            Assumptions.assumeTrue(false, "symbolic links are unavailable: " + error.getMessage());
         }
     }
 }
