@@ -141,6 +141,15 @@ Campaign comparison rejects mixed:
 
 Enabled records require exact texture profile, manifest, and index hashes. Every input record is retained in the output, including unsuccessful runs. Duration statistics use successful runs and report minimum, median, and maximum per mode.
 
+The version 2 campaign report also includes `primaryComparison` when both `off-warm` and `enabled-warm-hit` have at least one successful run. For every startup duration it reports:
+
+- `baselineMedianMs` for `off-warm`;
+- `candidateMedianMs` for `enabled-warm-hit`;
+- `deltaMs` as candidate minus baseline, so a negative value means the enabled median is lower;
+- `improvementPercent` as `(baseline - candidate) / baseline * 100`, so a positive value means the enabled median is lower.
+
+Nonzero-exit runs remain in the campaign record and stay out of the median calculation. `primaryComparison` is `null` until both primary modes have a successful run. A zero baseline median produces a `null` improvement percentage rather than an undefined division result.
+
 A changed-profile fallback case intentionally has a different profile identity. Collect and report it separately from the fixed-profile OFF-versus-ENABLED campaign.
 
 ## Procedure
@@ -153,7 +162,7 @@ A changed-profile fallback case intentionally has a different profile identity. 
 6. Record one changed-profile fallback case as a separate report.
 7. Preserve raw run directories, JFR files, scenario records, collected records, console notes, and unsuccessful results.
 8. Generate the campaign report from collected records.
-9. Report median, minimum, maximum, and every individual result.
+9. Report every individual result, per-mode median/minimum/maximum, and the primary median delta/improvement percentage.
 10. Exclude runs affected by updates, indexing jobs, thermal throttling, or severe swap activity, while preserving them with an exclusion reason.
 
 Filesystem cache state differs by platform. Describe the exact method used instead of calling a result fully cold. The benchmark contracts establish comparable evidence; they make no performance claim by themselves.
