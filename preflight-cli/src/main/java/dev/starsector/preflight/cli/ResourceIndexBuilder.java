@@ -1,5 +1,6 @@
 package dev.starsector.preflight.cli;
 
+import dev.starsector.preflight.core.PathContainment;
 import dev.starsector.preflight.core.ResourceIndex;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -94,7 +95,13 @@ final class ResourceIndexBuilder {
                 if (id == null || id.isBlank()) {
                     id = directory.getFileName().toString();
                 }
-                Path normalized = directory.toAbsolutePath().normalize();
+                Path normalized;
+                try {
+                    normalized = PathContainment.realDirectory(directory);
+                } catch (IOException | IllegalArgumentException error) {
+                    diagnostics.add("Could not resolve mod directory " + directory + ": " + error.getMessage());
+                    continue;
+                }
                 Path prior = byId.putIfAbsent(id, normalized);
                 if (prior != null) {
                     diagnostics.add("Duplicate mod ID " + id + " in " + prior + " and " + normalized);
@@ -114,7 +121,7 @@ final class ResourceIndexBuilder {
                 root.resolve("Contents/Java/starsector-core"));
         for (Path candidate : candidates) {
             if (isCoreResourceDirectory(candidate)) {
-                return candidate.toAbsolutePath().normalize();
+                return PathContainment.realDirectory(candidate);
             }
         }
         if (!Files.isDirectory(root)) {
@@ -126,7 +133,8 @@ final class ResourceIndexBuilder {
                 (path, attributes) -> attributes.isDirectory()
                         && path.getFileName() != null
                         && path.getFileName().toString().equalsIgnoreCase("starsector-core"))) {
-            return found.sorted().findFirst().map(path -> path.toAbsolutePath().normalize()).orElse(null);
+            Path candidate = found.sorted().findFirst().orElse(null);
+            return candidate == null ? null : PathContainment.realDirectory(candidate);
         }
     }
 
@@ -159,9 +167,13 @@ final class ResourceIndexBuilder {
             Set<Path> visited) throws IOException {
         Path realDirectory;
         try {
-            realDirectory = directory.toRealPath();
-        } catch (IOException error) {
+            realDirectory = PathContainment.existingInside(root.directory(), directory);
+        } catch (IOException | IllegalArgumentException error) {
             diagnostics.add("Could not resolve " + directory + ": " + error.getMessage());
+            return;
+        }
+        if (!Files.isDirectory(realDirectory)) {
+            diagnostics.add("Skipped non-directory resource path " + directory);
             return;
         }
         if (!visited.add(realDirectory)) {
@@ -178,11 +190,14 @@ final class ResourceIndexBuilder {
         }
         for (Path child : children) {
             try {
-                if (Files.isDirectory(child)) {
+                Path realChild = PathContainment.existingInside(root.directory(), child);
+                BasicFileAttributes attributes = Files.readAttributes(realChild, BasicFileAttributes.class);
+                if (attributes.isDirectory()) {
                     scanDirectory(root, rootIndex, child, entries, fingerprint, diagnostics, visited);
-                } else if (Files.isRegularFile(child)) {
-                    BasicFileAttributes attributes = Files.readAttributes(child, BasicFileAttributes.class);
-                    String relative = root.directory().relativize(child).toString().replace('\\', '/');
+                } else if (attributes.isRegularFile()) {
+                    String relative = root.directory().relativize(child.toAbsolutePath().normalize())
+                            .toString()
+                            .replace('\\', '/');
                     String logical = ResourceIndex.normalizeLogicalPath(relative);
                     ResourceIndex.Provider provider = new ResourceIndex.Provider(
                             rootIndex,
