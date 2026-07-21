@@ -42,7 +42,8 @@ class BenchmarkRunCollectorTest {
         assertTrue(json.contains("\"version\":1"), json);
         assertTrue(json.contains("\"profileFingerprint\":\"" + PROFILE + "\""), json);
         assertTrue(json.contains("\"preflightJarSha256\":\"" + PREFLIGHT + "\""), json);
-        assertTrue(json.contains("\"scope\":\"jfr-recorded-process\""), json);
+        assertTrue(json.contains("\"wrapperRuntime\":{"), json);
+        assertTrue(json.contains("\"recordingRuntime\":{"), json);
         assertTrue(json.contains("\"transformationsApplied\":1"), json);
         assertTrue(json.contains("\"hits\":4926"), json);
         assertTrue(json.contains("\"sha256\":\""
