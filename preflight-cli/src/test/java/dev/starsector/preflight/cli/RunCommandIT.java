@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.starsector.preflight.core.Hashes;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,7 +47,7 @@ class RunCommandIT {
     }
 
     @Test
-    void cleanZeroLauncherExitRemainsSuccessful() throws Exception {
+    void cleanZeroLauncherExitRemainsSuccessfulAndRecordsWrapperIdentity() throws Exception {
         Path game = temporaryDirectory.resolve("Clean Synthetic Starsector");
         Files.createDirectories(game.resolve("logs"));
         Path launcher = fakeLauncher(game, false);
@@ -60,6 +61,16 @@ class RunCommandIT {
         assertEquals(0L, report.get("exitCode"));
         assertEquals(0L, report.get("launcherExitCode"));
         assertEquals("COMPLETED", report.get("outcome"));
+        Path packaged = Path.of("target", "preflight.jar").toRealPath();
+        assertEquals(RunIdentity.SCOPE, report.get("runtimeIdentityScope"));
+        assertEquals(packaged.toString(), report.get("preflightJar"));
+        assertEquals(Hashes.sha256(packaged), report.get("preflightJarSha256"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> runtime = (Map<String, Object>) report.get("wrapperRuntime");
+        assertNotNull(runtime);
+        assertEquals(System.getProperty("java.version"), runtime.get("javaVersion"));
+        assertEquals(System.getProperty("java.vendor"), runtime.get("javaVendor"));
+        assertEquals(System.getProperty("os.arch"), runtime.get("osArch"));
     }
 
     @Test

@@ -66,6 +66,7 @@ final class RunCommand {
             return 0;
         }
 
+        RunIdentity runIdentity = RunIdentity.capture(agentJar);
         Files.createDirectories(runDirectory);
         if (options.scan()) {
             try {
@@ -91,7 +92,7 @@ final class RunCommand {
 
         try {
             writeMetadata(
-                    metadata, target, command, started, null, null, null, outcome, null,
+                    metadata, target, command, runIdentity, started, null, null, null, outcome, null,
                     recordedProfile, options, textureContext, adapterReport, adapterAnalysis,
                     postprocessingFailures, null);
 
@@ -153,7 +154,7 @@ final class RunCommand {
             ended = Instant.now();
             try {
                 writeMetadata(
-                        metadata, target, command, started, ended, exitCode, launcherExitCode, outcome,
+                        metadata, target, command, runIdentity, started, ended, exitCode, launcherExitCode, outcome,
                         lifecycleEvidence, recordedProfile, options, textureContext, adapterReport, adapterAnalysis,
                         postprocessingFailures, executionFailure);
             } catch (IOException error) {
@@ -268,6 +269,7 @@ final class RunCommand {
             Path path,
             LaunchTarget target,
             List<String> command,
+            RunIdentity runIdentity,
             Instant started,
             Instant ended,
             Integer exitCode,
@@ -291,7 +293,11 @@ final class RunCommand {
         values.put("postprocessingFailures", List.copyOf(postprocessingFailures));
         values.put("lifecycleEvidence", lifecycleEvidence == null ? null : lifecycleEvidence.toMap());
         values.put("platform", Platform.current());
-        values.put("javaVersion", System.getProperty("java.version"));
+        values.put("javaVersion", runIdentity.wrapperJavaVersion());
+        values.put("runtimeIdentityScope", RunIdentity.SCOPE);
+        values.put("preflightJar", runIdentity.preflightJar());
+        values.put("preflightJarSha256", runIdentity.preflightJarSha256());
+        values.put("wrapperRuntime", runIdentity.wrapperRuntime());
         values.put("installRoot", target.installRoot());
         values.put("launcher", target.launcher());
         values.put("launcherKind", target.kind());
