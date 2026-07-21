@@ -296,8 +296,12 @@ final class BenchmarkRunCollector {
             Map<String, Object> run,
             Path existingAdapter) throws IOException {
         Path recorded = Path.of(requiredString(run, "adapterReport")).toAbsolutePath().normalize();
-        Path expected = runRoot.resolve("adapter.json").normalize();
-        if (!recorded.equals(expected)) {
+        Path fileName = recorded.getFileName();
+        Path parent = recorded.getParent();
+        if (fileName == null
+                || !"adapter.json".equals(fileName.toString())
+                || parent == null
+                || !parent.toRealPath().equals(runRoot)) {
             throw new IllegalArgumentException("run.json adapterReport does not identify adapter.json in the run directory");
         }
         if (existingAdapter != null) {
