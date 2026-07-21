@@ -250,15 +250,7 @@ final class PrepareCommand {
             stages.put("lookupVerification", Stage.skipped("Enable with --verify-lookups").toMap());
         }
 
-        Map<String, Object> readiness = new LinkedHashMap<>();
-        readiness.put("cacheArtifactsPrepared", allEnabledStagesSuccessful);
-        readiness.put("liveAdapterIntegrated", false);
-        readiness.put("liveAdapterEnabledByPreparation", false);
-        readiness.put("vanillaAdapter", "compatibility-v2-under-review");
-        readiness.put("textureAdapterModes", List.of("compatibility", "prepared-pixels"));
-        readiness.put("realInstallPilotRequired", true);
-        readiness.put("fastRenderingAdapter", "optional-not-required");
-        readiness.put("launchAccelerationClaimed", false);
+        Map<String, Object> readiness = PreparationReadiness.toMap(allEnabledStagesSuccessful);
 
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("generatedAt", Instant.now());
