@@ -26,11 +26,8 @@ public final class PreflightAgent {
     }
 
     private static void start(String agentArgs, Instrumentation instrumentation) {
-        AgentOptions options;
-        try {
-            options = AgentOptions.parse(agentArgs);
-        } catch (Throwable error) {
-            log("Agent disabled: " + message(error));
+        AgentOptions options = contain("Agent options", () -> AgentOptions.parse(agentArgs));
+        if (options == null) {
             return;
         }
 
@@ -45,6 +42,8 @@ public final class PreflightAgent {
                         closeAdapter(adapterSession);
                     },
                     "Preflight-Shutdown"));
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
         } catch (Throwable error) {
             log("Could not register shutdown hook: " + message(error));
             stopRecording(recording, options.destination());
@@ -100,6 +99,8 @@ public final class PreflightAgent {
                         + options.adapterReport().toAbsolutePath().normalize());
             }
             return recording;
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
         } catch (Throwable error) {
             log("Profiler disabled: " + message(error));
             return null;
