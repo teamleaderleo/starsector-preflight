@@ -23,15 +23,10 @@ jobs:
           text = path.read_text()
           marker = '"setUploadWidth"'
           if marker not in text:
-              needle = '''        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
-          convert.instructions.add(new MethodInsnNode(
-                  Opcodes.INVOKEVIRTUAL,
-                  "java/awt/image/BufferedImage",
-                  "getRaster",
-                  "()Ljava/awt/image/WritableRaster;",
-                  false));
-          '''
-              replacement = '''        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+              method = text.index('    private static MethodNode convertMethod() {')
+              anchor = '        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));'
+              insertion = text.index(anchor, method)
+              replay = '''        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
           convert.instructions.add(new InsnNode(Opcodes.ICONST_4));
           convert.instructions.add(new MethodInsnNode(
                   Opcodes.INVOKEVIRTUAL,
@@ -47,17 +42,8 @@ jobs:
                   "setUploadHeight",
                   "(I)V",
                   false));
-          convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
-          convert.instructions.add(new MethodInsnNode(
-                  Opcodes.INVOKEVIRTUAL,
-                  "java/awt/image/BufferedImage",
-                  "getRaster",
-                  "()Ljava/awt/image/WritableRaster;",
-                  false));
           '''
-              if needle not in text:
-                  raise SystemExit('contract fixture insertion point not found')
-              path.write_text(text.replace(needle, replacement, 1))
+              path.write_text(text[:insertion] + replay + text[insertion:])
           PY
           if ! git diff --quiet; then
             git config user.name github-actions[bot]
