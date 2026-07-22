@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge PR #141, then perform and review exactly one installed **launcher-only coherent-direct backing-dimension probe** using the repository runner.
+Perform and review exactly one installed **launcher-only coherent-direct backing-dimension probe** from current `main` using the repository runner.
 
 Do not click Play, enter gameplay, repeat the probe, benchmark, or make an acceleration claim.
 
@@ -20,7 +20,6 @@ Do not click Play, enter gameplay, repeat the probe, benchmark, or make an accel
 - [coherent-direct diagnostic contract](evidence/2026-07-22-prepared-pixel-coherent-direct-diagnostic.md)
 - [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
 - issue #129 — NPOT upload dimensions and prepared-path visual acceptance
-- PR #141 — replay reviewed backing-dimension side effects
 
 ## Merged milestones
 
@@ -42,13 +41,16 @@ fd390ff797e554101cc78ab52516273c1c06fc24
 
 PR #139 coherent source-sized carrier plus direct cached NPOT diagnostic:
 23a8ec653d9f07e5df50ff3deab04efdf4104e49
+
+PR #141 reviewed backing-dimension side-effect replay:
+1b4194977c0fac9a5717d05bec6e858cb2fec419
 ```
 
 ## Established facts
 
 The direct NPOT upload no longer crashes and its observed bytes match Starsector's original converter layout. The safe original-converter probes render normally.
 
-The coherent-direct probe also supplied the expected coherent carrier, cached colors, padded bytes, cleanup, and lifecycle accounting, but still rendered the launcher black. Retained identity:
+The coherent-direct probe supplied the expected coherent carrier, cached colors, padded bytes, cleanup, and lifecycle accounting, but still rendered the launcher black. Retained identity:
 
 ```text
 repositoryHead: f252e6eff207e2ed7d2b3682396c3450bbccccf8
@@ -57,22 +59,16 @@ archiveSha256: 10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708
 classSha256: d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50
 ```
 
-Telemetry included 20 hits, 7 coherent-direct NPOT hits, 7 padded uploads, zero fallbacks/errors, 20 releases, and zero active/pending buffers at shutdown.
+Telemetry included 20 hits, 7 coherent-direct NPOT hits, 7 padded uploads, zero fallbacks/errors, 20 releases, and zero active/pending buffers at shutdown. The synthetic `1x1` carrier was therefore not the sole cause.
 
-Therefore the synthetic `1x1` carrier was not the sole cause.
-
-## Concrete missing side effect
+## Merged backing-dimension diagnostic
 
 The exact installed converter performs two texture-object `(I)V` calls before deriving colors and returning its buffer:
 
 1. first setter receives the computed power-of-two upload width;
 2. second setter receives the computed power-of-two upload height.
 
-The prepared wrapper already carried those upload dimensions but did not apply the setters. That can leave renderer UV/backing state inconsistent with the actual OpenGL upload even when the byte buffer is correct.
-
-## PR #141 behavior
-
-PR #141 extracts exactly two distinct `(I)V` calls on `com/fs/graphics/Object` from the reviewed converter shape and declines transformation if that shape is missing or ambiguous.
+Merged PR #141 extracts exactly two distinct `(I)V` calls on `com/fs/graphics/Object` from the reviewed converter shape and declines transformation if that shape is missing or ambiguous.
 
 For a successful prepared result, and only while:
 
@@ -83,6 +79,25 @@ For a successful prepared result, and only while:
 is enabled, the wrapper replays the setters in reviewed width-then-height order using `PreparedPixel.width()` and `PreparedPixel.height()`, then writes the cached colors and returns the prepared buffer.
 
 Without the property, safe NPOT behavior is unchanged. Identity gates, compatibility rollback, SPFT v1, cleanup, exceptions, circuit breaker, and direct-memory limits remain unchanged.
+
+## Final validation
+
+Validated PR head:
+
+```text
+50907f3d52dc1c22b9a1ab83c66369448ac548ce
+```
+
+Successful workflows:
+
+```text
+CI run 557 — full Maven verification
+Vanilla adapter gate tests run 407
+Texture cache tests run 398
+Prepare command tests run 111
+```
+
+PR #141 squash-merged as `1b4194977c0fac9a5717d05bec6e858cb2fec419`.
 
 ## Interpretation
 
@@ -98,13 +113,7 @@ broken launcher
 
 A normal launcher is not gameplay acceptance.
 
-## Validation state
-
-A temporary report workflow identified and corrected two stale converter fixtures. Full Maven verification passed in the patched workspace. The temporary workflow was removed.
-
-Before merge, record all final affected workflows on the final PR head and update the PR body with the validated SHA.
-
-## Authorized operator action after merge
+## Authorized operator action
 
 ```bash
 git switch main
