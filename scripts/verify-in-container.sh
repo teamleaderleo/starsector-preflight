@@ -6,13 +6,14 @@ usage() {
 Usage: scripts/verify-in-container.sh [full|focused|analysis|coverage|package]
 
 Environment overrides:
-  PREFLIGHT_BUILD_IMAGE        Prebuilt local image (default: localhost/starsector-preflight-build:1)
-  PREFLIGHT_CONTAINER_MEMORY   Container memory limit (default: 768m)
-  PREFLIGHT_CONTAINER_CPUS     Container CPU limit (default: 0.85)
-  PREFLIGHT_CONTAINER_PIDS     Container PID limit (default: 512)
-  PREFLIGHT_MAVEN_CACHE        Host Maven cache directory
-  PREFLIGHT_OFFLINE            Set to 1 to disable container networking
-  MAVEN_OPTS                   Maven JVM options (default sized for a 1 GiB VPS)
+  PREFLIGHT_BUILD_IMAGE             Prebuilt local image (default: localhost/starsector-preflight-build:1)
+  PREFLIGHT_CONTAINER_MEMORY        Container memory limit (default: 768m)
+  PREFLIGHT_CONTAINER_CPUS          Container CPU limit (default: 0.85)
+  PREFLIGHT_CONTAINER_PIDS          Container PID limit (default: 512)
+  PREFLIGHT_MAVEN_CACHE             Host Maven cache directory
+  PREFLIGHT_OFFLINE                 Set to 1 to disable container networking
+  PREFLIGHT_PODMAN_CGROUP_MANAGER   Podman cgroup manager (default: cgroupfs)
+  MAVEN_OPTS                        Maven JVM options (default sized for a 1 GiB VPS)
 USAGE
 }
 
@@ -35,7 +36,16 @@ cpus="${PREFLIGHT_CONTAINER_CPUS:-0.85}"
 pids="${PREFLIGHT_CONTAINER_PIDS:-512}"
 cache_dir="${PREFLIGHT_MAVEN_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/starsector-preflight/m2}"
 offline="${PREFLIGHT_OFFLINE:-0}"
+cgroup_manager="${PREFLIGHT_PODMAN_CGROUP_MANAGER:-cgroupfs}"
 maven_opts="${MAVEN_OPTS:--Xmx320m -XX:MaxMetaspaceSize=160m -Djava.io.tmpdir=/tmp}"
+
+case "$cgroup_manager" in
+  cgroupfs|systemd) ;;
+  *)
+    echo "PREFLIGHT_PODMAN_CGROUP_MANAGER must be cgroupfs or systemd, got: $cgroup_manager" >&2
+    exit 64
+    ;;
+esac
 
 command -v podman >/dev/null 2>&1 || {
   echo "Podman is not installed." >&2
@@ -76,6 +86,7 @@ case "$suite" in
     ;;
 esac
 
+podman_runtime=(podman --cgroup-manager="$cgroup_manager")
 container_name="starsector-preflight-${suite}-$$"
 network_args=()
 if [[ "$offline" == "1" ]]; then
@@ -86,25 +97,26 @@ elif [[ "$offline" != "0" ]]; then
 fi
 
 cleanup() {
-  podman rm --force "$container_name" >/dev/null 2>&1 || true
+  "${podman_runtime[@]}" rm --force "$container_name" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
 image_id="$(podman image inspect --format '{{.Id}}' "$image" 2>/dev/null || printf 'unknown')"
 podman_json="$(podman info --format json 2>/dev/null || true)"
 if [[ -n "$podman_json" ]]; then
-  podman_host="$(printf 'rootless=%s cgroupVersion=%s cgroupManager=%s' \
+  podman_host="$(printf 'rootless=%s cgroupVersion=%s defaultCgroupManager=%s selectedCgroupManager=%s' \
     "$(jq -r '.host.security.rootless // "unknown"' <<<"$podman_json")" \
     "$(jq -r '.host.cgroupVersion // "unknown"' <<<"$podman_json")" \
-    "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_json")")"
+    "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_json")" \
+    "$cgroup_manager")"
 else
-  podman_host=unavailable
+  podman_host="unavailable selectedCgroupManager=$cgroup_manager"
 fi
 printf 'suite=%s\nimage=%s\nimageId=%s\npodman=%s\nlimits=memory:%s cpus:%s pids:%s\noffline=%s\n' \
   "$suite" "$image" "$image_id" "$podman_host" "$memory" "$cpus" "$pids" "$offline"
 
 set +e
-podman run --rm \
+"${podman_runtime[@]}" run --rm \
   --name "$container_name" \
   --pull=never \
   --userns=keep-id \
@@ -126,15 +138,14 @@ podman run --rm \
 status=$?
 set -e
 
-if [[ "$status" -eq 125 ]]; then
+if [[ "$status" -eq 125 || "$status" -eq 126 ]]; then
   cat >&2 <<'MESSAGE'
-Podman failed before Maven started. On a systemd-managed rootless runner this
-usually means the runner service lacks cgroup delegation or its user-session
-environment. From an updated repository checkout, run as root:
+Podman or the OCI runtime failed before Maven completed. This workflow selects
+Podman's cgroupfs manager so a rootless container launched by the GitHub runner
+service does not need to create a transient systemd scope. Confirm that the
+runner service delegation helper has been applied, then retry the workflow:
 
   bash ./scripts/configure-vps-runner-service.sh
-
-Then retry the workflow.
 MESSAGE
 fi
 exit "$status"
