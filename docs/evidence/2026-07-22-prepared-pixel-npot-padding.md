@@ -80,7 +80,7 @@ Focused tests prove:
 - normal and exceptional release back to zero;
 - a packaged Java-agent fixture that reproduces Starsector's power-of-two minimum-buffer check and succeeds only with the padded buffer.
 
-Telemetry adds `paddedUploads` and `paddingBytes`. `bytesBypassed` records upload bytes supplied to the lower seam, while the shared cache hit continues to record the source blob bytes.
+Telemetry adds `paddedUploads`, `paddingBytes`, and `uploadBytesSupplied`. `bytesBypassed` remains source-sized so zero padding does not inflate conversion work avoided; `uploadBytesSupplied` records the expanded bytes handed to the lower seam. The shared cache hit also continues to record source blob bytes.
 
 ## Remaining acceptance step
 
