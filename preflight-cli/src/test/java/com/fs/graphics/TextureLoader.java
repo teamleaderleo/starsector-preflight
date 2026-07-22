@@ -50,6 +50,17 @@ public final class TextureLoader {
         BufferedImage image = Ô00000(logicalPath);
         Object texture = new Object();
         ByteBuffer buffer = o00000(image, texture);
+        if (image.getWidth() > 1 || image.getHeight() > 1) {
+            int channels = image.getColorModel().hasAlpha() ? 4 : 3;
+            int required = Math.multiplyExact(
+                    Math.multiplyExact(nextPowerOfTwo(image.getWidth()), nextPowerOfTwo(image.getHeight())),
+                    channels);
+            if (buffer.remaining() < required) {
+                throw new IllegalArgumentException(
+                        "Number of remaining buffer elements is " + buffer.remaining()
+                                + ", must be at least " + required);
+            }
+        }
         if (failAfterConversion) {
             throw new IllegalStateException("synthetic upload failure");
         }
@@ -84,6 +95,11 @@ public final class TextureLoader {
         originalConversionCalls = 0;
         originalCleanupCalls = 0;
         failAfterConversion = false;
+    }
+
+    private static int nextPowerOfTwo(int value) {
+        int highest = Integer.highestOneBit(value);
+        return highest == value ? value : highest << 1;
     }
 
     public record Result(byte[] pixels, int color0, int color1, int color2) {
