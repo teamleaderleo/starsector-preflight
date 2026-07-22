@@ -104,7 +104,11 @@ jobs:
           export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
           export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
           test -d "$XDG_RUNTIME_DIR"
-          podman info --format 'rootless={{.Host.Security.Rootless}} cgroupVersion={{.Host.CgroupVersion}} cgroupManager={{.Host.CgroupManager}}'
+          podman_info="$(podman info --format json)"
+          printf 'rootless=%s cgroupVersion=%s cgroupManager=%s\n' \
+            "$(jq -r '.host.security.rootless // "unknown"' <<<"$podman_info")" \
+            "$(jq -r '.host.cgroupVersion // "unknown"' <<<"$podman_info")" \
+            "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_info")"
           podman image exists localhost/starsector-preflight-build:1
 
       - name: Run disposable verification container

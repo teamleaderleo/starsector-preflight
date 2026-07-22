@@ -91,7 +91,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 image_id="$(podman image inspect --format '{{.Id}}' "$image" 2>/dev/null || printf 'unknown')"
-podman_host="$(podman info --format 'rootless={{.Host.Security.Rootless}} cgroupVersion={{.Host.CgroupVersion}} cgroupManager={{.Host.CgroupManager}}' 2>/dev/null || printf 'unavailable')"
+podman_json="$(podman info --format json 2>/dev/null || true)"
+if [[ -n "$podman_json" ]]; then
+  podman_host="$(printf 'rootless=%s cgroupVersion=%s cgroupManager=%s' \
+    "$(jq -r '.host.security.rootless // "unknown"' <<<"$podman_json")" \
+    "$(jq -r '.host.cgroupVersion // "unknown"' <<<"$podman_json")" \
+    "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_json")")"
+else
+  podman_host=unavailable
+fi
 printf 'suite=%s\nimage=%s\nimageId=%s\npodman=%s\nlimits=memory:%s cpus:%s pids:%s\noffline=%s\n' \
   "$suite" "$image" "$image_id" "$podman_host" "$memory" "$cpus" "$pids" "$offline"
 
