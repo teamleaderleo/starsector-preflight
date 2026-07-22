@@ -46,6 +46,7 @@ final class RunCommand {
         Path adapterAnalysis = runDirectory.resolve("adapter-analysis.json");
         Path metadata = runDirectory.resolve("run.json");
         Path profile = runDirectory.resolve("profile.json");
+        Path console = runDirectory.resolve("console.txt");
         Path agentJar = SelfJar.locate();
         String javaToolOptions = AgentInjection.append(
                 System.getenv("JAVA_TOOL_OPTIONS"),
@@ -87,29 +88,30 @@ final class RunCommand {
         String outcome = "RUNNING";
         String executionFailure = null;
         StarsectorRunLogEvidence.Evidence lifecycleEvidence = null;
+        ChildProcessOutput.Result childOutput = null;
         List<String> postprocessingFailures = new ArrayList<>();
         StarsectorRunLogEvidence.Snapshot logSnapshot = StarsectorRunLogEvidence.snapshot(target.installRoot());
 
         try {
             writeMetadata(
                     metadata, target, command, runIdentity, started, null, null, null, outcome, null,
-                    recordedProfile, options, textureContext, adapterReport, adapterAnalysis,
+                    recordedProfile, options, textureContext, adapterReport, adapterAnalysis, console, null,
                     postprocessingFailures, null);
 
             ProcessBuilder builder = new ProcessBuilder(command);
             builder.directory(target.workingDirectory().toFile());
             builder.environment().put("JAVA_TOOL_OPTIONS", javaToolOptions);
             builder.environment().put("PREFLIGHT_RUN_DIR", runDirectory.toString());
-            builder.inheritIO();
 
-            launcherExitCode = builder.start().waitFor();
-            lifecycleEvidence = StarsectorRunLogEvidence.inspect(logSnapshot);
+            childOutput = ChildProcessOutput.run(builder, console);
+            launcherExitCode = childOutput.exitCode();
+            lifecycleEvidence = StarsectorRunLogEvidence.inspect(logSnapshot, childOutput);
             exitCode = StarsectorRunLogEvidence.effectiveExitCode(launcherExitCode, lifecycleEvidence);
             outcome = lifecycleEvidence.fatalDetected()
                     ? "FATAL_LOG_EVIDENCE"
                     : launcherExitCode == 0 ? "COMPLETED" : "LAUNCHER_EXIT_NONZERO";
             if (lifecycleEvidence.fatalDetected()) {
-                System.err.println("Preflight detected fatal Starsector lifecycle evidence in logs."
+                System.err.println("Preflight detected fatal Starsector lifecycle evidence in logs or child console."
                         + " Launcher exit " + launcherExitCode + " is not a clean game exit.");
             }
 
@@ -156,7 +158,7 @@ final class RunCommand {
                 writeMetadata(
                         metadata, target, command, runIdentity, started, ended, exitCode, launcherExitCode, outcome,
                         lifecycleEvidence, recordedProfile, options, textureContext, adapterReport, adapterAnalysis,
-                        postprocessingFailures, executionFailure);
+                        console, childOutput, postprocessingFailures, executionFailure);
             } catch (IOException error) {
                 System.err.println("Preflight could not finalize run metadata: " + message(error));
             }
@@ -281,6 +283,8 @@ final class RunCommand {
             TextureLaunchContext textureContext,
             Path adapterReport,
             Path adapterAnalysis,
+            Path console,
+            ChildProcessOutput.Result childOutput,
             List<String> postprocessingFailures,
             String executionFailure) throws IOException {
         Map<String, Object> values = new LinkedHashMap<>();
@@ -292,6 +296,8 @@ final class RunCommand {
         values.put("executionFailure", executionFailure);
         values.put("postprocessingFailures", List.copyOf(postprocessingFailures));
         values.put("lifecycleEvidence", lifecycleEvidence == null ? null : lifecycleEvidence.toMap());
+        values.put("launcherConsole", console);
+        values.put("launcherConsoleCapture", childOutput == null ? null : childOutput.toMap());
         values.put("platform", Platform.current());
         values.put("javaVersion", runIdentity.wrapperJavaVersion());
         values.put("runtimeIdentityScope", RunIdentity.SCOPE);

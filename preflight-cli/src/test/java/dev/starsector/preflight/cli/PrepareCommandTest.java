@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -51,9 +54,10 @@ class PrepareCommandTest {
         assertTrue(first.contains("\"liveAdapterEnabledByPreparation\":false"), first);
         assertTrue(first.contains("\"vanillaAdapter\":\"compatibility-v2-behaviorally-accepted\""), first);
         assertTrue(first.contains("\"compatibilityBehavioralAcceptance\":\"accepted-2026-07-19-starsector-0.98a-rc8\""), first);
-        assertTrue(first.contains("\"realInstallPilotRequired\":false"), first);
+        assertTrue(first.contains("\"realInstallPilotRequired\":true"), first);
         assertTrue(first.contains("\"repeatTimingCampaignRequired\":true"), first);
-        assertTrue(first.contains("\"preparedPixelsAdapter\":\"fail-closed-pending-color-transfer-repair\""), first);
+        assertTrue(first.contains("\"preparedPixelsAdapter\":\"offline-contract-accepted-live-pilot-revalidation-required\""), first);
+        assertTrue(first.contains("\"preparedPixelsBehavioralAcceptance\":\"failed-2026-07-22-revalidation-required\""), first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 
         assertEquals(0, PreflightCli.run(command));
@@ -68,6 +72,43 @@ class PrepareCommandTest {
         assertTrue(Files.list(cache.resolve("resource-indexes")).anyMatch(path -> path.toString().endsWith(".spfi")));
         assertTrue(Files.list(cache.resolve("classpath/profiles")).anyMatch(path -> path.toString().endsWith(".spfc")));
         assertTrue(Files.list(cache.resolve("manifests")).anyMatch(path -> path.toString().endsWith(".spfm")));
+    }
+
+    @Test
+    void printsBoundedStageProgressToStderrAndKeepsStdoutAsReportPath() throws Exception {
+        Path install = fixture();
+        Path report = temporaryDirectory.resolve("progress.json");
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        try (PrintStream capturedOut = new PrintStream(stdout, true, StandardCharsets.UTF_8);
+                PrintStream capturedErr = new PrintStream(stderr, true, StandardCharsets.UTF_8)) {
+            System.setOut(capturedOut);
+            System.setErr(capturedErr);
+            assertEquals(0, PreflightCli.run(new String[] {
+                    "prepare",
+                    "--game", install.toString(),
+                    "--cache-dir", temporaryDirectory.resolve("progress-cache").toString(),
+                    "--report", report.toString(),
+                    "--no-resource-index",
+                    "--no-classpath",
+                    "--no-textures"
+            }));
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
+
+        assertEquals(report.toAbsolutePath().normalize() + System.lineSeparator(),
+                stdout.toString(StandardCharsets.UTF_8));
+        String progress = stderr.toString(StandardCharsets.UTF_8);
+        for (String stage : new String[] {
+                "census", "resource-index", "classpath-index", "textures", "lookup-verification"}) {
+            assertTrue(progress.contains("prepare: " + stage + " started"), progress);
+            assertTrue(progress.contains("prepare: " + stage + " completed status="), progress);
+        }
+        assertTrue(progress.length() < 2_000, progress);
     }
 
     @Test

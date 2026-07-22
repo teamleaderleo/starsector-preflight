@@ -51,6 +51,24 @@ class TexturePreparedPixelAgentIT {
     }
 
     @Test
+    void packagedUploadExceptionPreservesOriginalFailureAndReleasesDirectBuffer() throws Exception {
+        Fixture fixture = fixture(false, false);
+
+        ProcessResult result = launch(fixture, "graphics/test.png", false, false, true);
+
+        assertSuccess(result);
+        assertTrue(result.output().contains(
+                "synthetic-upload-failure:IllegalStateException:synthetic upload failure:decode=0:convert=0:cleanup=0"),
+                result.output());
+        String report = Files.readString(fixture.adapterReport());
+        assertTrue(report.contains("\"hits\":1"), report);
+        assertTrue(report.contains("\"activeBuffers\":0"), report);
+        assertTrue(report.contains("\"activeDirectBytes\":0"), report);
+        assertTrue(report.contains("\"releases\":1"), report);
+        assertTrue(report.contains("\"releasedBytes\":3"), report);
+    }
+
+    @Test
     void packagedPreloadedImageWinsBeforePreparedPixelLookup() throws Exception {
         Fixture fixture = fixture(false, false);
 
@@ -226,7 +244,7 @@ class TexturePreparedPixelAgentIT {
     }
 
     private ProcessResult launch(Fixture fixture, String logicalPath, boolean killSwitch) throws Exception {
-        return launch(fixture, logicalPath, killSwitch, false);
+        return launch(fixture, logicalPath, killSwitch, false, false);
     }
 
     private ProcessResult launch(
@@ -234,6 +252,15 @@ class TexturePreparedPixelAgentIT {
             String logicalPath,
             boolean killSwitch,
             boolean preloaded) throws Exception {
+        return launch(fixture, logicalPath, killSwitch, preloaded, false);
+    }
+
+    private ProcessResult launch(
+            Fixture fixture,
+            String logicalPath,
+            boolean killSwitch,
+            boolean preloaded,
+            boolean uploadFailure) throws Exception {
         Path java = Path.of(System.getProperty("java.home"), "bin", executable("java"));
         Path agent = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
         String agentArguments = "dest64=" + encoded(fixture.recording())
@@ -257,6 +284,9 @@ class TexturePreparedPixelAgentIT {
         command.add("prepared-pixels");
         if (preloaded) {
             command.add("preloaded");
+        }
+        if (uploadFailure) {
+            command.add("upload-failure");
         }
         Process process = new ProcessBuilder(command)
                 .redirectErrorStream(true)

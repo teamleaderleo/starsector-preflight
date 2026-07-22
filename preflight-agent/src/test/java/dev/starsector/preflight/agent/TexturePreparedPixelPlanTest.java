@@ -45,6 +45,11 @@ class TexturePreparedPixelPlanTest {
 
         MethodNode cleanup = method(node, TexturePreparedPixelPlan.CLEANUP_METHOD, TexturePreparedPixelPlan.CLEANUP_DESCRIPTOR);
         assertTrue(hasCall(cleanup, "TexturePreparedPixelRuntime", "release"));
+        MethodNode upload = method(node, "uploadForTest", TexturePreparedPixelPlan.CONVERT_DESCRIPTOR);
+        assertNotNull(upload);
+        assertTrue(hasCall(upload, "TexturePreparedPixelRuntime", "releaseCurrentThreadBuffer"));
+        assertTrue(upload.tryCatchBlocks.stream()
+                .anyMatch(block -> "java/lang/Throwable".equals(block.type)));
         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(transformed), transformed));
     }
 
@@ -157,6 +162,26 @@ class TexturePreparedPixelPlanTest {
         convert.visitInsn(Opcodes.ARETURN);
         convert.visitMaxs(0, 0);
         convert.visitEnd();
+
+        MethodVisitor upload = writer.visitMethod(
+                Opcodes.ACC_PUBLIC,
+                "uploadForTest",
+                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
+                null,
+                null);
+        upload.visitCode();
+        upload.visitVarInsn(Opcodes.ALOAD, 0);
+        upload.visitVarInsn(Opcodes.ALOAD, 1);
+        upload.visitVarInsn(Opcodes.ALOAD, 2);
+        upload.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                TexturePreparedPixelPlan.TARGET_CLASS,
+                TexturePreparedPixelPlan.CONVERT_METHOD,
+                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
+                false);
+        upload.visitInsn(Opcodes.ARETURN);
+        upload.visitMaxs(0, 0);
+        upload.visitEnd();
 
         MethodVisitor cleanup = writer.visitMethod(
                 Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,

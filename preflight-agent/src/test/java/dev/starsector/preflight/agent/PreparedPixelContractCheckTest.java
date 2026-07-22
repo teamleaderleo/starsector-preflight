@@ -218,6 +218,7 @@ class PreparedPixelContractCheckTest {
         decodeMethod().accept(writer);
         convertMethod().accept(writer);
         cleanupMethod().accept(writer);
+        uploadMethod().accept(writer);
         addRequiredMethodStubs(writer);
         transferMethod(transferModel).accept(writer);
 
@@ -292,6 +293,27 @@ class PreparedPixelContractCheckTest {
                 null);
         cleanup.instructions.add(new InsnNode(Opcodes.RETURN));
         return cleanup;
+    }
+
+    private static MethodNode uploadMethod() {
+        MethodNode upload = new MethodNode(
+                Opcodes.ASM9,
+                Opcodes.ACC_PUBLIC,
+                "preflightTestUpload",
+                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
+                null,
+                null);
+        upload.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        upload.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        upload.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        upload.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKEVIRTUAL,
+                TexturePreparedPixelPlan.TARGET_CLASS,
+                TexturePreparedPixelPlan.CONVERT_METHOD,
+                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
+                false));
+        upload.instructions.add(new InsnNode(Opcodes.ARETURN));
+        return upload;
     }
 
     private static void addRequiredMethodStubs(ClassWriter writer) {

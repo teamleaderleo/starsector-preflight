@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Runs every renderer-independent preparation stage and writes one atomic report. */
@@ -58,18 +59,21 @@ final class PrepareCommand {
         Path classpathIndexPath = null;
         boolean allEnabledStagesSuccessful = true;
 
+        stageStarted("census");
         Stage census = runStage("census", () -> {
             ProfileCensus.Result result = ProfileCensus.scan(target.installRoot());
             Map<String, Object> output = new LinkedHashMap<>();
             output.put("profile", result.values());
             return Stage.success(output);
         });
+        stageCompleted("census", census);
         stages.put("census", census.toMap());
         allEnabledStagesSuccessful &= census.successful();
         diagnostics.addAll(census.diagnostics());
 
+        stageStarted("resource-index");
+        Stage resourceStage;
         if (options.resourceIndex()) {
-            Stage resourceStage;
             try {
                 long stageStarted = System.nanoTime();
                 ResourceIndexBuilder.BuildResult built = ResourceIndexBuilder.build(target.installRoot());
@@ -115,15 +119,17 @@ final class PrepareCommand {
             } catch (Exception error) {
                 resourceStage = Stage.failed(error);
             }
-            stages.put("resourceIndex", resourceStage.toMap());
-            allEnabledStagesSuccessful &= resourceStage.successful();
-            diagnostics.addAll(resourceStage.diagnostics());
         } else {
-            stages.put("resourceIndex", Stage.skipped("Disabled by --no-resource-index").toMap());
+            resourceStage = Stage.skipped("Disabled by --no-resource-index");
         }
+        stageCompleted("resource-index", resourceStage);
+        stages.put("resourceIndex", resourceStage.toMap());
+        allEnabledStagesSuccessful &= resourceStage.successful();
+        diagnostics.addAll(resourceStage.diagnostics());
 
+        stageStarted("classpath-index");
+        Stage classpathStage;
         if (options.classpath()) {
-            Stage classpathStage;
             try {
                 long stageStarted = System.nanoTime();
                 ClasspathIndexBuilder.Result built = ClasspathIndexBuilder.build(target.installRoot(), cache);
@@ -155,15 +161,17 @@ final class PrepareCommand {
             } catch (Exception error) {
                 classpathStage = Stage.failed(error);
             }
-            stages.put("classpathIndex", classpathStage.toMap());
-            allEnabledStagesSuccessful &= classpathStage.successful();
-            diagnostics.addAll(classpathStage.diagnostics());
         } else {
-            stages.put("classpathIndex", Stage.skipped("Disabled by --no-classpath").toMap());
+            classpathStage = Stage.skipped("Disabled by --no-classpath");
         }
+        stageCompleted("classpath-index", classpathStage);
+        stages.put("classpathIndex", classpathStage.toMap());
+        allEnabledStagesSuccessful &= classpathStage.successful();
+        diagnostics.addAll(classpathStage.diagnostics());
 
+        stageStarted("textures");
+        Stage textureStage;
         if (options.textures()) {
-            Stage textureStage;
             if (resourceIndex == null) {
                 textureStage = Stage.skipped("A prepared resource index is required for texture preparation");
                 allEnabledStagesSuccessful = false;
@@ -201,15 +209,17 @@ final class PrepareCommand {
                     textureStage = Stage.failed(error);
                 }
             }
-            stages.put("textures", textureStage.toMap());
-            allEnabledStagesSuccessful &= textureStage.successful();
-            diagnostics.addAll(textureStage.diagnostics());
         } else {
-            stages.put("textures", Stage.skipped("Disabled by --no-textures").toMap());
+            textureStage = Stage.skipped("Disabled by --no-textures");
         }
+        stageCompleted("textures", textureStage);
+        stages.put("textures", textureStage.toMap());
+        allEnabledStagesSuccessful &= textureStage.successful();
+        diagnostics.addAll(textureStage.diagnostics());
 
+        stageStarted("lookup-verification");
+        Stage verificationStage;
         if (options.verifyLookups()) {
-            Stage verificationStage;
             if (resourceIndex == null && classpathIndex == null) {
                 verificationStage = Stage.skipped("No prepared indexes were available for lookup verification");
                 allEnabledStagesSuccessful = false;
@@ -243,12 +253,13 @@ final class PrepareCommand {
                     verificationStage = Stage.failed(error);
                 }
             }
-            stages.put("lookupVerification", verificationStage.toMap());
-            allEnabledStagesSuccessful &= verificationStage.successful();
-            diagnostics.addAll(verificationStage.diagnostics());
         } else {
-            stages.put("lookupVerification", Stage.skipped("Enable with --verify-lookups").toMap());
+            verificationStage = Stage.skipped("Enable with --verify-lookups");
         }
+        stageCompleted("lookup-verification", verificationStage);
+        stages.put("lookupVerification", verificationStage.toMap());
+        allEnabledStagesSuccessful &= verificationStage.successful();
+        diagnostics.addAll(verificationStage.diagnostics());
 
         Map<String, Object> readiness = PreparationReadiness.toMap(allEnabledStagesSuccessful);
 
@@ -281,6 +292,19 @@ final class PrepareCommand {
         } catch (Exception error) {
             return Stage.failed(name + " failed: " + message(error), System.nanoTime() - started);
         }
+    }
+
+    private static void stageStarted(String name) {
+        System.err.println("prepare: " + name + " started");
+    }
+
+    private static void stageCompleted(String name, Stage stage) {
+        System.err.printf(
+                Locale.ROOT,
+                "prepare: %s completed status=%s durationMs=%.3f%n",
+                name,
+                stage.status(),
+                stage.durationNanos() / 1_000_000.0);
     }
 
     private static void writeAtomic(Path target, String content) throws IOException {
@@ -455,7 +479,7 @@ final class PrepareCommand {
         }
 
         boolean successful() {
-            return "SUCCESS".equals(status);
+            return !"FAILED".equals(status);
         }
 
         Map<String, Object> toMap() {

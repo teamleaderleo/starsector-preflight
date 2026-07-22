@@ -10,6 +10,7 @@ public final class TextureLoader {
     private static int originalCalls;
     private static int originalConversionCalls;
     private static int originalCleanupCalls;
+    private static boolean failAfterConversion;
 
     private BufferedImage Ô00000(String logicalPath) {
         BufferedImage preloaded = L.clazz(logicalPath);
@@ -49,6 +50,9 @@ public final class TextureLoader {
         BufferedImage image = Ô00000(logicalPath);
         Object texture = new Object();
         ByteBuffer buffer = o00000(image, texture);
+        if (failAfterConversion) {
+            throw new IllegalStateException("synthetic upload failure");
+        }
         byte[] bytes = new byte[buffer.remaining()];
         buffer.duplicate().get(bytes);
         o00000(buffer, logicalPath);
@@ -71,10 +75,15 @@ public final class TextureLoader {
         return originalCleanupCalls;
     }
 
+    public static void setFailAfterConversion(boolean value) {
+        failAfterConversion = value;
+    }
+
     public static void reset() {
         originalCalls = 0;
         originalConversionCalls = 0;
         originalCleanupCalls = 0;
+        failAfterConversion = false;
     }
 
     public record Result(byte[] pixels, int color0, int color1, int color2) {

@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-/** Bounded, read-only lifecycle evidence from log bytes written during one run. */
+/** Bounded, read-only lifecycle evidence from log and child-console bytes written during one run. */
 final class StarsectorRunLogEvidence {
     static final int FATAL_LIFECYCLE_EXIT = 6;
     private static final long MAX_BYTES = 16L * 1024L * 1024L;
@@ -28,6 +28,14 @@ final class StarsectorRunLogEvidence {
     private static final int MAX_STACK_LINES = 32;
     private static final Pattern ROTATED_LOG = Pattern.compile("starsector\\.log(?:\\.\\d+)?", Pattern.CASE_INSENSITIVE);
     private static final List<FatalMarker> FATAL_MARKERS = List.of(
+            new FatalMarker(
+                    "launcher-fatal",
+                    "FATAL com.fs.starfarer.launcher.",
+                    null),
+            new FatalMarker(
+                    "uncaught-main-thread",
+                    "Exception in thread \"main\"",
+                    "at com.fs."),
             new FatalMarker(
                     "combat-main-top-level",
                     " ERROR com.fs.starfarer.combat.CombatMain  - ",
@@ -44,6 +52,10 @@ final class StarsectorRunLogEvidence {
     }
 
     static Evidence inspect(Snapshot before) {
+        return inspect(before, null);
+    }
+
+    static Evidence inspect(Snapshot before, ChildProcessOutput.Result console) {
         List<String> problems = new ArrayList<>(before.problems());
         List<FileStamp> after = stamps(before.logDirectory(), problems);
         List<FileStamp> changed = after.stream()
@@ -59,6 +71,7 @@ final class StarsectorRunLogEvidence {
 
         long remaining = MAX_BYTES;
         long examined = 0;
+        long consoleExamined = 0;
         List<Map<String, Object>> matches = new ArrayList<>();
         int examinedFiles = 0;
         for (FileStamp file : changed) {
@@ -82,9 +95,28 @@ final class StarsectorRunLogEvidence {
                 examined += length;
                 remaining -= length;
                 examinedFiles++;
-                findFatalMarkers(file.path(), text, matches);
+                findFatalMarkers("logFile", file.path().getFileName().toString(), text, matches);
             } catch (IOException error) {
                 addProblem(problems, file.path().getFileName() + ": " + error.getMessage());
+            }
+        }
+
+        boolean consoleAvailable = console != null && Files.isRegularFile(console.file());
+        String consoleFile = console == null || console.file().getFileName() == null
+                ? null
+                : console.file().getFileName().toString();
+        if (console != null) {
+            truncated |= console.truncated();
+        }
+        if (consoleAvailable) {
+            try {
+                long length = Files.size(console.file());
+                String text = read(console.file(), 0, length);
+                consoleExamined = length;
+                examined += length;
+                findFatalMarkers("consoleFile", consoleFile, text, matches);
+            } catch (IOException error) {
+                addProblem(problems, consoleFile + ": " + error.getMessage());
             }
         }
 
@@ -94,10 +126,13 @@ final class StarsectorRunLogEvidence {
         }
         return new Evidence(
                 !after.isEmpty(),
+                consoleAvailable,
                 !matches.isEmpty(),
                 examined,
+                consoleExamined,
                 examinedFiles,
                 truncated,
+                consoleFile,
                 List.copyOf(matches),
                 List.copyOf(problems));
     }
@@ -183,7 +218,11 @@ final class StarsectorRunLogEvidence {
         return StandardCharsets.UTF_8.decode(buffer).toString();
     }
 
-    private static void findFatalMarkers(Path path, String text, List<Map<String, Object>> matches) {
+    private static void findFatalMarkers(
+            String sourceField,
+            String sourceName,
+            String text,
+            List<Map<String, Object>> matches) {
         String[] lines = text.split("\\R");
         for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             if (matches.size() > MAX_MATCHES) {
@@ -197,7 +236,7 @@ final class StarsectorRunLogEvidence {
                 }
                 Map<String, Object> match = new LinkedHashMap<>();
                 match.put("category", marker.category());
-                match.put("logFile", path.getFileName().toString());
+                match.put(sourceField, sourceName);
                 match.put("message", bounded(line.substring(index + marker.text().length()).trim()));
                 matches.add(match);
                 break;
@@ -206,6 +245,9 @@ final class StarsectorRunLogEvidence {
     }
 
     private static boolean hasRequiredFrame(String[] lines, int markerLine, String requiredFrame) {
+        if (requiredFrame == null || requiredFrame.isBlank()) {
+            return true;
+        }
         int limit = Math.min(lines.length, markerLine + MAX_STACK_LINES + 1);
         for (int i = markerLine + 1; i < limit; i++) {
             if (lines[i].contains(requiredFrame)) {
@@ -236,19 +278,25 @@ final class StarsectorRunLogEvidence {
 
     record Evidence(
             boolean logAvailable,
+            boolean consoleAvailable,
             boolean fatalDetected,
             long bytesExamined,
+            long consoleBytesExamined,
             int filesExamined,
             boolean truncated,
+            String consoleFile,
             List<Map<String, Object>> matches,
             List<String> problems) {
         Map<String, Object> toMap() {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("logAvailable", logAvailable);
+            values.put("consoleAvailable", consoleAvailable);
             values.put("fatalDetected", fatalDetected);
             values.put("bytesExamined", bytesExamined);
+            values.put("consoleBytesExamined", consoleBytesExamined);
             values.put("filesExamined", filesExamined);
             values.put("truncated", truncated);
+            values.put("consoleFile", consoleFile);
             values.put("matches", matches);
             values.put("problems", problems);
             return values;

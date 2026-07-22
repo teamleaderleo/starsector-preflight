@@ -26,7 +26,7 @@ class RunCommandIT {
     void fatalGameLogOverridesZeroLauncherExitAndIsReported() throws Exception {
         Path game = temporaryDirectory.resolve("Synthetic Starsector");
         Files.createDirectories(game.resolve("logs"));
-        Path launcher = fakeLauncher(game, true);
+        Path launcher = fakeLauncher(game, LauncherMode.FATAL_LOG_ZERO);
         Path trace = temporaryDirectory.resolve("fatal-trace");
 
         ProcessResult result = run(game, launcher, trace);
@@ -47,10 +47,41 @@ class RunCommandIT {
     }
 
     @Test
+    void fatalChildConsoleOverridesZeroLauncherExitAndRecordsExactEvidencePath() throws Exception {
+        Path game = temporaryDirectory.resolve("Console Fatal Starsector");
+        Files.createDirectories(game.resolve("logs"));
+        Path launcher = fakeLauncher(game, LauncherMode.FATAL_CONSOLE_ZERO);
+        Path trace = temporaryDirectory.resolve("console-fatal-trace");
+
+        ProcessResult result = run(game, launcher, trace);
+
+        assertTrue(result.completed(), result.output());
+        assertEquals(StarsectorRunLogEvidence.FATAL_LIFECYCLE_EXIT, result.exitCode(), result.output());
+        assertTrue(result.output().contains("FATAL com.fs.starfarer.launcher.opengl.GLLauncher"), result.output());
+        Map<String, Object> report = StrictJson.object(Files.readString(trace.resolve("run.json")));
+        assertEquals((long) StarsectorRunLogEvidence.FATAL_LIFECYCLE_EXIT, report.get("exitCode"));
+        assertEquals(0L, report.get("launcherExitCode"));
+        assertEquals("FATAL_LOG_EVIDENCE", report.get("outcome"));
+        assertTrue(report.get("launcherConsole").toString().endsWith("console.txt"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> capture = (Map<String, Object>) report.get("launcherConsoleCapture");
+        assertEquals(Boolean.TRUE, capture.get("combinedStdoutStderr"));
+        assertEquals(Boolean.FALSE, capture.get("truncated"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> evidence = (Map<String, Object>) report.get("lifecycleEvidence");
+        assertEquals(Boolean.TRUE, evidence.get("consoleAvailable"));
+        assertEquals(Boolean.TRUE, evidence.get("fatalDetected"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> matches = (List<Map<String, Object>>) evidence.get("matches");
+        assertEquals("launcher-fatal", matches.get(0).get("category"));
+        assertEquals("console.txt", matches.get(0).get("consoleFile"));
+    }
+
+    @Test
     void cleanZeroLauncherExitRemainsSuccessfulAndRecordsWrapperIdentity() throws Exception {
         Path game = temporaryDirectory.resolve("Clean Synthetic Starsector");
         Files.createDirectories(game.resolve("logs"));
-        Path launcher = fakeLauncher(game, false);
+        Path launcher = fakeLauncher(game, LauncherMode.CLEAN_ZERO);
         Path trace = temporaryDirectory.resolve("clean-trace");
 
         ProcessResult result = run(game, launcher, trace);
@@ -61,6 +92,7 @@ class RunCommandIT {
         assertEquals(0L, report.get("exitCode"));
         assertEquals(0L, report.get("launcherExitCode"));
         assertEquals("COMPLETED", report.get("outcome"));
+        assertTrue(Files.isRegularFile(trace.resolve("console.txt")));
         Path packaged = Path.of("target", "preflight.jar").toRealPath();
         assertEquals(RunIdentity.SCOPE, report.get("runtimeIdentityScope"));
         assertEquals(packaged.toString(), report.get("preflightJar"));
@@ -74,6 +106,26 @@ class RunCommandIT {
     }
 
     @Test
+    void nonzeroLauncherExitRemainsAuthoritativeWithoutFatalEvidence() throws Exception {
+        Path game = temporaryDirectory.resolve("Nonzero Synthetic Starsector");
+        Files.createDirectories(game.resolve("logs"));
+        Path launcher = fakeLauncher(game, LauncherMode.CLEAN_NONZERO);
+        Path trace = temporaryDirectory.resolve("nonzero-trace");
+
+        ProcessResult result = run(game, launcher, trace);
+
+        assertTrue(result.completed(), result.output());
+        assertEquals(23, result.exitCode(), result.output());
+        Map<String, Object> report = StrictJson.object(Files.readString(trace.resolve("run.json")));
+        assertEquals(23L, report.get("exitCode"));
+        assertEquals(23L, report.get("launcherExitCode"));
+        assertEquals("LAUNCHER_EXIT_NONZERO", report.get("outcome"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> evidence = (Map<String, Object>) report.get("lifecycleEvidence");
+        assertEquals(Boolean.FALSE, evidence.get("fatalDetected"));
+    }
+
+    @Test
     void automaticTextureLaunchPassesExactCurrentArtifactsToTheRealLauncher() throws Exception {
         Path game = temporaryDirectory.resolve("Auto Texture Starsector");
         Path source = game.resolve("starsector-core/graphics/test.png");
@@ -82,7 +134,7 @@ class RunCommandIT {
         Files.createDirectories(mods);
         Files.writeString(source, "texture");
         Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[]}");
-        Path launcher = fakeLauncher(game, false);
+        Path launcher = fakeLauncher(game, LauncherMode.CLEAN_ZERO);
 
         var current = ResourceIndexBuilder.build(game).index();
         Path cache = temporaryDirectory.resolve("auto-texture-cache");
@@ -114,25 +166,43 @@ class RunCommandIT {
         assertFalse(injected.contains("prepared-pixels"), injected);
     }
 
-    private static Path fakeLauncher(Path game, boolean fatal) throws Exception {
+    private static Path fakeLauncher(Path game, LauncherMode mode) throws Exception {
         boolean windows = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win");
-        String line = fatal
-                ? "328814 [Thread-3] ERROR com.fs.starfarer.combat.CombatMain  - java.lang.NullPointerException: synthetic fatal"
-                : "100 [Thread-3] INFO com.fs.starfarer.combat.CombatMain  - synthetic clean exit";
+        String clean = "100 [Thread-3] INFO com.fs.starfarer.combat.CombatMain  - synthetic clean exit";
+        String fatalLog = "328814 [Thread-3] ERROR com.fs.starfarer.combat.CombatMain  - "
+                + "java.lang.NullPointerException: synthetic fatal";
         String frame = "at com.fs.starfarer.combat.CombatMain.main(Unknown Source)";
+        String fatalConsole = "FATAL com.fs.starfarer.launcher.opengl.GLLauncher - "
+                + "java.lang.IllegalArgumentException: synthetic fatal console";
         Path launcher = game.resolve(windows ? "starsector.bat" : "starsector.sh");
         if (windows) {
-            Files.writeString(launcher, "@echo off\r\n"
-                    + "> \"%~dp0java-tool-options.txt\" echo %JAVA_TOOL_OPTIONS%\r\n"
-                    + "> \"%~dp0logs\\starsector.log\" echo " + line + "\r\n"
-                    + (fatal ? ">> \"%~dp0logs\\starsector.log\" echo     " + frame + "\r\n" : "")
-                    + "exit /b 0\r\n");
+            StringBuilder script = new StringBuilder("@echo off\r\n")
+                    .append("> \"%~dp0java-tool-options.txt\" echo %JAVA_TOOL_OPTIONS%\r\n");
+            if (mode == LauncherMode.FATAL_LOG_ZERO) {
+                script.append("> \"%~dp0logs\\starsector.log\" echo ").append(fatalLog).append("\r\n")
+                        .append(">> \"%~dp0logs\\starsector.log\" echo     ").append(frame).append("\r\n");
+            } else {
+                script.append("> \"%~dp0logs\\starsector.log\" echo ").append(clean).append("\r\n");
+            }
+            if (mode == LauncherMode.FATAL_CONSOLE_ZERO) {
+                script.append("1>&2 echo ").append(fatalConsole).append("\r\n");
+            }
+            script.append("exit /b ").append(mode == LauncherMode.CLEAN_NONZERO ? 23 : 0).append("\r\n");
+            Files.writeString(launcher, script);
         } else {
-            Files.writeString(launcher, "#!/bin/sh\n"
-                    + "printf '%s\\n' \"$JAVA_TOOL_OPTIONS\" > java-tool-options.txt\n"
-                    + "printf '%s\\n' '" + line + "' > logs/starsector.log\n"
-                    + (fatal ? "printf '%s\\n' '    " + frame + "' >> logs/starsector.log\n" : "")
-                    + "exit 0\n");
+            StringBuilder script = new StringBuilder("#!/bin/sh\n")
+                    .append("printf '%s\\n' \"$JAVA_TOOL_OPTIONS\" > java-tool-options.txt\n");
+            if (mode == LauncherMode.FATAL_LOG_ZERO) {
+                script.append("printf '%s\\n' '").append(fatalLog).append("' > logs/starsector.log\n")
+                        .append("printf '%s\\n' '    ").append(frame).append("' >> logs/starsector.log\n");
+            } else {
+                script.append("printf '%s\\n' '").append(clean).append("' > logs/starsector.log\n");
+            }
+            if (mode == LauncherMode.FATAL_CONSOLE_ZERO) {
+                script.append("printf '%s\\n' '").append(fatalConsole).append("' >&2\n");
+            }
+            script.append("exit ").append(mode == LauncherMode.CLEAN_NONZERO ? 23 : 0).append("\n");
+            Files.writeString(launcher, script);
         }
         return launcher;
     }
@@ -173,6 +243,13 @@ class RunCommandIT {
         return Base64.getUrlEncoder()
                 .withoutPadding()
                 .encodeToString(path.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private enum LauncherMode {
+        CLEAN_ZERO,
+        FATAL_LOG_ZERO,
+        FATAL_CONSOLE_ZERO,
+        CLEAN_NONZERO
     }
 
     private record ProcessResult(boolean completed, int exitCode, String output) {
