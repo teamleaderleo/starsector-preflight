@@ -122,6 +122,18 @@ The prior repairs therefore worked as intended for:
 
 The failure is isolated to the unproven NPOT upload byte arrangement.
 
+## Retained converter-shape clue
+
+The run also retained `adapter-texture-loader-contract.json` for the exact installed class. Its bounded method shape shows that the original `BufferedImage -> ByteBuffer` converter:
+
+- calls `org.lwjgl.BufferUtils.createByteBuffer(int)`;
+- writes through indexed `ByteBuffer.put(int, byte)` calls;
+- explicitly calls `ByteBuffer.position(int)`;
+- explicitly calls `ByteBuffer.limit(int)`;
+- returns the resulting buffer to upload callers that contain both `glTexSubImage2D` and `glTexImage2D` branches.
+
+This does not disclose the exact index arithmetic, because instruction listings and class bytes were intentionally not included. It does show that Starsector's original arrangement is deliberate and is not safely reducible to “append zero padding before or after the source.”
+
 ## What the run does and does not prove
 
 The run proves that a source-sized buffer is insufficient and that an expanded upload buffer is required for the observed NPOT path.
@@ -140,7 +152,24 @@ PR #135 restores fail-open behavior for NPOT textures:
 4. only dimensions, buffer bounds, candidate matches, and first mismatch offsets are retained;
 5. original bytes, position, limit, cleanup, upload, and exceptions remain unchanged.
 
-The evidence capture is bounded to a fixed number of deduplicated logical paths and retains no texture payload bytes.
+The retained observation list is bounded to 16 deduplicated logical paths and contains no texture payload bytes.
+
+Validated implementation and readiness head:
+
+```text
+6ad76b6964c91649d71bcd7e8b944cd4fe49ff65
+```
+
+Successful workflows:
+
+```text
+CI run 516 — full Maven verification
+Vanilla adapter gate tests run 368
+Texture cache tests run 363
+Prepare command tests run 93
+```
+
+Later commits in PR #135 are documentation-only alignment.
 
 ## Operator decision
 
@@ -151,6 +180,7 @@ After PR #135 is reviewed and merged, one launcher-only layout probe may be auth
 ```text
 launch
 → inspect normal launcher visuals
+→ do not start Starsector
 → close from the launcher
 → retain the complete run directory
 ```
