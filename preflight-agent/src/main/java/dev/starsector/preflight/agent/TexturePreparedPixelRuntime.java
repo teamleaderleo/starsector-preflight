@@ -4,6 +4,7 @@ import dev.starsector.preflight.core.PreparedTexture;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,6 +19,7 @@ public final class TexturePreparedPixelRuntime {
 
     private static final Object LOCK = new Object();
     private static final IdentityHashMap<ByteBuffer, Integer> ACTIVE = new IdentityHashMap<>();
+    private static final IdentityHashMap<Thread, ArrayDeque<ByteBuffer>> IN_FLIGHT = new IdentityHashMap<>();
     private static final Telemetry TELEMETRY = new Telemetry();
     private static volatile boolean selected;
     private static long activeBytes;
@@ -31,6 +33,7 @@ public final class TexturePreparedPixelRuntime {
         selected = false;
         synchronized (LOCK) {
             ACTIVE.clear();
+            IN_FLIGHT.clear();
             activeBytes = 0;
             peakBytes = 0;
             pendingBuffers = 0;
@@ -55,9 +58,8 @@ public final class TexturePreparedPixelRuntime {
         if (texture == null) {
             return null;
         }
-        if (texture.originalWidth() != texture.uploadWidth()
-                || texture.originalHeight() != texture.uploadHeight()
-                || texture.pixelBytes() > MAX_TEXTURE_BYTES) {
+        if (!supportedDimensions(texture) || texture.pixelBytes() > MAX_TEXTURE_BYTES) {
+            TELEMETRY.dimensionFallback();
             TELEMETRY.fallback();
             TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.UNSUPPORTED_TEXTURE);
             return null;
@@ -97,6 +99,7 @@ public final class TexturePreparedPixelRuntime {
             synchronized (LOCK) {
                 pendingBuffers--;
                 ACTIVE.put(buffer, bytes);
+                IN_FLIGHT.computeIfAbsent(Thread.currentThread(), ignored -> new ArrayDeque<>()).addLast(buffer);
                 registered = true;
             }
             PreparedPixel result = new PreparedPixel(
@@ -104,8 +107,8 @@ public final class TexturePreparedPixelRuntime {
                     color(texture.color0Rgba()),
                     color(texture.color1Rgba()),
                     color(texture.color2Rgba()),
-                    texture.originalWidth(),
-                    texture.originalHeight(),
+                    texture.uploadWidth(),
+                    texture.uploadHeight(),
                     texture.channels(),
                     bytes);
             TELEMETRY.hit(bytes);
@@ -114,7 +117,9 @@ public final class TexturePreparedPixelRuntime {
             }
             return result;
         } catch (ThreadDeath | VirtualMachineError fatal) {
-            if (!registered) {
+            if (registered) {
+                release(buffer);
+            } else {
                 undoReservation(bytes);
             }
             throw fatal;
@@ -132,6 +137,21 @@ public final class TexturePreparedPixelRuntime {
         }
     }
 
+    /** Releases the newest prepared buffer owned by the current converter caller. */
+    public static void releaseCurrentThreadBuffer() {
+        ByteBuffer buffer = null;
+        synchronized (LOCK) {
+            ArrayDeque<ByteBuffer> buffers = IN_FLIGHT.get(Thread.currentThread());
+            if (buffers != null) {
+                buffer = buffers.pollLast();
+                if (buffers.isEmpty()) {
+                    IN_FLIGHT.remove(Thread.currentThread());
+                }
+            }
+        }
+        release(buffer);
+    }
+
     /** Releases accounting after Starsector's original cleanup method has run. */
     public static void release(ByteBuffer buffer) {
         if (buffer == null) {
@@ -139,6 +159,7 @@ public final class TexturePreparedPixelRuntime {
         }
         Integer bytes;
         synchronized (LOCK) {
+            removeTrackedLocked(buffer);
             bytes = ACTIVE.remove(buffer);
             if (bytes != null) {
                 activeBytes -= bytes;
@@ -198,6 +219,49 @@ public final class TexturePreparedPixelRuntime {
         }
     }
 
+    static int expectedUploadDimension(int sourceDimension) {
+        if (sourceDimension <= 0) {
+            return -1;
+        }
+        int highest = Integer.highestOneBit(sourceDimension);
+        if (highest == sourceDimension) {
+            return sourceDimension;
+        }
+        return highest > (1 << 30) ? -1 : highest << 1;
+    }
+
+    private static boolean supportedDimensions(PreparedTexture texture) {
+        int expectedWidth = expectedUploadDimension(texture.originalWidth());
+        int expectedHeight = expectedUploadDimension(texture.originalHeight());
+        if (expectedWidth != texture.originalWidth() || expectedHeight != texture.originalHeight()) {
+            return false;
+        }
+        if (texture.uploadWidth() != expectedWidth || texture.uploadHeight() != expectedHeight) {
+            return false;
+        }
+        long expectedBytes = Math.multiplyExact(
+                Math.multiplyExact((long) texture.uploadWidth(), texture.uploadHeight()),
+                texture.channels());
+        return expectedBytes == texture.pixelBytes();
+    }
+
+    private static void removeTrackedLocked(ByteBuffer buffer) {
+        var threadIterator = IN_FLIGHT.entrySet().iterator();
+        while (threadIterator.hasNext()) {
+            Map.Entry<Thread, ArrayDeque<ByteBuffer>> entry = threadIterator.next();
+            var bufferIterator = entry.getValue().iterator();
+            while (bufferIterator.hasNext()) {
+                if (bufferIterator.next() == buffer) {
+                    bufferIterator.remove();
+                    if (entry.getValue().isEmpty()) {
+                        threadIterator.remove();
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
     private static Color color(int rgba) {
         return new Color(
                 PreparedTexture.red(rgba),
@@ -249,6 +313,7 @@ public final class TexturePreparedPixelRuntime {
         private long directAttempts;
         private long hits;
         private long fallbacks;
+        private long dimensionFallbacks;
         private long internalErrors;
         private long releases;
         private long bytesBypassed;
@@ -259,6 +324,7 @@ public final class TexturePreparedPixelRuntime {
             directAttempts = 0;
             hits = 0;
             fallbacks = 0;
+            dimensionFallbacks = 0;
             internalErrors = 0;
             releases = 0;
             bytesBypassed = 0;
@@ -280,6 +346,10 @@ public final class TexturePreparedPixelRuntime {
 
         synchronized void fallback() {
             fallbacks++;
+        }
+
+        synchronized void dimensionFallback() {
+            dimensionFallbacks++;
         }
 
         synchronized void internalError() {
@@ -307,6 +377,7 @@ public final class TexturePreparedPixelRuntime {
             values.put("directAttempts", directAttempts);
             values.put("hits", hits);
             values.put("fallbacks", fallbacks);
+            values.put("dimensionFallbacks", dimensionFallbacks);
             values.put("internalErrors", internalErrors);
             values.put("releases", releases);
             values.put("bytesBypassed", bytesBypassed);
