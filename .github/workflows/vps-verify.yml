@@ -1,0 +1,114 @@
+name: VPS verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Verification suite
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - focused
+          - analysis
+          - coverage
+          - package
+      offline:
+        description: Disable network access inside the build container
+        required: true
+        default: false
+        type: boolean
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: starsector-preflight-vps
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.comment.user.login == github.repository_owner &&
+       (github.event.comment.body == '/vps verify' ||
+        startsWith(github.event.comment.body, '/vps verify ')))
+    runs-on: [self-hosted, linux, starsector-preflight]
+    timeout-minutes: 60
+    env:
+      PREFLIGHT_CONTAINER_MEMORY: 768m
+      PREFLIGHT_CONTAINER_CPUS: '0.85'
+      PREFLIGHT_CONTAINER_PIDS: '512'
+
+    steps:
+      - name: Resolve trusted ref and suite
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_API_URL: ${{ github.event.issue.pull_request.url }}
+          DISPATCH_SUITE: ${{ github.event.inputs.suite }}
+          DISPATCH_OFFLINE: ${{ github.event.inputs.offline }}
+          DEFAULT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          ref="$DEFAULT_SHA"
+          suite="${DISPATCH_SUITE:-full}"
+          offline=0
+
+          if [[ "$EVENT_NAME" == issue_comment ]]; then
+            case "$COMMENT_BODY" in
+              '/vps verify') suite=full ;;
+              '/vps verify full') suite=full ;;
+              '/vps verify focused') suite=focused ;;
+              '/vps verify analysis') suite=analysis ;;
+              '/vps verify coverage') suite=coverage ;;
+              '/vps verify package') suite=package ;;
+              *) echo "Unsupported VPS verification command: $COMMENT_BODY" >&2; exit 64 ;;
+            esac
+
+            metadata="$(curl --fail --silent --show-error \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "$PR_API_URL")"
+            test "$(jq -r '.state' <<<"$metadata")" = open
+            test "$(jq -r '.head.repo.full_name // empty' <<<"$metadata")" = "$GITHUB_REPOSITORY"
+            ref="$(jq -r '.head.sha // empty' <<<"$metadata")"
+            test -n "$ref"
+          elif [[ "$DISPATCH_OFFLINE" == true ]]; then
+            offline=1
+          fi
+
+          printf 'ref=%s\nsuite=%s\noffline=%s\n' "$ref" "$suite" "$offline" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.request.outputs.ref }}
+          clean: true
+          persist-credentials: false
+
+      - name: Check isolated runner prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(id -u)" -ne 0
+          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          test -d "$XDG_RUNTIME_DIR"
+          podman info --format 'rootless={{.Host.Security.Rootless}} cgroup={{.Host.CgroupVersion}}'
+          podman image exists localhost/starsector-preflight-build:1
+
+      - name: Run disposable verification container
+        shell: bash
+        env:
+          PREFLIGHT_OFFLINE: ${{ steps.request.outputs.offline }}
+          REQUESTED_SUITE: ${{ steps.request.outputs.suite }}
+        run: bash ./scripts/verify-in-container.sh "$REQUESTED_SUITE"
