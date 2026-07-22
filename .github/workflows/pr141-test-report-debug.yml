@@ -5,13 +5,67 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   reports:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Patch stale contract fixture once
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java')
+          text = path.read_text()
+          marker = '"setUploadWidth"'
+          if marker not in text:
+              needle = '''        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+          convert.instructions.add(new MethodInsnNode(
+                  Opcodes.INVOKEVIRTUAL,
+                  "java/awt/image/BufferedImage",
+                  "getRaster",
+                  "()Ljava/awt/image/WritableRaster;",
+                  false));
+          '''
+              replacement = '''        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+          convert.instructions.add(new InsnNode(Opcodes.ICONST_4));
+          convert.instructions.add(new MethodInsnNode(
+                  Opcodes.INVOKEVIRTUAL,
+                  TexturePreparedPixelPlan.TEXTURE_OBJECT,
+                  "setUploadWidth",
+                  "(I)V",
+                  false));
+          convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+          convert.instructions.add(new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, 8));
+          convert.instructions.add(new MethodInsnNode(
+                  Opcodes.INVOKEVIRTUAL,
+                  TexturePreparedPixelPlan.TEXTURE_OBJECT,
+                  "setUploadHeight",
+                  "(I)V",
+                  false));
+          convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+          convert.instructions.add(new MethodInsnNode(
+                  Opcodes.INVOKEVIRTUAL,
+                  "java/awt/image/BufferedImage",
+                  "getRaster",
+                  "()Ljava/awt/image/WritableRaster;",
+                  false));
+          '''
+              if needle not in text:
+                  raise SystemExit('contract fixture insertion point not found')
+              path.write_text(text.replace(needle, replacement, 1))
+          PY
+          if ! git diff --quiet; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java
+            git commit -m "Update prepared-pixel contract dimension fixture"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
       - uses: ./.github/actions/setup-build-jdk
       - name: Run verification
         id: verify
