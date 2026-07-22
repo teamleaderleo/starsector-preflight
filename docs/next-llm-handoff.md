@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge PR #135, then perform and review exactly one real installed **launcher-only original-layout probe**.
+Perform and review exactly one real installed **launcher-only original-layout probe** using current `main` and the repository runner.
 
 Do not run another prepared-pixel gameplay lifecycle, begin repeated measurement, or make acceleration claims.
 
@@ -16,7 +16,6 @@ Primary evidence:
 - [guessed NPOT padding](evidence/2026-07-22-prepared-pixel-npot-padding.md)
 - [NPOT visual failure](evidence/2026-07-22-prepared-pixel-visual-failure.md)
 - issue #129 — NPOT upload dimensions and visual layout acceptance
-- PR #135 — NPOT fail-open restoration and original-layout evidence
 
 ## State as of 2026-07-22
 
@@ -30,6 +29,12 @@ Merged guessed-padding implementation:
 
 ```text
 PR #133: 68ece81782b54022d58d41634dd88491fca13601
+```
+
+Merged NPOT fail-open and original-layout probe repair:
+
+```text
+PR #135: 1fd63567e5834546ab5d617234f84371df9909ea
 ```
 
 The post-padding installed pilot reached the launcher and exited cleanly, but launcher textures rendered incorrectly. Retained telemetry showed:
@@ -50,9 +55,9 @@ This isolates the failure to the guessed NPOT byte arrangement. It does not prov
 
 The retained installed texture-loader contract shows the original converter creates a ByteBuffer, performs indexed `ByteBuffer.put(int, byte)` writes, and explicitly sets buffer position and limit. The layout is deliberate and should be observed rather than replaced with another append/placement guess.
 
-## PR #135 behavior
+## Merged runtime behavior
 
-PR #135:
+Current `main`:
 
 1. keeps the exact prepared-pixel transformation and power-of-two bypass;
 2. returns NPOT carriers to Starsector's original decode/conversion path before direct allocation;
@@ -81,7 +86,7 @@ Power-of-two hits still use the bounded direct-buffer path and retain the existi
 
 ## Automated validation
 
-Validated implementation and readiness head:
+Validated implementation and readiness head before documentation-only alignment:
 
 ```text
 6ad76b6964c91649d71bcd7e8b944cd4fe49ff65
@@ -96,7 +101,7 @@ Texture cache tests run 363
 Prepare command tests run 93
 ```
 
-Commits after that head, when present, are documentation-only alignment and must not be represented as additional implementation validation.
+PR #135 was squash-merged after documentation-only evidence alignment.
 
 ## Exact identities
 
@@ -113,32 +118,28 @@ archive SHA-256:
 
 Keep these identities exact. Automatic allowlist generation remains disabled.
 
-## Review checklist
+## Authorized operator action
 
-1. Confirm NPOT `prepare()` returns `null` before direct allocation.
-2. Confirm power-of-two prepared hits remain unchanged.
-3. Confirm fallback invokes original decode and conversion once.
-4. Confirm the returned original buffer is the exact buffer sent onward.
-5. Confirm observation uses a duplicate and does not change position, limit, capacity, bytes, cleanup, or exceptions.
-6. Confirm observations and retained fields are bounded and contain no pixel payload.
-7. Confirm failed or ambiguous classification never enables a layout.
-8. Confirm exact identity gates, cache format, circuit breaker, and memory limits remain unchanged.
-9. Confirm compatibility mode remains the accepted rollback.
-10. Confirm no benchmark or acceleration claim.
+From a checkout containing PR #135 and the runner follow-up, use:
 
-## Operator action after merge
+```bash
+git switch main
+git pull --ff-only
+bash scripts/run-prepared-pixel-layout-probe.sh
+```
 
-Use a newly built merged JAR and exact artifacts from a current successful preparation report.
+The runner verifies the merged commit, build, exact installed identities, offline contract, current preparation artifacts, lifecycle result, NPOT fallback telemetry, layout observations, and shutdown accounting.
 
-Perform one route only:
+When the launcher appears:
 
 ```text
-launch in prepared-pixels mode
-→ inspect normal launcher visuals
-→ do not start Starsector
-→ close from the launcher
-→ retain the complete run directory and a screenshot
+inspect normal launcher visuals
+→ take a screenshot
+→ do not click Play
+→ close with the launcher X
 ```
+
+The runner packages the complete run directory on the Desktop. Upload that archive and the screenshot.
 
 Expected evidence:
 
@@ -150,7 +151,7 @@ Expected evidence:
 - observation errors zero;
 - active prepared buffers/direct bytes/pending buffers zero at shutdown;
 - no fatal console or log evidence;
-- clean exit.
+- clean launcher exit.
 
 Stop after the one launcher probe. Do not implement a new NPOT bypass until the retained original-layout observations are reviewed.
 
@@ -158,11 +159,9 @@ Stop after the one launcher probe. Do not implement a new NPOT bypass until the 
 
 Leave:
 
-1. PR #135 merged or exact review findings recorded;
-2. final workflow results and validated commit SHA;
-3. the exact probe command and merged JAR SHA-256 when a probe is authorized;
-4. the complete retained launcher-probe directory and screenshot;
-5. a dated evidence document classifying each observed layout result;
-6. issue #129 updated with pass or failure details;
-7. readiness and operator handoff aligned with the result;
-8. no gameplay lifecycle, repeated benchmark, or acceleration claim.
+1. the exact command, repository head, and merged JAR SHA-256;
+2. the complete retained launcher-probe directory and screenshot;
+3. a dated evidence document classifying each observed layout result;
+4. issue #129 updated with pass or failure details;
+5. readiness and operator handoff aligned with the result;
+6. no gameplay lifecycle, repeated benchmark, or acceleration claim.
