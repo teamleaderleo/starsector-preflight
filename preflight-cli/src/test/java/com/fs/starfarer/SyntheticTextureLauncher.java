@@ -52,7 +52,7 @@ public final class SyntheticTextureLauncher {
                 return;
             }
             System.out.printf(
-                    "synthetic-pixels:%s:colors=%08x,%08x,%08x:decode=%d:convert=%d:cleanup=%d:preloaderCalls=%d%n",
+                    "synthetic-pixels:%s:colors=%08x,%08x,%08x:decode=%d:convert=%d:cleanup=%d:preloaderCalls=%d:dimensions=%dx%d%n",
                     HexFormat.of().formatHex(result.pixels()),
                     result.color0(),
                     result.color1(),
@@ -60,7 +60,9 @@ public final class SyntheticTextureLauncher {
                     TextureLoader.originalCalls(),
                     TextureLoader.originalConversionCalls(),
                     TextureLoader.originalCleanupCalls(),
-                    L.lookupCalls());
+                    L.lookupCalls(),
+                    result.uploadWidth(),
+                    result.uploadHeight());
             return;
         }
         BufferedImage image = loader.loadForTest(logicalPath);
