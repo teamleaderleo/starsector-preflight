@@ -115,7 +115,7 @@ public final class TexturePreparedPixelRuntime {
                     layout.uploadHeight(),
                     texture.channels(),
                     bytes);
-            TELEMETRY.hit(bytes, layout.paddingBytes());
+            TELEMETRY.hit(texture.pixelBytes(), bytes, layout.paddingBytes());
             if (carrier.creditSharedHit()) {
                 TextureCompatibilityRuntime.hit(texture.pixelBytes());
             }
@@ -382,6 +382,7 @@ public final class TexturePreparedPixelRuntime {
         private long internalErrors;
         private long releases;
         private long bytesBypassed;
+        private long uploadBytesSupplied;
         private long releasedBytes;
 
         synchronized void reset() {
@@ -395,6 +396,7 @@ public final class TexturePreparedPixelRuntime {
             internalErrors = 0;
             releases = 0;
             bytesBypassed = 0;
+            uploadBytesSupplied = 0;
             releasedBytes = 0;
         }
 
@@ -406,9 +408,10 @@ public final class TexturePreparedPixelRuntime {
             directAttempts++;
         }
 
-        synchronized void hit(long bytes, long padding) {
+        synchronized void hit(long sourceBytes, long uploadBytes, long padding) {
             hits++;
-            bytesBypassed = saturatedAdd(bytesBypassed, bytes);
+            bytesBypassed = saturatedAdd(bytesBypassed, sourceBytes);
+            uploadBytesSupplied = saturatedAdd(uploadBytesSupplied, uploadBytes);
             if (padding > 0) {
                 paddedUploads++;
                 paddingBytes = saturatedAdd(paddingBytes, padding);
@@ -454,6 +457,7 @@ public final class TexturePreparedPixelRuntime {
             values.put("internalErrors", internalErrors);
             values.put("releases", releases);
             values.put("bytesBypassed", bytesBypassed);
+            values.put("uploadBytesSupplied", uploadBytesSupplied);
             values.put("releasedBytes", releasedBytes);
             values.put("activeDirectBytes", activeDirectBytes);
             values.put("peakDirectBytes", peakDirectBytes);
