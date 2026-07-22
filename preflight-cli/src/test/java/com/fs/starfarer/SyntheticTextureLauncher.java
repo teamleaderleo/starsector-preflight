@@ -14,11 +14,14 @@ public final class SyntheticTextureLauncher {
         String logicalPath = args.length == 0 ? "graphics/test.png" : args[0];
         boolean pixels = false;
         boolean preloadedMode = false;
+        boolean uploadFailure = false;
         for (String argument : args) {
             pixels |= "prepared-pixels".equals(argument);
             preloadedMode |= "preloaded".equals(argument);
+            uploadFailure |= "upload-failure".equals(argument);
         }
         TextureLoader.reset();
+        TextureLoader.setFailAfterConversion(uploadFailure);
         L.reset();
         if (preloadedMode) {
             BufferedImage preloaded = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
@@ -27,7 +30,22 @@ public final class SyntheticTextureLauncher {
         }
         TextureLoader loader = new TextureLoader();
         if (pixels) {
-            TextureLoader.Result result = loader.loadPixelsForTest(logicalPath);
+            TextureLoader.Result result;
+            try {
+                result = loader.loadPixelsForTest(logicalPath);
+            } catch (IllegalStateException error) {
+                if (!uploadFailure) {
+                    throw error;
+                }
+                System.out.printf(
+                        "synthetic-upload-failure:%s:%s:decode=%d:convert=%d:cleanup=%d%n",
+                        error.getClass().getSimpleName(),
+                        error.getMessage(),
+                        TextureLoader.originalCalls(),
+                        TextureLoader.originalConversionCalls(),
+                        TextureLoader.originalCleanupCalls());
+                return;
+            }
             System.out.printf(
                     "synthetic-pixels:%s:colors=%08x,%08x,%08x:decode=%d:convert=%d:cleanup=%d:preloaderCalls=%d%n",
                     HexFormat.of().formatHex(result.pixels()),
