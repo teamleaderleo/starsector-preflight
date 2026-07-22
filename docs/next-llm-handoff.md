@@ -31,15 +31,15 @@ PR #133 is review-ready on branch `feature/prepared-pixel-npot-padding`.
 Validated implementation head:
 
 ```text
-d97f362b56a669c7faeaacc477d8e652cacb93c3
+b3b1b59856008ad91609c02ac52eb1986e7bc14b
 ```
 
 Successful workflows on that implementation head:
 
-- CI run 494 — `mvn --batch-mode --no-transfer-progress verify`
-- Texture cache tests run 343
-- Vanilla adapter gate tests run 346
-- Prepare command tests run 78
+- CI run 500 — `mvn --batch-mode --no-transfer-progress verify`
+- Texture cache tests run 349
+- Vanilla adapter gate tests run 352
+- Prepare command tests run 84
 
 Documentation-only commits follow that validated implementation head.
 
@@ -67,6 +67,8 @@ Observed fixture:
 ```
 
 The packaged Java-agent fixture now enforces the same power-of-two minimum-buffer requirement that caused the first live failure. The prepared route passes with decode and conversion bypassed, cleanup executed once, and expanded direct-buffer accounting released to zero.
+
+Telemetry keeps `bytesBypassed` source-sized, records expanded upload traffic separately in `uploadBytesSupplied`, and reports `paddedUploads` plus `paddingBytes`.
 
 ## Preserved boundaries
 
@@ -124,8 +126,9 @@ Keep these identities exact. A future installed check may produce different tran
 6. Confirm normal and exceptional releases return active buffers and active direct bytes to zero.
 7. Confirm unexpected pre-padded blobs fail open.
 8. Confirm the packaged fixture reproduces the minimum upload-buffer contract.
-9. Confirm exact identities, fallback behavior, circuit breaker, cleanup, and compatibility rollback remain unchanged.
-10. Confirm no benchmark or acceleration claim is present.
+9. Confirm `bytesBypassed` excludes padding and `uploadBytesSupplied` includes it.
+10. Confirm exact identities, fallback behavior, circuit breaker, cleanup, and compatibility rollback remain unchanged.
+11. Confirm no benchmark or acceleration claim is present.
 
 ## Operator status
 
