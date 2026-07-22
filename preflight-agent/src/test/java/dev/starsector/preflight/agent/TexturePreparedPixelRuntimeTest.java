@@ -73,6 +73,7 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(24L, active.get("activeDirectBytes"));
         assertEquals(24L, active.get("peakDirectBytes"));
         assertEquals(24L, active.get("bytesBypassed"));
+        assertEquals(24L, active.get("uploadBytesSupplied"));
 
         TexturePreparedPixelRuntime.release(first.buffer());
         TexturePreparedPixelRuntime.release(second.buffer());
@@ -128,7 +129,8 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(904_821L, active.get("paddingBytes"));
         assertEquals(0L, active.get("dimensionFallbacks"));
         assertEquals(1_572_864L, active.get("activeDirectBytes"));
-        assertEquals(1_572_864L, active.get("bytesBypassed"));
+        assertEquals(668_043L, active.get("bytesBypassed"));
+        assertEquals(1_572_864L, active.get("uploadBytesSupplied"));
 
         TexturePreparedPixelRuntime.release(prepared.buffer());
         Map<String, Object> released = TexturePreparedPixelRuntime.telemetry();
@@ -163,8 +165,11 @@ class TexturePreparedPixelRuntimeTest {
             System.arraycopy(source, row * sourceStride, expected, row * uploadStride, sourceStride);
         }
         assertArrayEquals(expected, bytes(prepared.buffer()));
-        assertEquals(1L, TexturePreparedPixelRuntime.telemetry().get("paddedUploads"));
-        assertEquals(68L, TexturePreparedPixelRuntime.telemetry().get("paddingBytes"));
+        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(1L, telemetry.get("paddedUploads"));
+        assertEquals(68L, telemetry.get("paddingBytes"));
+        assertEquals(60L, telemetry.get("bytesBypassed"));
+        assertEquals(128L, telemetry.get("uploadBytesSupplied"));
     }
 
     @Test
