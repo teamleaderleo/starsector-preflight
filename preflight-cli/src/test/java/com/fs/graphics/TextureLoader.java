@@ -40,8 +40,38 @@ public final class TextureLoader {
             buffer.put(configured).flip();
             return buffer;
         }
+        if (image.getWidth() > 1 || image.getHeight() > 1) {
+            return convertPowerOfTwoUpload(image);
+        }
         ByteBuffer buffer = ByteBuffer.allocateDirect(3);
         buffer.put((byte) red).put((byte) green).put((byte) blue).flip();
+        return buffer;
+    }
+
+    private static ByteBuffer convertPowerOfTwoUpload(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int channels = image.getColorModel().hasAlpha() ? 4 : 3;
+        int uploadWidth = nextPowerOfTwo(width);
+        int uploadHeight = nextPowerOfTwo(height);
+        int uploadStride = uploadWidth * channels;
+        byte[] upload = new byte[uploadStride * uploadHeight];
+        for (int uploadRow = 0; uploadRow < height; uploadRow++) {
+            int imageY = height - 1 - uploadRow;
+            int rowOffset = uploadRow * uploadStride;
+            for (int x = 0; x < width; x++) {
+                int argb = image.getRGB(x, imageY);
+                int offset = rowOffset + x * channels;
+                upload[offset] = (byte) ((argb >>> 16) & 0xff);
+                upload[offset + 1] = (byte) ((argb >>> 8) & 0xff);
+                upload[offset + 2] = (byte) (argb & 0xff);
+                if (channels == 4) {
+                    upload[offset + 3] = (byte) ((argb >>> 24) & 0xff);
+                }
+            }
+        }
+        ByteBuffer buffer = ByteBuffer.allocateDirect(upload.length);
+        buffer.put(upload).flip();
         return buffer;
     }
 
