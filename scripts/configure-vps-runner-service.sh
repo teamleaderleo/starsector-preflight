@@ -57,13 +57,17 @@ else
   echo "warning: could not read delegated user controllers at $controllers_file" >&2
 fi
 
-runuser -u "$runner_user" -- env \
+podman_info="$(runuser -u "$runner_user" -- env \
   HOME="$runner_home" \
   USER="$runner_user" \
   LOGNAME="$runner_user" \
   XDG_RUNTIME_DIR="$runtime_dir" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
-  podman info --format \
-  'rootless={{.Host.Security.Rootless}} cgroupVersion={{.Host.CgroupVersion}} cgroupManager={{.Host.CgroupManager}}'
+  podman info --format json)"
+
+printf 'rootless=%s cgroupVersion=%s cgroupManager=%s\n' \
+  "$(jq -r '.host.security.rootless // "unknown"' <<<"$podman_info")" \
+  "$(jq -r '.host.cgroupVersion // "unknown"' <<<"$podman_info")" \
+  "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_info")"
 
 echo "Runner service delegation configured: $service_name"
