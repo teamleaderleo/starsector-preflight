@@ -1,0 +1,30 @@
+name: Apply CI fixes
+
+on:
+  push:
+    branches:
+      - repair/prepared-pixel-lifecycle-129-130-128
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/patches/ci-fixes.patch
+          git apply .github/patches/ci-fixes.patch
+          rm .github/patches/ci-fixes.patch .github/workflows/apply-ci-fixes.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Restore skipped prepare-stage success semantics"
+          git push
