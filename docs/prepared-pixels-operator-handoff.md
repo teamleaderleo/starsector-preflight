@@ -4,21 +4,30 @@ Status: 2026-07-22
 
 ## Current decision
 
-The exact installed-class offline gate passed, exact-profile preparation passed, and the first real `prepared-pixels` lifecycle pilot failed before the main menu.
+The exact installed-class offline gate passed, exact-profile preparation passed, and the first real `prepared-pixels` lifecycle pilot failed before the main menu because a source-sized RGB buffer reached a next-power-of-two OpenGL upload.
 
-PR #132 now contains the narrow repair for issues #128, #129, and #130. Automated validation passed on code head `6ae62ac627244ab1734397a94cb6460bef2d69e9`.
+PR #132 repaired fail-open admission, exceptional direct-buffer release, fatal child-console classification, and preparation reporting. It was squash-merged as:
+
+```text
+4f3b79c6d7683242d16cb7b34081cd7800f20017
+```
+
+PR #133 implements bounded runtime upload padding and is awaiting review and merge. Automated validation passed on implementation head:
+
+```text
+d97f362b56a669c7faeaacc477d8e652cacb93c3
+```
 
 See:
 
 - [offline contract pass](evidence/2026-07-22-prepared-pixel-installed-contract-pass.md)
 - [live pilot failure](evidence/2026-07-22-prepared-pixel-live-pilot-failure.md)
 - [lifecycle repair](evidence/2026-07-22-prepared-pixel-lifecycle-repair.md)
+- [NPOT upload padding](evidence/2026-07-22-prepared-pixel-npot-padding.md)
 
-The operator has no authorized prepared-pixel command. Compatibility mode remains the accepted rollback path.
+No prepared-pixel launch is authorized while PR #133 remains unmerged. Compatibility mode remains the accepted rollback path.
 
-## Failure repaired by PR #132
-
-The live pilot produced:
+## Original failure
 
 ```text
 remaining buffer elements: 668043
@@ -28,63 +37,77 @@ required buffer elements: 1572864
 1572864 = 1024 * 512 * 3
 ```
 
-The prepared bridge supplied source-sized RGB bytes while Starsector requested a next-power-of-two upload. The retained adapter report also showed one active direct buffer and zero releases. The launcher shell returned zero while its console contained a fatal `GLLauncher` exception.
+The launcher shell also returned zero despite a fatal visible in its child console. PR #132 now captures that console and classifies the run as non-clean.
 
-## Repair behavior
+## PR #133 padding behavior
 
-### Unsupported NPOT dimensions
+SPFT version 1 remains unchanged and source-sized. The bridge creates the live upload backing without resampling:
 
-Prepared-pixel admission now declines any payload whose source dimensions require next-power-of-two padding. The original Starsector decode/conversion path handles that texture.
+```text
+bottom-up source rows
+→ copy to lower-left of next-power-of-two backing
+→ zero-fill each row to the right
+→ zero-fill unused rows above
+```
 
-Tests include:
+The carrier still reports the original source dimensions, leaving Starsector's original texture-size and texture-coordinate behavior in control.
 
-- observed `597x373 -> 1024x512` RGB;
-- NPOT RGBA;
-- power-of-two RGB payload length;
-- fallback before carrier/direct-buffer creation.
+Focused automated proof covers:
 
-### Direct-buffer accounting
+- observed `597x373 RGB -> 1024x512 RGB` exact remaining bytes;
+- NPOT `3x5 RGBA -> 4x8 RGBA` full-buffer equality;
+- source placement and row order;
+- zero-filled right and upper padding;
+- unchanged power-of-two payloads;
+- rejection of an unexpected pre-padded SPFT v1 contract;
+- expanded direct-memory accounting and normal release;
+- expanded direct-memory accounting on upload exceptions;
+- a packaged transformed-loader fixture that enforces the power-of-two minimum buffer.
 
-Exact converter callers now release the current prepared buffer when upload code throws, then rethrow the original exception. Normal cleanup still releases through the existing exact cleanup seam.
+Telemetry includes:
 
-Tests prove active buffers and active direct bytes return to zero after success and upload exceptions. Fallback retains zero prepared direct bytes.
+```text
+paddedUploads
+paddingBytes
+```
 
-### Fatal child console evidence
-
-The launcher child now uses one continuously drained combined stdout/stderr stream. Output remains visible to the operator and a bounded 1 MiB chronological tail is retained as `console.txt`.
-
-Fatal child-console markers produce a non-clean effective exit even when the launcher shell returns zero. `launcherExitCode` preserves the launcher result.
-
-### Preparation progress and readiness
-
-Preparation emits bounded stage start/completion progress to stderr. Stdout remains the report path.
-
-Readiness records the failed 2026-07-22 pilot and requires a future revalidation. No acceleration claim is present.
+The existing `bytesBypassed`, release, active-buffer, and active-direct-byte counters remain available.
 
 ## Automated validation
 
-The standard workflows passed on validated code head `6ae62ac627244ab1734397a94cb6460bef2d69e9`:
+Successful workflows on the validated implementation head:
 
-- CI run 483;
-- Prepare command tests run 73;
-- Texture cache tests run 334;
-- Vanilla adapter gate tests run 335;
-- Adapter probe analysis tests run 169.
+```text
+CI run 494
+Texture cache tests run 343
+Vanilla adapter gate tests run 346
+Prepare command tests run 78
+```
+
+The CI run executed the full Maven verification suite.
 
 ## Preserved boundaries
 
-PR #132 preserves:
+PR #133 preserves:
 
-- exact archive, class, source, and loader identity gates;
-- original fallback behavior;
-- current direct-memory limits and circuit breaker;
-- unchanged Starsector installation and launcher;
-- compatibility mode as an independent rollback path;
-- original exceptions on upload failure.
+- exact archive, class, source, method, and loader identity gates;
+- original Starsector fallback behavior;
+- original cleanup and exception behavior;
+- current circuit breaker;
+- compatibility mode as an independent accepted rollback path;
+- unchanged SPFT version 1 files;
+- 32 MiB maximum per expanded upload;
+- 64 MiB maximum active prepared direct memory;
+- 1,024 maximum active buffers;
+- unchanged Starsector installation and launcher.
+
+Automatic allowlist generation remains disabled. The failed pilot and the new automated tests support no acceleration claim.
 
 ## Future operator route after merge and review approval
 
-Only after PR #132 is reviewed and merged may the operator repeat one lifecycle route:
+Use the exact current preparation report to obtain all paths. Do not infer or guess the cache fingerprint, manifest, index, target file, Java binary, or Starsector installation path.
+
+Perform one route only:
 
 ```text
 launch
@@ -104,17 +127,19 @@ Retain:
 - `adapter-analysis.json` when present;
 - `startup.jfr`;
 - `console.txt`;
-- the exact command and binary identity.
+- the exact command and binary identity;
+- screenshots or precise notes for any visible texture problem.
 
-Stop after one repaired pilot. Repeated benchmarks remain blocked until behavioral evidence is accepted.
+Stop after that one repaired pilot. Repeated benchmarks remain blocked until behavioral evidence is accepted.
 
-## Acceptance requirements for a future repaired pilot
+## Acceptance requirements
 
 Acceptance requires:
 
-- one expected exact transformation;
+- the exact expected transformation;
 - prepared-pixel hits and bypassed bytes above zero;
-- clean dimensions and visuals;
+- `paddedUploads` and `paddingBytes` consistent with encountered NPOT textures;
+- clean sprite, UI, campaign, and combat visuals with no flipped images, borders, fringes, or bleeding;
 - only understood original-path fallbacks;
 - zero internal errors and no circuit breaker;
 - active direct bytes, active buffers, and pending buffers equal zero at shutdown;
@@ -127,14 +152,14 @@ Acceptance requires:
 
 Do not:
 
-- rerun the known-bad prepared-pixel build;
-- authorize a repaired pilot before merge and review;
-- start repeated benchmarks;
+- run prepared pixels before PR #133 is reviewed and merged;
+- repeat a pilot or begin benchmarks;
 - generate allowlists from probe output;
 - weaken exact identity gates;
 - patch Starsector or its launcher;
 - swallow original exceptions;
 - perform OpenGL work on background threads;
 - add unbounded caches, maps, logs, buffers, or worker pools;
-- claim acceleration from the failed run;
-- delete the failed run or its evidence.
+- treat zero padding as image resampling or claim visual upscaling;
+- claim acceleration before a separate accepted measurement campaign;
+- delete the failed run or any new pilot evidence.
