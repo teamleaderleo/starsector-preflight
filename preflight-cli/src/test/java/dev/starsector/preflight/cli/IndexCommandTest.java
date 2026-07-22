@@ -37,10 +37,12 @@ class IndexCommandTest {
         assertTrue(Files.isRegularFile(indexFile));
 
         ResourceIndex index = ResourceIndexIO.read(indexFile);
+        Path canonicalAlphaFile = alphaFile.toRealPath();
+        Path canonicalCoreFile = coreFile.toRealPath();
         assertEquals(2, index.providers("graphics/shared.png").size());
-        assertTrue(index.winningFile("graphics/shared.png").orElseThrow().equals(alphaFile.toAbsolutePath().normalize()));
+        assertEquals(canonicalAlphaFile, index.winningFile("graphics/shared.png").orElseThrow());
         assertTrue(index.providers("graphics/shared.png").stream()
-                .anyMatch(provider -> index.resolve(provider).equals(coreFile.toAbsolutePath().normalize())));
+                .anyMatch(provider -> index.resolve(provider).equals(canonicalCoreFile)));
 
         assertEquals(0, PreflightCli.run(new String[] {
                 "index", "query", indexFile.toString(), "graphics/shared.png"
