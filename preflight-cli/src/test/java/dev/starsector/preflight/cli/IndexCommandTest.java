@@ -38,9 +38,9 @@ class IndexCommandTest {
 
         ResourceIndex index = ResourceIndexIO.read(indexFile);
         assertEquals(2, index.providers("graphics/shared.png").size());
-        assertTrue(index.winningFile("graphics/shared.png").orElseThrow().equals(alphaFile.toAbsolutePath().normalize()));
+        assertEquals(alphaFile.toRealPath(), index.winningFile("graphics/shared.png").orElseThrow());
         assertTrue(index.providers("graphics/shared.png").stream()
-                .anyMatch(provider -> index.resolve(provider).equals(coreFile.toAbsolutePath().normalize())));
+                .anyMatch(provider -> index.resolve(provider).equals(coreFile.toRealPath())));
 
         assertEquals(0, PreflightCli.run(new String[] {
                 "index", "query", indexFile.toString(), "graphics/shared.png"
