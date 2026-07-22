@@ -56,16 +56,16 @@ The existing exact archive, class, source, method, and loader identity gates rem
 Validated implementation head:
 
 ```text
-d97f362b56a669c7faeaacc477d8e652cacb93c3
+b3b1b59856008ad91609c02ac52eb1986e7bc14b
 ```
 
 Successful workflows:
 
 ```text
-CI run 494
-Texture cache tests run 343
-Vanilla adapter gate tests run 346
-Prepare command tests run 78
+CI run 500
+Texture cache tests run 349
+Vanilla adapter gate tests run 352
+Prepare command tests run 84
 ```
 
 Focused tests prove:
