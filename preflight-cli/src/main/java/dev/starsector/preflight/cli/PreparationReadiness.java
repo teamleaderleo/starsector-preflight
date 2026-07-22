@@ -18,9 +18,10 @@ final class PreparationReadiness {
         readiness.put("vanillaAdapter", "compatibility-v2-behaviorally-accepted");
         readiness.put("compatibilityBehavioralAcceptance", "accepted-2026-07-19-starsector-0.98a-rc8");
         readiness.put("repeatTimingCampaignRequired", true);
-        readiness.put("preparedPixelsAdapter", "fail-closed-pending-color-transfer-repair");
+        readiness.put("preparedPixelsAdapter", "offline-contract-accepted-live-pilot-revalidation-required");
+        readiness.put("preparedPixelsBehavioralAcceptance", "failed-2026-07-22-revalidation-required");
         readiness.put("textureAdapterModes", List.of("compatibility", "prepared-pixels"));
-        readiness.put("realInstallPilotRequired", false);
+        readiness.put("realInstallPilotRequired", true);
         readiness.put("fastRenderingAdapter", "requires-exact-compatible-method-evidence");
         readiness.put("launchAccelerationClaimed", false);
         return Collections.unmodifiableMap(readiness);
