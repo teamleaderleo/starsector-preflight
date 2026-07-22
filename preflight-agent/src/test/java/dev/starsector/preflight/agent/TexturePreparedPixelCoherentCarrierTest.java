@@ -93,23 +93,29 @@ class TexturePreparedPixelCoherentCarrierTest {
     }
 
     @Test
-    void optInRgbaCarrierPreservesTopDownColorAndAlpha() throws Exception {
+    void optInNpotRgbaCarrierPreservesTopDownColorAndAlpha() throws Exception {
         byte[] bottomUpRgba = {
                 1, 2, 3, 4,
                 5, 6, 7, 8,
                 9, 10, 11, 12,
-                13, 14, 15, 16
+                13, 14, 15, 16,
+                17, 18, 19, 20,
+                21, 22, 23, 24
         };
-        Fixture fixture = fixture(2, 2, 4, bottomUpRgba);
+        Fixture fixture = fixture(2, 3, 4, bottomUpRgba);
         System.setProperty(TexturePreparedPixelRuntime.COHERENT_ORIGINAL_CONVERT_PROPERTY, "true");
         configure(fixture);
 
         BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
         assertTrue(carrier.getColorModel().hasAlpha());
-        assertEquals(0x0c090a0b, carrier.getRGB(0, 0));
-        assertEquals(0x100d0e0f, carrier.getRGB(1, 0));
-        assertEquals(0x04010203, carrier.getRGB(0, 1));
-        assertEquals(0x08050607, carrier.getRGB(1, 1));
+        assertEquals(2, carrier.getRaster().getWidth());
+        assertEquals(3, carrier.getRaster().getHeight());
+        assertEquals(0x14111213, carrier.getRGB(0, 0));
+        assertEquals(0x18151617, carrier.getRGB(1, 0));
+        assertEquals(0x0c090a0b, carrier.getRGB(0, 1));
+        assertEquals(0x100d0e0f, carrier.getRGB(1, 1));
+        assertEquals(0x04010203, carrier.getRGB(0, 2));
+        assertEquals(0x08050607, carrier.getRGB(1, 2));
     }
 
     @Test
