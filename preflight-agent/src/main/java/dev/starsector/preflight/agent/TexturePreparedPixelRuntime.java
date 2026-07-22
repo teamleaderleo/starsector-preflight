@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Runtime bridge for upload-ready SPFT pixels with bounded direct-buffer ownership. */
 public final class TexturePreparedPixelRuntime {
     static final String PLAN_ID = "texture-prepared-pixels-v2";
+    static final String COHERENT_ORIGINAL_CONVERT_PROPERTY =
+            "preflight.preparedPixels.coherentOriginalConvert";
     static final int MAX_TEXTURE_BYTES = 32 * 1024 * 1024;
     static final long MAX_ACTIVE_DIRECT_BYTES = 64L * 1024 * 1024;
     static final int MAX_ACTIVE_BUFFERS = 1_024;
@@ -70,8 +72,26 @@ public final class TexturePreparedPixelRuntime {
             TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.UNSUPPORTED_TEXTURE);
             return null;
         }
-        TELEMETRY.carrier();
-        return new CarrierImage(logicalPath, texture, layout);
+
+        boolean coherentOriginalConvert = layout.paddingBytes() > 0
+                && Boolean.getBoolean(COHERENT_ORIGINAL_CONVERT_PROPERTY);
+        try {
+            CarrierImage carrier = new CarrierImage(
+                    logicalPath,
+                    texture,
+                    layout,
+                    coherentOriginalConvert);
+            TELEMETRY.carrier(carrier.rasterBytes, carrier.coherentOriginalConvert);
+            return carrier;
+        } catch (ThreadDeath | VirtualMachineError fatal) {
+            throw fatal;
+        } catch (Throwable error) {
+            TELEMETRY.internalError();
+            TELEMETRY.fallback();
+            TextureCompatibilityRuntime.internalFailure();
+            TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.PREPARED_PIXEL_BRIDGE);
+            return null;
+        }
     }
 
     public static boolean isCarrier(BufferedImage image) {
@@ -80,6 +100,21 @@ public final class TexturePreparedPixelRuntime {
 
     public static String originalPath(BufferedImage image) {
         return image instanceof CarrierImage carrier ? carrier.logicalPath : null;
+    }
+
+    /**
+     * Returns true only for the explicit diagnostic that reconstructs a coherent cached image
+     * but still executes Starsector's original converter and returns its original buffer.
+     */
+    public static boolean useCarrierForOriginalFallback(BufferedImage image) {
+        if (!(image instanceof CarrierImage carrier) || !carrier.coherentOriginalConvert) {
+            return false;
+        }
+        if (carrier.creditSharedHit()) {
+            TextureCompatibilityRuntime.hit(carrier.texture.pixelBytes());
+        }
+        TELEMETRY.coherentOriginalDecodeBypass();
+        return true;
     }
 
     /** Creates one bounded direct upload buffer and returns stored derived colors. */
@@ -91,11 +126,14 @@ public final class TexturePreparedPixelRuntime {
         PreparedTexture texture = carrier.texture;
         UploadLayout layout = carrier.layout;
 
-        // The first real padded pilot reached the launcher but rendered NPOT textures
-        // incorrectly. Until Starsector's exact original layout is observed, preserve its
-        // decoder/converter for NPOT textures and collect bounded evidence from that buffer.
+        // NPOT direct-buffer bypass remains disabled after the visual failure. The explicit
+        // coherent-original-convert diagnostic bypasses ImageIO only and lets Starsector's
+        // original converter produce the buffer and all of its side effects.
         if (layout.paddingBytes() > 0) {
             TELEMETRY.npotProbeFallback();
+            if (carrier.coherentOriginalConvert) {
+                TELEMETRY.coherentOriginalConvertFallback();
+            }
             TELEMETRY.fallback();
             TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.UNSUPPORTED_TEXTURE);
             return null;
@@ -319,6 +357,13 @@ public final class TexturePreparedPixelRuntime {
         values.put("bufferLimit", sourceBuffer.limit());
         values.put("bufferCapacity", sourceBuffer.capacity());
         values.put("bufferRemaining", available);
+        values.put("coherentOriginalConvert", carrier.coherentOriginalConvert);
+        values.put("carrierRasterWidth", carrier.getRaster().getWidth());
+        values.put("carrierRasterHeight", carrier.getRaster().getHeight());
+        values.put("carrierSampleModelWidth", carrier.getSampleModel().getWidth());
+        values.put("carrierSampleModelHeight", carrier.getSampleModel().getHeight());
+        values.put("carrierColorComponents", carrier.getColorModel().getNumComponents());
+        values.put("carrierHasAlpha", carrier.getColorModel().hasAlpha());
         if (available < layout.uploadBytes()) {
             values.put("status", "insufficient-original-buffer");
             values.put("candidateMatches", List.of());
@@ -469,13 +514,37 @@ public final class TexturePreparedPixelRuntime {
         private final String logicalPath;
         private final PreparedTexture texture;
         private final UploadLayout layout;
+        private final boolean coherentOriginalConvert;
+        private final int rasterBytes;
         private final AtomicBoolean sharedHitCredited = new AtomicBoolean();
 
-        private CarrierImage(String logicalPath, PreparedTexture texture, UploadLayout layout) {
-            super(1, 1, texture.channels() == 4 ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+        private CarrierImage(
+                String logicalPath,
+                PreparedTexture texture,
+                UploadLayout layout,
+                boolean coherentOriginalConvert) {
+            this(
+                    logicalPath,
+                    texture,
+                    layout,
+                    coherentOriginalConvert
+                            ? TexturePreparedPixelCarrierSurface.coherent(texture)
+                            : TexturePreparedPixelCarrierSurface.legacy(texture.channels()),
+                    coherentOriginalConvert);
+        }
+
+        private CarrierImage(
+                String logicalPath,
+                PreparedTexture texture,
+                UploadLayout layout,
+                TexturePreparedPixelCarrierSurface.Surface surface,
+                boolean coherentOriginalConvert) {
+            super(surface.colorModel(), surface.raster(), false, null);
             this.logicalPath = logicalPath;
             this.texture = texture;
             this.layout = layout;
+            this.coherentOriginalConvert = coherentOriginalConvert && surface.coherent();
+            this.rasterBytes = surface.rasterBytes();
         }
 
         private boolean creditSharedHit() {
@@ -495,11 +564,15 @@ public final class TexturePreparedPixelRuntime {
 
     private static final class Telemetry {
         private long carriers;
+        private long coherentCarriers;
+        private long coherentCarrierBytes;
         private long directAttempts;
         private long hits;
         private long fallbacks;
         private long dimensionFallbacks;
         private long npotProbeFallbacks;
+        private long coherentOriginalConvertFallbacks;
+        private long coherentOriginalDecodeBypasses;
         private long layoutObservationErrors;
         private long internalErrors;
         private long releases;
@@ -510,11 +583,15 @@ public final class TexturePreparedPixelRuntime {
 
         synchronized void reset() {
             carriers = 0;
+            coherentCarriers = 0;
+            coherentCarrierBytes = 0;
             directAttempts = 0;
             hits = 0;
             fallbacks = 0;
             dimensionFallbacks = 0;
             npotProbeFallbacks = 0;
+            coherentOriginalConvertFallbacks = 0;
+            coherentOriginalDecodeBypasses = 0;
             layoutObservationErrors = 0;
             internalErrors = 0;
             releases = 0;
@@ -524,8 +601,12 @@ public final class TexturePreparedPixelRuntime {
             originalLayoutObservations.clear();
         }
 
-        synchronized void carrier() {
+        synchronized void carrier(long rasterBytes, boolean coherent) {
             carriers++;
+            if (coherent) {
+                coherentCarriers++;
+                coherentCarrierBytes = saturatedAdd(coherentCarrierBytes, rasterBytes);
+            }
         }
 
         synchronized void directAttempt() {
@@ -548,6 +629,14 @@ public final class TexturePreparedPixelRuntime {
 
         synchronized void npotProbeFallback() {
             npotProbeFallbacks++;
+        }
+
+        synchronized void coherentOriginalConvertFallback() {
+            coherentOriginalConvertFallbacks++;
+        }
+
+        synchronized void coherentOriginalDecodeBypass() {
+            coherentOriginalDecodeBypasses++;
         }
 
         synchronized void layoutObservation(Map<String, Object> observation) {
@@ -585,16 +674,22 @@ public final class TexturePreparedPixelRuntime {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("planId", PLAN_ID);
             values.put("ready", ready);
+            values.put("coherentOriginalConvertProperty", COHERENT_ORIGINAL_CONVERT_PROPERTY);
+            values.put("coherentOriginalConvertEnabled", Boolean.getBoolean(COHERENT_ORIGINAL_CONVERT_PROPERTY));
             values.put("maxTextureBytes", MAX_TEXTURE_BYTES);
             values.put("maxActiveDirectBytes", MAX_ACTIVE_DIRECT_BYTES);
             values.put("maxActiveBuffers", MAX_ACTIVE_BUFFERS);
             values.put("maxLayoutObservations", MAX_LAYOUT_OBSERVATIONS);
             values.put("carriers", carriers);
+            values.put("coherentCarriers", coherentCarriers);
+            values.put("coherentCarrierBytes", coherentCarrierBytes);
             values.put("directAttempts", directAttempts);
             values.put("hits", hits);
             values.put("fallbacks", fallbacks);
             values.put("dimensionFallbacks", dimensionFallbacks);
             values.put("npotProbeFallbacks", npotProbeFallbacks);
+            values.put("coherentOriginalConvertFallbacks", coherentOriginalConvertFallbacks);
+            values.put("coherentOriginalDecodeBypasses", coherentOriginalDecodeBypasses);
             values.put("originalLayoutObservations", List.copyOf(originalLayoutObservations));
             values.put("layoutObservationErrors", layoutObservationErrors);
             values.put("paddedUploads", 0L);
@@ -608,7 +703,7 @@ public final class TexturePreparedPixelRuntime {
             values.put("peakDirectBytes", peakDirectBytes);
             values.put("activeBuffers", activeBuffers);
             values.put("pendingBuffers", pendingBuffers);
-            values.put("imageDecodesBypassed", hits);
+            values.put("imageDecodesBypassed", saturatedAdd(hits, coherentOriginalDecodeBypasses));
             values.put("conversionCallsBypassed", hits);
             values.put("derivedColorCalculationsBypassed", hits);
             return Map.copyOf(values);
