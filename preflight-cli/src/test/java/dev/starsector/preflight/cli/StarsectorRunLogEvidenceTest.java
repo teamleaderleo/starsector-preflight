@@ -38,6 +38,28 @@ class StarsectorRunLogEvidenceTest {
     }
 
     @Test
+    void detectsFatalChildConsoleWhenLauncherReturnsZero() throws Exception {
+        StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
+        Path console = temporaryDirectory.resolve("run/console.txt");
+        Files.createDirectories(console.getParent());
+        String text = "FATAL com.fs.starfarer.launcher.opengl.GLLauncher - java.lang.IllegalArgumentException: synthetic\n";
+        Files.writeString(console, text);
+        ChildProcessOutput.Result capture = new ChildProcessOutput.Result(
+                0, console, text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, false);
+
+        StarsectorRunLogEvidence.Evidence evidence = StarsectorRunLogEvidence.inspect(before, capture);
+
+        assertTrue(evidence.consoleAvailable());
+        assertTrue(evidence.fatalDetected());
+        assertEquals("console.txt", evidence.consoleFile());
+        assertEquals("launcher-fatal", evidence.matches().get(0).get("category"));
+        assertEquals("console.txt", evidence.matches().get(0).get("consoleFile"));
+        assertEquals(StarsectorRunLogEvidence.FATAL_LIFECYCLE_EXIT,
+                StarsectorRunLogEvidence.effectiveExitCode(0, evidence));
+    }
+
+    @Test
     void ignoresFatalEvidenceThatPredatesTheRun() throws Exception {
         log(FATAL);
         StarsectorRunLogEvidence.Snapshot before = StarsectorRunLogEvidence.snapshot(temporaryDirectory);
