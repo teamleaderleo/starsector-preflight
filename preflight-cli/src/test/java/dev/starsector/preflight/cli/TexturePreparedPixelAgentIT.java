@@ -51,6 +51,34 @@ class TexturePreparedPixelAgentIT {
     }
 
     @Test
+    void packagedNpotWarmHitPadsBottomLeftToPowerOfTwoUpload() throws Exception {
+        byte[] source = {
+                0x01, 0x02, 0x03,
+                0x04, 0x05, 0x06,
+                0x07, 0x08, 0x09,
+                0x0a, 0x0b, 0x0c,
+                0x0d, 0x0e, 0x0f,
+                0x10, 0x11, 0x12
+        };
+        Fixture fixture = fixture(false, false, 3, 2, 3, source);
+
+        ProcessResult result = launch(fixture, "graphics/test.png", false);
+
+        assertSuccess(result);
+        assertTrue(result.output().contains(
+                "synthetic-pixels:0102030405060708090000000a0b0c0d0e0f101112000000"
+                        + ":colors=ff0a141e,ff28323c,ff46505a:decode=0:convert=0:cleanup=1"),
+                result.output());
+        String report = Files.readString(fixture.adapterReport());
+        assertTrue(report.contains("\"hits\":1"), report);
+        assertTrue(report.contains("\"paddedUploads\":1"), report);
+        assertTrue(report.contains("\"paddingBytes\":6"), report);
+        assertTrue(report.contains("\"activeBuffers\":0"), report);
+        assertTrue(report.contains("\"activeDirectBytes\":0"), report);
+        assertTrue(report.contains("\"releasedBytes\":24"), report);
+    }
+
+    @Test
     void packagedUploadExceptionPreservesOriginalFailureAndReleasesDirectBuffer() throws Exception {
         Fixture fixture = fixture(false, false);
 
@@ -76,7 +104,8 @@ class TexturePreparedPixelAgentIT {
 
         assertSuccess(result);
         assertTrue(result.output().contains(
-                "synthetic-pixels:abcdef:colors=ffabcdef,ff00ff00,ff0000ff:decode=0:convert=1:cleanup=1:preloaderCalls=1"),
+                "synthetic-pixels:abcdef:colors=ffabcdef,ff00ff00,ff0000ff"
+                        + ":decode=0:convert=1:cleanup=1:preloaderCalls=1"),
                 result.output());
         String report = Files.readString(fixture.adapterReport());
         assertTrue(report.contains("\"transformationsApplied\":1"), report);
@@ -141,12 +170,23 @@ class TexturePreparedPixelAgentIT {
     }
 
     private Fixture fixture(boolean corruptBlob, boolean wrongClassHash) throws Exception {
+        return fixture(corruptBlob, wrongClassHash, 1, 1, 3, new byte[] {0x12, 0x34, 0x56});
+    }
+
+    private Fixture fixture(
+            boolean corruptBlob,
+            boolean wrongClassHash,
+            int width,
+            int height,
+            int channels,
+            byte[] pixels) throws Exception {
         Path testClasses = Path.of("target", "test-classes").toAbsolutePath().normalize();
         Path classFile = testClasses.resolve("com/fs/graphics/TextureLoader.class");
         byte[] classBytes = renameSyntheticPreloaderMethod(Files.readAllBytes(classFile));
         byte[] preloaderBytes = renameSyntheticPreloaderMethod(
                 Files.readAllBytes(testClasses.resolve("com/fs/graphics/L.class")));
-        Path targetJar = temporaryDirectory.resolve("starsector-core/fixture-texture-pixels.jar");
+        Path targetJar = temporaryDirectory.resolve(
+                "starsector-core/fixture-texture-pixels-" + System.nanoTime() + ".jar");
         Files.createDirectories(targetJar.getParent());
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(targetJar))) {
             JarEntry entry = new JarEntry("com/fs/graphics/TextureLoader.class");
@@ -170,7 +210,7 @@ class TexturePreparedPixelAgentIT {
                 sha256 %s
                 plan texture-prepared-pixels-v2
                 source-kind STARSECTOR_CORE
-                source-suffix starsector-core/fixture-texture-pixels.jar
+                source-suffix starsector-core/%s
                 source-sha256 %s
                 loader-class jdk/internal/loader/ClassLoaders$AppClassLoader
                 loader-name app
@@ -178,7 +218,7 @@ class TexturePreparedPixelAgentIT {
                 method o00000 (Ljava/awt/image/BufferedImage;Lcom/fs/graphics/Object;)Ljava/nio/ByteBuffer;
                 method o00000 (Ljava/nio/ByteBuffer;Ljava/lang/String;)V
                 end
-                """.formatted(classHash, archiveHash));
+                """.formatted(classHash, targetJar.getFileName(), archiveHash));
 
         Path cache = temporaryDirectory.resolve("cache-pixels-" + System.nanoTime());
         Path sourceRoot = temporaryDirectory.resolve("game-pixels-" + System.nanoTime());
@@ -202,15 +242,15 @@ class TexturePreparedPixelAgentIT {
         PreparedTexture texture = new PreparedTexture(
                 sourceHash,
                 PreparedTexture.Transformation.IDENTITY,
-                1,
-                1,
-                1,
-                1,
-                3,
+                width,
+                height,
+                width,
+                height,
+                channels,
                 PreparedTexture.rgba(10, 20, 30, 255),
                 PreparedTexture.rgba(40, 50, 60, 255),
                 PreparedTexture.rgba(70, 80, 90, 255),
-                new byte[] {0x12, 0x34, 0x56});
+                pixels);
         String blobRelative = "blobs/" + sourceHash.substring(0, 2) + "/" + sourceHash + "-identity.spft";
         Path blob = cache.resolve(blobRelative);
         PreparedTextureIO.write(blob, texture);
@@ -223,10 +263,10 @@ class TexturePreparedPixelAgentIT {
                         sourceHash,
                         PreparedTexture.Transformation.IDENTITY,
                         blobRelative,
-                        1,
-                        1,
-                        3,
-                        3)));
+                        width,
+                        height,
+                        channels,
+                        pixels.length)));
         Path manifestPath = cache.resolve("manifests/" + profile + ".spfm");
         TextureManifestIO.write(manifestPath, manifest);
         Path recording = temporaryDirectory.resolve("startup-pixels-" + System.nanoTime() + ".jfr");
