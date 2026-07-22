@@ -48,6 +48,8 @@ pendingBuffers: 0
 
 This isolates the failure to the guessed NPOT byte arrangement. It does not prove upper placement or another substitute layout.
 
+The retained installed texture-loader contract shows the original converter creates a ByteBuffer, performs indexed `ByteBuffer.put(int, byte)` writes, and explicitly sets buffer position and limit. The layout is deliberate and should be observed rather than replaced with another append/placement guess.
+
 ## PR #135 behavior
 
 PR #135:
@@ -79,15 +81,22 @@ Power-of-two hits still use the bounded direct-buffer path and retain the existi
 
 ## Automated validation
 
-The implementation head after the packaged fallback repair passed:
+Validated implementation and readiness head:
 
 ```text
-CI run 510
-Vanilla adapter gate tests run 362
-Texture cache tests run 357
+6ad76b6964c91649d71bcd7e8b944cd4fe49ff65
 ```
 
-Subsequent readiness and documentation commits require the standard affected workflows to pass before merge. Record the final validated head and workflow numbers in the PR and evidence.
+Successful workflows:
+
+```text
+CI run 516 — full Maven verification
+Vanilla adapter gate tests run 368
+Texture cache tests run 363
+Prepare command tests run 93
+```
+
+Commits after that head, when present, are documentation-only alignment and must not be represented as additional implementation validation.
 
 ## Exact identities
 
