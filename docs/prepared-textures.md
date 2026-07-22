@@ -1,6 +1,6 @@
 # Prepared texture blobs
 
-Preflight Textures converts an encoded image into the exact byte layout consumed by the current texture upload path, then stores that result in a versioned cache blob.
+Preflight Textures converts an encoded image into the exact source-pixel byte layout consumed by the current texture conversion path, then stores that result in a versioned cache blob. The prepared-pixel runtime may place those source bytes into a larger reviewed upload backing when Starsector allocates a next-power-of-two texture.
 
 The literal reference implementation remains the compatibility authority. Production cache generation now uses a row-bulk converter only after proving complete `PreparedTexture` equality against that reference path.
 
@@ -86,12 +86,14 @@ A prepared texture contains:
 - Source SHA-256
 - Transformation identifier
 - Original image dimensions
-- Upload dimensions
+- Stored payload dimensions
 - Three or four channels
-- Bottom-up RGB or RGBA upload bytes
+- Bottom-up RGB or RGBA source bytes
 - Three packed `RRGGBBAA` color values used by the loader
 
-The raw pixel payload remains uncompressed in version 1. This creates a clean baseline for LZ4, low-level Zstandard, pack-file, and memory-mapping experiments.
+SPFT version 1 stores source-sized payloads: stored width and height match the original image dimensions. The raw pixel payload remains uncompressed. This creates a clean baseline for LZ4, low-level Zstandard, pack-file, and memory-mapping experiments.
+
+A larger next-power-of-two OpenGL backing is a runtime concern rather than a second on-disk image. The prepared-pixel bridge copies the source-sized rows into that backing without resampling.
 
 ## Literal reference behavior
 
@@ -148,7 +150,7 @@ The writer uses a sibling temporary file and atomic replacement where supported.
 Both live consumers use the exact-reviewed `TextureLoader` class, archive, method, source, and loader identity. A launch selects one mode:
 
 - `compatibility` reconstructs a `BufferedImage` at the private decoded-image seam. Starsector retains its original pixel conversion, OpenGL upload, cleanup, and texture lifetime.
-- `prepared-pixels` carries the verified SPFT payload to the lower `BufferedImage -> ByteBuffer` seam. A hit supplies bottom-up upload bytes and all three stored derived colors, bypassing ImageIO decode, raster traversal, vertical reversal, RGB/RGBA conversion, transparent-texel normalization, and color calculation. Starsector retains its original texture allocation, OpenGL upload, cleanup, flags, filtering, mipmaps, and texture lifetime.
+- `prepared-pixels` carries the verified SPFT source payload to the lower `BufferedImage -> ByteBuffer` seam. A hit supplies the bottom-up upload bytes and all three stored derived colors, bypassing ImageIO decode, raster traversal, vertical reversal, RGB/RGBA conversion, transparent-texel normalization, and color calculation. Starsector retains its original texture allocation, OpenGL call, cleanup, flags, filtering, mipmaps, and texture lifetime.
 
 Both version-2 plans preserve the original `com.fs.graphics.L.class(String)` asynchronous preloader handoff before any Preflight lookup. A preloaded image always wins. Preflight is consulted only on the original direct-decode branch after that handoff returns `null`; an absent or ambiguous handoff leaves the class untouched.
 
@@ -185,6 +187,10 @@ java -jar preflight.jar run \
 
 Do not guess the fingerprint or reuse artifacts from a different profile. Use the exact manifest and index reported by preparation for the current installation.
 
-Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. The current payload format accepts identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
+Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. SPFT version 1 accepts identity textures whose stored dimensions match their source dimensions. `ALPHA_ADDER`, unexpected pre-padded blobs, oversized expanded uploads, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
 
-Prepared direct-buffer ownership is bounded to 32 MiB per texture, 64 MiB active bytes, and 1,024 active buffers. The existing Starsector cleanup method always runs. Preflight releases its identity-tracked accounting in a `finally` path after that original cleanup call.
+For an admitted NPOT source, prepared-pixels-v2 calculates the next power of two for each dimension, allocates the expanded direct upload buffer, copies each existing bottom-up source row into the lower-left, zero-fills the unused right side of each row, and zero-fills unused rows above. It does not scale, interpolate, or otherwise resample the artwork. The carrier continues to report the original width and height to Starsector.
+
+Prepared direct-buffer ownership remains bounded to 32 MiB per expanded upload, 64 MiB active bytes, and 1,024 active buffers. The existing Starsector cleanup method always runs. Preflight releases its identity-tracked accounting in a `finally` path after that original cleanup call, and the exact converter callers release accounting before rethrowing upload exceptions.
+
+Prepared-pixel behavioral acceptance still requires one reviewed real-install lifecycle route after the padding change. Compatibility mode remains the accepted rollback path, and no acceleration claim follows from the failed pilot or automated padding tests.
