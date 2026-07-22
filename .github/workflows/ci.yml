@@ -36,28 +36,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-build-jdk
       - name: Verify
-        id: verify
-        shell: bash
-        run: |
-          set +e
-          mvn --batch-mode --no-transfer-progress verify > verify.log 2>&1
-          status=$?
-          cat verify.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Upload verify diagnostics
-        if: always() && matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: pr132-verify-diagnostics
-          path: |
-            verify.log
-            **/target/surefire-reports/**
-            **/target/failsafe-reports/**
-          if-no-files-found: error
-      - name: Preserve verify result
-        shell: bash
-        run: exit "${{ steps.verify.outputs.status }}"
+        run: mvn --batch-mode --no-transfer-progress verify
       - name: Upload runnable JAR
         if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
