@@ -8,12 +8,12 @@ Move Starsector Preflight from extensive exact-gated implementation and syntheti
 
 The next milestone is not another subsystem. It is:
 
-1. exact installed-class validation for `prepared-pixels`;
-2. one real prepared-pixel lifecycle acceptance run;
-3. repeated OFF, compatibility-v2, and prepared-pixel measurement;
-4. a documented continue, repair, or redirect decision based on those results.
+1. prepare the exact current profile cache;
+2. run one real prepared-pixel lifecycle acceptance route;
+3. run repeated OFF, compatibility-v2, and prepared-pixel measurement;
+4. make a documented continue, repair, or redirect decision.
 
-Use [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operator-handoff.md) as the phase-by-phase operator protocol.
+Use [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operator-handoff.md) as the phase-by-phase protocol.
 
 ## State as of 2026-07-22
 
@@ -21,11 +21,13 @@ Use [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operat
 
 - `texture-compatibility-v2` passed bounded real-install behavioral acceptance on 2026-07-19.
 - The accepted run applied one exact transformation, served 4,926 prepared decoded-image hits, used the original path three times, reached the main screen, and exited normally.
-- That result is behavioral acceptance only. It is not repeated timing evidence.
+- That result is behavioral acceptance only, not repeated timing evidence.
 - The lower `prepared-pixels` consumer is implemented with fail-open fallback and bounded direct-buffer ownership.
 - PR #117 added the installed-style staged color model: three non-static `TextureLoader` color fields must each flow into one distinct, exactly typed texture-object setter. Direct texture-object color fields remain supported.
 - PR #119 added `PreparedPixelContractCheck` for an extracted class or the containing JAR.
-- Prepared pixels remain disabled for the real installation until the offline checker passes on the exact installed archive and one opt-in lifecycle run passes.
+- The exact reviewed installation passed that offline checker on 2026-07-22. See [the retained contract evidence](evidence/2026-07-22-prepared-pixel-installed-contract-pass.md).
+- The pass included exact archive and class identities, all nine required methods, exact staged setter flow, successful transformation, and no problems.
+- Prepared pixels remain opt-in and not live-accepted until one bounded gameplay lifecycle passes.
 
 ### Measurement path
 
@@ -40,7 +42,7 @@ Use [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operat
 - Exact Jogg/JOrbis identities and an installed-decoder equivalence command exist.
 - A bounded Starsector sound-wrapper observation command exists and uses the installation's bundled Java when required.
 - Prepared-audio writes, cache reads, and live transforms remain disabled.
-- Do not start live audio reuse until the real installed equivalence and wrapper reports are reviewed.
+- Do not start live audio reuse until texture acceptance is resolved and the real installed audio reports are reviewed.
 
 ### Janino path
 
@@ -54,23 +56,24 @@ Use [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operat
 - Ordinary hosted CI is Linux-first, with scheduled/manual multi-platform coverage.
 - A self-hosted Linux VPS verification workflow is available for owner-triggered trusted refs.
 - Rootless Podman uses delegated CPU, memory, and PID controllers and selects `cgroupfs` for containers launched by the runner system service.
-- A full Maven verification completes successfully on the 1 GiB Linode without active swap thrashing or WireGuard disruption.
+- A full Maven verification completes successfully on the 1 GiB Linode without active swap thrashing or measured host pressure.
+- PR #126 fixed a macOS-only test assertion that compared unresolved `/var` paths against canonical `/private/var` paths.
 - Do not spend the next session optimizing CI or adding another runner.
 
 ## Immediate ordering
 
-The exact order is:
+The exact order is now:
 
-1. finish documentation reconciliation;
-2. operator runs only the offline installed-class contract check;
-3. review the report;
-4. repair code only if the report exposes a concrete mismatch;
-5. operator performs one approved prepared-pixel lifecycle route;
-6. review and record behavioral evidence;
-7. run the repeated measurement campaign;
+1. operator runs only the exact-profile `prepare` command from the operator handoff;
+2. operator returns the preparation report and stops;
+3. reviewing LLM validates the report and extracts exact cache, resource-index, and manifest paths;
+4. reviewing LLM supplies one explicit prepared-pixel launch command;
+5. operator performs one bounded main-menu, campaign, first-combat, save, and clean-exit route;
+6. reviewing LLM records and accepts or rejects behavioral evidence;
+7. repeated measurement begins only after acceptance;
 8. choose release/productization, a narrow repair, or the next measured domain.
 
-Do not skip directly to repeated benchmarks. Do not launch prepared pixels before the offline report is reviewed.
+Do not skip directly to repeated benchmarks. Do not guess manifest or index paths.
 
 ## Division of responsibility
 
@@ -85,62 +88,61 @@ The implementation LLM owns:
 - evidence-document and issue updates;
 - keeping unsupported targets disabled.
 
+No implementation PR is currently required. Open one only if new evidence exposes a specific defect or missing gate.
+
 ### Operator
 
-The operator owns actions requiring the real Starsector installation:
+The operator owns actions requiring the real installation:
 
-- offline checks against the local proprietary archive;
-- cache preparation for the exact current profile;
-- gameplay lifecycle routes;
+- exact-profile cache preparation;
+- approved gameplay lifecycle routes;
 - retaining run directories, JFR, JSON reports, and console notes;
 - reporting visual or behavioral regressions.
 
-The operator must stop at each review boundary in the operator handoff. Raw proprietary game archives remain local.
+The operator must stop at each review boundary. Raw proprietary game archives remain local.
 
 ### Reviewing LLM
 
-The reviewing LLM must verify reports before authorizing the next phase. A process exit of zero is not sufficient by itself. Review exact identities, transformation status, fallbacks, direct-buffer accounting, lifecycle outcome, and bounded error telemetry.
+The reviewing LLM must verify reports before authorizing the next phase. A process exit of zero is not sufficient by itself. Review exact identities, stage success, validation fields, transformation status, fallbacks, direct-buffer accounting, lifecycle outcome, and bounded error telemetry.
 
 ## First actions for the next session
 
 1. Read:
    - `README.md`;
    - `docs/prepared-pixels-operator-handoff.md`;
+   - `docs/evidence/2026-07-22-prepared-pixel-installed-contract-pass.md`;
    - `docs/optimization-north-star.md`;
    - `docs/architecture.md`;
    - `docs/benchmarking.md`;
    - `docs/vanilla-adapter.md`;
    - `docs/prepared-textures.md`;
    - issues #48, #51, #75, #77, #78, #80, and #102.
-2. Confirm `main` contains merged PRs #117–#123.
-3. Run the full reactor before a code change:
-
-```bash
-mvn --batch-mode --no-transfer-progress verify
-```
-
-4. Determine the current phase from the operator handoff.
-5. Do not open an implementation PR unless the current evidence exposes a specific defect or missing gate.
+2. Confirm `main` contains PRs #117–#126 and the latest evidence-document PR.
+3. Determine the current phase from the operator handoff.
+4. Do not open an implementation PR unless the evidence exposes a concrete defect.
 
 ## Current operator action
 
-After the documentation reconciliation PR is merged, the operator may run Phase 1 from `docs/prepared-pixels-operator-handoff.md`:
+The operator may run Phase 2 from `docs/prepared-pixels-operator-handoff.md`:
 
 ```bash
-git switch main
-git pull --ff-only
-mvn --batch-mode --no-transfer-progress -pl preflight-cli -am package
+export STARSECTOR_HOME="/Applications/Starsector.app"
+export PREFLIGHT_CACHE="$HOME/.starsector-preflight/cache"
+export PREFLIGHT_PREP_REPORT="$PREFLIGHT_CACHE/reports/prepared-pixel-lifecycle.json"
 
-export STARSECTOR_HOME="/path/to/Starsector.app"
-export PREFLIGHT_CORE_JAR="$STARSECTOR_HOME/Contents/Resources/Java/fs.common_obf.jar"
+mkdir -p "$PREFLIGHT_CACHE/reports"
 
-java -cp preflight-cli/target/preflight.jar \
-  dev.starsector.preflight.agent.PreparedPixelContractCheck \
-  "$PREFLIGHT_CORE_JAR" \
-  | tee prepared-pixel-contract.txt
+java -jar preflight-cli/target/preflight.jar prepare \
+  --game "$STARSECTOR_HOME" \
+  --cache-dir "$PREFLIGHT_CACHE" \
+  --report "$PREFLIGHT_PREP_REPORT"
+
+prepare_status=$?
+echo "prepare exit status: $prepare_status"
+ls -lh "$PREFLIGHT_PREP_REPORT"
 ```
 
-The operator stops after this command and returns `prepared-pixel-contract.txt` for review. Do not authorize a prepared-pixel launch until the report passes.
+The operator stops after preparation and returns the console output plus the report contents. Do not authorize a prepared-pixel launch until the preparation report passes review and exact artifact paths are extracted.
 
 ## Reviewed identities
 
@@ -155,7 +157,11 @@ loader:      jdk/internal/loader/ClassLoaders$AppClassLoader
 loader name: app
 ```
 
-The prepared-pixel checker requires all nine reviewed methods and must recognize either the reviewed direct sink model or the installed staged loader-field-to-setter model without ambiguity.
+Offline prepared-pixel transform SHA-256:
+
+```text
+b32700195f5837c42dba0f2d202cc0a95af75bfd8b7725d8a2878f59d9e01527
+```
 
 ### Janino complete-map target
 
@@ -199,15 +205,15 @@ sound/J.o00000(Ljava/io/InputStream;)Lsound/F;
 ### Prepared pixels pass behaviorally but show little gain
 
 - use same-run JFR evidence to choose the next domain;
-- prefer audio before deeper Janino work when audio remains a dominant measured cost and its equivalence gates pass;
+- prefer audio before deeper Janino work when audio remains dominant and its equivalence gates pass;
 - do not continue texture optimization based only on sunk cost.
 
-### Prepared pixels fail the contract or lifecycle
+### Prepared pixels fail the lifecycle
 
-- open one narrow repair PR tied to the exact decline or failure;
+- open one narrow repair PR tied to the exact failure;
 - preserve the original path and current exact gates;
-- add a fixture reproducing the real mismatch;
-- repeat the failed phase only after review.
+- add a fixture reproducing the mismatch;
+- repeat only the failed phase after review.
 
 ## Prohibited shortcuts
 
