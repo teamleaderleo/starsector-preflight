@@ -1,0 +1,76 @@
+name: PR 143 axis patch
+
+on:
+  pull_request:
+    types: [synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'repair/prepared-pixel-dimension-axis-dataflow'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Apply reviewed axis mapping once
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          changed = False
+
+          def replace_once(path, old, new):
+              global changed
+              p = Path(path)
+              text = p.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f'missing patch anchor in {path}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1))
+              changed = True
+
+          replace_once(
+              'preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java',
+              '        return new DimensionSetters(setters.get(0), setters.get(1));',
+              '''        // The reviewed installed converter computes width, then height, but invokes the
+        // height setter first and the width setter second. Preserve the axis mapping rather
+        // than assigning meaning from call order.
+        return new DimensionSetters(setters.get(1), setters.get(0));''')
+
+          replace_once(
+              'preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java',
+              '        texture.Ô00000(nextPowerOfTwo(image.getWidth()));\n        texture.Ó00000(nextPowerOfTwo(image.getHeight()));',
+              '        texture.Ô00000(nextPowerOfTwo(image.getHeight()));\n        texture.Ó00000(nextPowerOfTwo(image.getWidth()));')
+
+          replace_once(
+              'preflight-cli/src/test/java/com/fs/graphics/Object.java',
+              '''    public void Ô00000(int value) {
+        uploadWidth = value;
+    }
+
+    public void Ó00000(int value) {
+        uploadHeight = value;
+    }''',
+              '''    public void Ô00000(int value) {
+        uploadHeight = value;
+    }
+
+    public void Ó00000(int value) {
+        uploadWidth = value;
+    }''')
+
+          Path('/tmp/axis-patch-changed').write_text('yes' if changed else 'no')
+          PY
+          if [[ "$(cat /tmp/axis-patch-changed)" == yes ]]; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java \
+                    preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java \
+                    preflight-cli/src/test/java/com/fs/graphics/Object.java
+            git commit -m "Map prepared upload dimensions by reviewed axis flow"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
