@@ -36,7 +36,7 @@ class TexturePreparedPixelRuntimeTest {
     }
 
     @Test
-    void suppliesDirectBottomUpPixelsStoredColorsAndBoundedOwnership() throws Exception {
+    void suppliesPowerOfTwoPixelsStoredColorsAndBoundedOwnership() throws Exception {
         Fixture fixture = fixture();
         configure(fixture);
 
@@ -66,8 +66,7 @@ class TexturePreparedPixelRuntimeTest {
 
         Map<String, Object> active = TexturePreparedPixelRuntime.telemetry();
         assertEquals(2L, active.get("hits"));
-        assertEquals(0L, active.get("paddedUploads"));
-        assertEquals(0L, active.get("paddingBytes"));
+        assertEquals(0L, active.get("npotProbeFallbacks"));
         assertEquals(2, active.get("activeBuffers"));
         assertEquals(0, active.get("pendingBuffers"));
         assertEquals(24L, active.get("activeDirectBytes"));
@@ -82,94 +81,105 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(0L, released.get("activeDirectBytes"));
         assertEquals(2L, released.get("releases"));
         assertEquals(24L, released.get("releasedBytes"));
-
-        Map<String, Object> cache = TextureCompatibilityRuntime.telemetry();
-        assertEquals(1L, cache.get("attempts"));
-        assertEquals(1L, cache.get("hits"));
-        assertEquals(12L, cache.get("bytesServed"));
     }
 
     @Test
-    void padsObservedNpotRgbToExactPowerOfTwoBacking() throws Exception {
-        int sourceWidth = 597;
-        int sourceHeight = 373;
-        int channels = 3;
-        byte[] source = new byte[sourceWidth * sourceHeight * channels];
-        setPixel(source, sourceWidth, channels, 0, 0, 1, 2, 3, 0);
-        setPixel(source, sourceWidth, channels, sourceWidth - 1, 0, 4, 5, 6, 0);
-        setPixel(source, sourceWidth, channels, 0, 1, 7, 8, 9, 0);
-        setPixel(source, sourceWidth, channels, 0, sourceHeight - 1, 10, 11, 12, 0);
-        Fixture fixture = fixture(sourceWidth, sourceHeight, channels, source);
+    void npotPreparedPayloadFallsBackBeforeDirectAllocation() throws Exception {
+        byte[] source = sequential(3 * 3 * 3);
+        Fixture fixture = fixture(3, 3, 3, source);
         configure(fixture);
-
-        assertEquals(1024, TexturePreparedPixelRuntime.expectedUploadDimension(sourceWidth));
-        assertEquals(512, TexturePreparedPixelRuntime.expectedUploadDimension(sourceHeight));
-        assertEquals(668_043, source.length);
 
         BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
         assertNotNull(carrier);
-        TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(carrier);
-        assertNotNull(prepared);
-        assertEquals(1024, prepared.width());
-        assertEquals(512, prepared.height());
-        assertEquals(1_572_864, prepared.pixelBytes());
-        assertEquals(prepared.width() * prepared.height() * prepared.channels(), prepared.buffer().remaining());
+        assertNull(TexturePreparedPixelRuntime.prepare(carrier));
 
-        byte[] upload = bytes(prepared.buffer());
-        assertPixel(upload, 1024, channels, 0, 0, 1, 2, 3, 0);
-        assertPixel(upload, 1024, channels, sourceWidth - 1, 0, 4, 5, 6, 0);
-        assertPixel(upload, 1024, channels, 0, 1, 7, 8, 9, 0);
-        assertPixel(upload, 1024, channels, 0, sourceHeight - 1, 10, 11, 12, 0);
-        assertPixel(upload, 1024, channels, sourceWidth, 0, 0, 0, 0, 0);
-        assertPixel(upload, 1024, channels, 0, sourceHeight, 0, 0, 0, 0);
-
-        Map<String, Object> active = TexturePreparedPixelRuntime.telemetry();
-        assertEquals(1L, active.get("hits"));
-        assertEquals(1L, active.get("paddedUploads"));
-        assertEquals(904_821L, active.get("paddingBytes"));
-        assertEquals(0L, active.get("dimensionFallbacks"));
-        assertEquals(1_572_864L, active.get("activeDirectBytes"));
-        assertEquals(668_043L, active.get("bytesBypassed"));
-        assertEquals(1_572_864L, active.get("uploadBytesSupplied"));
-
-        TexturePreparedPixelRuntime.release(prepared.buffer());
-        Map<String, Object> released = TexturePreparedPixelRuntime.telemetry();
-        assertEquals(0, released.get("activeBuffers"));
-        assertEquals(0L, released.get("activeDirectBytes"));
-        assertEquals(1_572_864L, released.get("releasedBytes"));
+        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(1L, telemetry.get("fallbacks"));
+        assertEquals(1L, telemetry.get("npotProbeFallbacks"));
+        assertEquals(0L, telemetry.get("hits"));
+        assertEquals(0L, telemetry.get("paddedUploads"));
+        assertEquals(0L, telemetry.get("paddingBytes"));
+        assertEquals(0, telemetry.get("activeBuffers"));
+        assertEquals(0L, telemetry.get("activeDirectBytes"));
+        assertEquals(0L, telemetry.get("uploadBytesSupplied"));
     }
 
     @Test
-    void padsNpotRgbaWithBottomLeftPlacementAndZeroRightAndTop() throws Exception {
-        int sourceWidth = 3;
-        int sourceHeight = 5;
-        int channels = 4;
-        byte[] source = new byte[sourceWidth * sourceHeight * channels];
-        for (int index = 0; index < source.length; index++) {
-            source[index] = (byte) (index + 1);
-        }
-        Fixture fixture = fixture(sourceWidth, sourceHeight, channels, source);
+    void classifiesOriginalUpperPlacementWithoutMutatingBuffer() throws Exception {
+        int width = 3;
+        int height = 3;
+        int channels = 3;
+        byte[] source = sequential(width * height * channels);
+        Fixture fixture = fixture(width, height, channels, source);
         configure(fixture);
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertNull(TexturePreparedPixelRuntime.prepare(carrier));
 
-        TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(
-                TexturePreparedPixelRuntime.load("graphics/test.png"));
-        assertNotNull(prepared);
-        assertEquals(4, prepared.width());
-        assertEquals(8, prepared.height());
-        assertEquals(128, prepared.buffer().remaining());
-
-        byte[] expected = new byte[4 * 8 * channels];
-        int sourceStride = sourceWidth * channels;
+        ByteBuffer original = ByteBuffer.allocateDirect(4 * 4 * channels);
         int uploadStride = 4 * channels;
-        for (int row = 0; row < sourceHeight; row++) {
-            System.arraycopy(source, row * sourceStride, expected, row * uploadStride, sourceStride);
+        original.position(uploadStride);
+        for (int row = 0; row < height; row++) {
+            original.put(source, row * width * channels, width * channels);
+            original.put(new byte[channels]);
         }
-        assertArrayEquals(expected, bytes(prepared.buffer()));
-        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
-        assertEquals(1L, telemetry.get("paddedUploads"));
-        assertEquals(68L, telemetry.get("paddingBytes"));
-        assertEquals(60L, telemetry.get("bytesBypassed"));
-        assertEquals(128L, telemetry.get("uploadBytesSupplied"));
+        original.flip();
+        int position = original.position();
+        int limit = original.limit();
+
+        TexturePreparedPixelRuntime.observeOriginalFallback(carrier, original);
+
+        assertEquals(position, original.position());
+        assertEquals(limit, original.limit());
+        Map<String, Object> observation = firstObservation();
+        assertEquals("classified", observation.get("status"));
+        @SuppressWarnings("unchecked")
+        List<String> matches = (List<String>) observation.get("candidateMatches");
+        assertTrue(matches.contains("zero-rows-then-row-pad-source"), matches.toString());
+        assertFalse(matches.contains("row-pad-source-then-zero-rows"), matches.toString());
+        assertEquals(0L, TexturePreparedPixelRuntime.telemetry().get("layoutObservationErrors"));
+    }
+
+    @Test
+    void classifiesTheFailedLowerPlacementCandidate() throws Exception {
+        int width = 3;
+        int height = 3;
+        int channels = 4;
+        byte[] source = sequential(width * height * channels);
+        Fixture fixture = fixture(width, height, channels, source);
+        configure(fixture);
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertNull(TexturePreparedPixelRuntime.prepare(carrier));
+
+        ByteBuffer original = ByteBuffer.allocateDirect(4 * 4 * channels);
+        for (int row = 0; row < height; row++) {
+            original.put(source, row * width * channels, width * channels);
+            original.put(new byte[channels]);
+        }
+        original.put(new byte[4 * channels]);
+        original.flip();
+
+        TexturePreparedPixelRuntime.observeOriginalFallback(carrier, original);
+
+        @SuppressWarnings("unchecked")
+        List<String> matches = (List<String>) firstObservation().get("candidateMatches");
+        assertTrue(matches.contains("row-pad-source-then-zero-rows"), matches.toString());
+        assertFalse(matches.contains("zero-rows-then-row-pad-source"), matches.toString());
+    }
+
+    @Test
+    void recordsInsufficientOriginalBufferWithoutChangingFallback() throws Exception {
+        Fixture fixture = fixture(597, 373, 3, new byte[597 * 373 * 3]);
+        configure(fixture);
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertNull(TexturePreparedPixelRuntime.prepare(carrier));
+        ByteBuffer original = ByteBuffer.allocateDirect(668_043);
+
+        TexturePreparedPixelRuntime.observeOriginalFallback(carrier, original);
+
+        Map<String, Object> observation = firstObservation();
+        assertEquals("insufficient-original-buffer", observation.get("status"));
+        assertEquals(668_043, observation.get("bufferRemaining"));
+        assertEquals(1_572_864, observation.get("uploadBytes"));
     }
 
     @Test
@@ -187,9 +197,8 @@ class TexturePreparedPixelRuntimeTest {
     }
 
     @Test
-    void exceptionalCallerReleaseReturnsPaddedAccountingToZero() throws Exception {
-        byte[] source = new byte[3 * 5 * 4];
-        Fixture fixture = fixture(3, 5, 4, source);
+    void exceptionalCallerReleaseReturnsPowerOfTwoAccountingToZero() throws Exception {
+        Fixture fixture = fixture();
         configure(fixture);
 
         TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(
@@ -203,7 +212,7 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(0, telemetry.get("activeBuffers"));
         assertEquals(0L, telemetry.get("activeDirectBytes"));
         assertEquals(1L, telemetry.get("releases"));
-        assertEquals(128L, telemetry.get("releasedBytes"));
+        assertEquals((long) prepared.pixelBytes(), telemetry.get("releasedBytes"));
     }
 
     @Test
@@ -225,6 +234,14 @@ class TexturePreparedPixelRuntimeTest {
 
         TexturePreparedPixelRuntime.beginSession();
         assertFalse(TexturePreparedPixelRuntime.ready());
+    }
+
+    private Map<String, Object> firstObservation() {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> observations =
+                (List<Map<String, Object>>) TexturePreparedPixelRuntime.telemetry().get("originalLayoutObservations");
+        assertEquals(1, observations.size());
+        return observations.get(0);
     }
 
     private void configure(Fixture fixture) {
@@ -304,42 +321,12 @@ class TexturePreparedPixelRuntimeTest {
         return new Fixture(cache, indexPath, manifestPath, pixels);
     }
 
-    private static void setPixel(
-            byte[] pixels,
-            int width,
-            int channels,
-            int x,
-            int y,
-            int red,
-            int green,
-            int blue,
-            int alpha) {
-        int offset = (y * width + x) * channels;
-        pixels[offset] = (byte) red;
-        pixels[offset + 1] = (byte) green;
-        pixels[offset + 2] = (byte) blue;
-        if (channels == 4) {
-            pixels[offset + 3] = (byte) alpha;
+    private static byte[] sequential(int length) {
+        byte[] bytes = new byte[length];
+        for (int index = 0; index < length; index++) {
+            bytes[index] = (byte) (index + 1);
         }
-    }
-
-    private static void assertPixel(
-            byte[] pixels,
-            int width,
-            int channels,
-            int x,
-            int y,
-            int red,
-            int green,
-            int blue,
-            int alpha) {
-        int offset = (y * width + x) * channels;
-        assertEquals(red, Byte.toUnsignedInt(pixels[offset]));
-        assertEquals(green, Byte.toUnsignedInt(pixels[offset + 1]));
-        assertEquals(blue, Byte.toUnsignedInt(pixels[offset + 2]));
-        if (channels == 4) {
-            assertEquals(alpha, Byte.toUnsignedInt(pixels[offset + 3]));
-        }
+        return bytes;
     }
 
     private static byte[] bytes(ByteBuffer source) {
