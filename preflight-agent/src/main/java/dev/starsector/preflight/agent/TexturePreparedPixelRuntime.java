@@ -17,6 +17,8 @@ public final class TexturePreparedPixelRuntime {
     static final long MAX_ACTIVE_DIRECT_BYTES = 64L * 1024 * 1024;
     static final int MAX_ACTIVE_BUFFERS = 1_024;
 
+    private static final int ZERO_CHUNK_BYTES = 8 * 1024;
+    private static final byte[] ZERO_CHUNK = new byte[ZERO_CHUNK_BYTES];
     private static final Object LOCK = new Object();
     private static final IdentityHashMap<ByteBuffer, Integer> ACTIVE = new IdentityHashMap<>();
     private static final IdentityHashMap<Thread, ArrayDeque<ByteBuffer>> IN_FLIGHT = new IdentityHashMap<>();
@@ -58,14 +60,15 @@ public final class TexturePreparedPixelRuntime {
         if (texture == null) {
             return null;
         }
-        if (!supportedDimensions(texture) || texture.pixelBytes() > MAX_TEXTURE_BYTES) {
+        UploadLayout layout = uploadLayout(texture);
+        if (layout == null || layout.uploadBytes() > MAX_TEXTURE_BYTES) {
             TELEMETRY.dimensionFallback();
             TELEMETRY.fallback();
             TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.UNSUPPORTED_TEXTURE);
             return null;
         }
         TELEMETRY.carrier();
-        return new CarrierImage(logicalPath, texture);
+        return new CarrierImage(logicalPath, texture, layout);
     }
 
     public static boolean isCarrier(BufferedImage image) {
@@ -83,7 +86,8 @@ public final class TexturePreparedPixelRuntime {
         }
         TELEMETRY.directAttempt();
         PreparedTexture texture = carrier.texture;
-        int bytes = texture.pixelBytes();
+        UploadLayout layout = carrier.layout;
+        int bytes = layout.uploadBytes();
         if (!reserve(bytes)) {
             TELEMETRY.fallback();
             TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.DIRECT_MEMORY_LIMIT);
@@ -94,7 +98,7 @@ public final class TexturePreparedPixelRuntime {
         boolean registered = false;
         try {
             buffer = ByteBuffer.allocateDirect(bytes);
-            buffer.put(texture.pixels());
+            writeUploadPixels(buffer, texture, layout);
             buffer.flip();
             synchronized (LOCK) {
                 pendingBuffers--;
@@ -107,13 +111,13 @@ public final class TexturePreparedPixelRuntime {
                     color(texture.color0Rgba()),
                     color(texture.color1Rgba()),
                     color(texture.color2Rgba()),
-                    texture.uploadWidth(),
-                    texture.uploadHeight(),
+                    layout.uploadWidth(),
+                    layout.uploadHeight(),
                     texture.channels(),
                     bytes);
-            TELEMETRY.hit(bytes);
+            TELEMETRY.hit(texture.pixelBytes(), bytes, layout.paddingBytes());
             if (carrier.creditSharedHit()) {
-                TextureCompatibilityRuntime.hit(bytes);
+                TextureCompatibilityRuntime.hit(texture.pixelBytes());
             }
             return result;
         } catch (ThreadDeath | VirtualMachineError fatal) {
@@ -230,19 +234,69 @@ public final class TexturePreparedPixelRuntime {
         return highest > (1 << 30) ? -1 : highest << 1;
     }
 
-    private static boolean supportedDimensions(PreparedTexture texture) {
-        int expectedWidth = expectedUploadDimension(texture.originalWidth());
-        int expectedHeight = expectedUploadDimension(texture.originalHeight());
-        if (expectedWidth != texture.originalWidth() || expectedHeight != texture.originalHeight()) {
-            return false;
+    private static UploadLayout uploadLayout(PreparedTexture texture) {
+        int originalWidth = texture.originalWidth();
+        int originalHeight = texture.originalHeight();
+        int uploadWidth = expectedUploadDimension(originalWidth);
+        int uploadHeight = expectedUploadDimension(originalHeight);
+        if (uploadWidth <= 0 || uploadHeight <= 0) {
+            return null;
         }
-        if (texture.uploadWidth() != expectedWidth || texture.uploadHeight() != expectedHeight) {
-            return false;
+
+        // SPFT v1 stores source-sized bottom-up rows. The lower live seam needs the
+        // next-power-of-two OpenGL backing allocation while retaining source dimensions
+        // on the carrier for Starsector's texture-coordinate calculations.
+        if (texture.uploadWidth() != originalWidth || texture.uploadHeight() != originalHeight) {
+            return null;
         }
-        long expectedBytes = Math.multiplyExact(
-                Math.multiplyExact((long) texture.uploadWidth(), texture.uploadHeight()),
-                texture.channels());
-        return expectedBytes == texture.pixelBytes();
+        try {
+            long sourceBytes = Math.multiplyExact(
+                    Math.multiplyExact((long) originalWidth, originalHeight),
+                    texture.channels());
+            long uploadBytes = Math.multiplyExact(
+                    Math.multiplyExact((long) uploadWidth, uploadHeight),
+                    texture.channels());
+            if (sourceBytes != texture.pixelBytes() || uploadBytes > Integer.MAX_VALUE) {
+                return null;
+            }
+            return new UploadLayout(
+                    uploadWidth,
+                    uploadHeight,
+                    (int) uploadBytes,
+                    Math.toIntExact(uploadBytes - sourceBytes));
+        } catch (ArithmeticException error) {
+            return null;
+        }
+    }
+
+    private static void writeUploadPixels(
+            ByteBuffer buffer,
+            PreparedTexture texture,
+            UploadLayout layout) {
+        byte[] source = texture.pixels();
+        int sourceStride = Math.multiplyExact(texture.originalWidth(), texture.channels());
+        int uploadStride = Math.multiplyExact(layout.uploadWidth(), texture.channels());
+        int rightPadding = uploadStride - sourceStride;
+        for (int row = 0; row < texture.originalHeight(); row++) {
+            buffer.put(source, row * sourceStride, sourceStride);
+            putZeroes(buffer, rightPadding);
+        }
+        putZeroes(buffer, Math.multiplyExact(
+                layout.uploadHeight() - texture.originalHeight(),
+                uploadStride));
+        if (buffer.position() != layout.uploadBytes()) {
+            throw new IllegalStateException(
+                    "Prepared upload wrote " + buffer.position() + " bytes; expected " + layout.uploadBytes());
+        }
+    }
+
+    private static void putZeroes(ByteBuffer buffer, int count) {
+        int remaining = count;
+        while (remaining > 0) {
+            int chunk = Math.min(remaining, ZERO_CHUNK.length);
+            buffer.put(ZERO_CHUNK, 0, chunk);
+            remaining -= chunk;
+        }
     }
 
     private static void removeTrackedLocked(ByteBuffer buffer) {
@@ -282,15 +336,24 @@ public final class TexturePreparedPixelRuntime {
             int pixelBytes) {
     }
 
+    private record UploadLayout(
+            int uploadWidth,
+            int uploadHeight,
+            int uploadBytes,
+            int paddingBytes) {
+    }
+
     private static final class CarrierImage extends BufferedImage {
         private final String logicalPath;
         private final PreparedTexture texture;
+        private final UploadLayout layout;
         private final AtomicBoolean sharedHitCredited = new AtomicBoolean();
 
-        private CarrierImage(String logicalPath, PreparedTexture texture) {
+        private CarrierImage(String logicalPath, PreparedTexture texture, UploadLayout layout) {
             super(1, 1, texture.channels() == 4 ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
             this.logicalPath = logicalPath;
             this.texture = texture;
+            this.layout = layout;
         }
 
         private boolean creditSharedHit() {
@@ -314,9 +377,12 @@ public final class TexturePreparedPixelRuntime {
         private long hits;
         private long fallbacks;
         private long dimensionFallbacks;
+        private long paddedUploads;
+        private long paddingBytes;
         private long internalErrors;
         private long releases;
         private long bytesBypassed;
+        private long uploadBytesSupplied;
         private long releasedBytes;
 
         synchronized void reset() {
@@ -325,9 +391,12 @@ public final class TexturePreparedPixelRuntime {
             hits = 0;
             fallbacks = 0;
             dimensionFallbacks = 0;
+            paddedUploads = 0;
+            paddingBytes = 0;
             internalErrors = 0;
             releases = 0;
             bytesBypassed = 0;
+            uploadBytesSupplied = 0;
             releasedBytes = 0;
         }
 
@@ -339,9 +408,14 @@ public final class TexturePreparedPixelRuntime {
             directAttempts++;
         }
 
-        synchronized void hit(long bytes) {
+        synchronized void hit(long sourceBytes, long uploadBytes, long padding) {
             hits++;
-            bytesBypassed = saturatedAdd(bytesBypassed, bytes);
+            bytesBypassed = saturatedAdd(bytesBypassed, sourceBytes);
+            uploadBytesSupplied = saturatedAdd(uploadBytesSupplied, uploadBytes);
+            if (padding > 0) {
+                paddedUploads++;
+                paddingBytes = saturatedAdd(paddingBytes, padding);
+            }
         }
 
         synchronized void fallback() {
@@ -378,9 +452,12 @@ public final class TexturePreparedPixelRuntime {
             values.put("hits", hits);
             values.put("fallbacks", fallbacks);
             values.put("dimensionFallbacks", dimensionFallbacks);
+            values.put("paddedUploads", paddedUploads);
+            values.put("paddingBytes", paddingBytes);
             values.put("internalErrors", internalErrors);
             values.put("releases", releases);
             values.put("bytesBypassed", bytesBypassed);
+            values.put("uploadBytesSupplied", uploadBytesSupplied);
             values.put("releasedBytes", releasedBytes);
             values.put("activeDirectBytes", activeDirectBytes);
             values.put("peakDirectBytes", peakDirectBytes);

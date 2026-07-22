@@ -56,8 +56,8 @@ class PrepareCommandTest {
         assertTrue(first.contains("\"compatibilityBehavioralAcceptance\":\"accepted-2026-07-19-starsector-0.98a-rc8\""), first);
         assertTrue(first.contains("\"realInstallPilotRequired\":true"), first);
         assertTrue(first.contains("\"repeatTimingCampaignRequired\":true"), first);
-        assertTrue(first.contains("\"preparedPixelsAdapter\":\"offline-contract-accepted-live-pilot-revalidation-required\""), first);
-        assertTrue(first.contains("\"preparedPixelsBehavioralAcceptance\":\"failed-2026-07-22-revalidation-required\""), first);
+        assertTrue(first.contains("\"preparedPixelsAdapter\":\"offline-contract-accepted-npot-padding-implemented\""), first);
+        assertTrue(first.contains("\"preparedPixelsBehavioralAcceptance\":\"failed-2026-07-22-padding-revalidation-pending\""), first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 
         assertEquals(0, PreflightCli.run(command));

@@ -3,6 +3,7 @@ package dev.starsector.preflight.agent;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -37,10 +38,7 @@ class TexturePreparedPixelRuntimeTest {
     @Test
     void suppliesDirectBottomUpPixelsStoredColorsAndBoundedOwnership() throws Exception {
         Fixture fixture = fixture();
-        TexturePreparedPixelRuntime.beginSession();
-        assertTrue(TextureCompatibilityRuntime.configure(
-                fixture.cache(), fixture.manifest(), fixture.index()));
-        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
+        configure(fixture);
 
         BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
         assertTrue(TexturePreparedPixelRuntime.isCarrier(carrier));
@@ -50,6 +48,8 @@ class TexturePreparedPixelRuntimeTest {
 
         TexturePreparedPixelRuntime.PreparedPixel first = TexturePreparedPixelRuntime.prepare(carrier);
         TexturePreparedPixelRuntime.PreparedPixel second = TexturePreparedPixelRuntime.prepare(carrier);
+        assertNotNull(first);
+        assertNotNull(second);
         assertTrue(first.buffer().isDirect());
         assertTrue(second.buffer().isDirect());
         assertNotSame(first.buffer(), second.buffer());
@@ -66,11 +66,14 @@ class TexturePreparedPixelRuntimeTest {
 
         Map<String, Object> active = TexturePreparedPixelRuntime.telemetry();
         assertEquals(2L, active.get("hits"));
+        assertEquals(0L, active.get("paddedUploads"));
+        assertEquals(0L, active.get("paddingBytes"));
         assertEquals(2, active.get("activeBuffers"));
         assertEquals(0, active.get("pendingBuffers"));
         assertEquals(24L, active.get("activeDirectBytes"));
         assertEquals(24L, active.get("peakDirectBytes"));
         assertEquals(24L, active.get("bytesBypassed"));
+        assertEquals(24L, active.get("uploadBytesSupplied"));
 
         TexturePreparedPixelRuntime.release(first.buffer());
         TexturePreparedPixelRuntime.release(second.buffer());
@@ -84,27 +87,97 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(1L, cache.get("attempts"));
         assertEquals(1L, cache.get("hits"));
         assertEquals(12L, cache.get("bytesServed"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> reportedPrepared = (Map<String, Object>) cache.get("preparedPixels");
-        assertEquals(2L, reportedPrepared.get("hits"));
-        assertEquals(2L, reportedPrepared.get("conversionCallsBypassed"));
-        assertEquals(0, reportedPrepared.get("activeBuffers"));
     }
 
     @Test
-    void declinesObservedNpotRgbBeforeCreatingCarrierOrDirectBuffer() throws Exception {
-        Fixture fixture = fixture(597, 373, 3);
-        TexturePreparedPixelRuntime.beginSession();
-        assertTrue(TextureCompatibilityRuntime.configure(
-                fixture.cache(), fixture.manifest(), fixture.index()));
-        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
+    void padsObservedNpotRgbToExactPowerOfTwoBacking() throws Exception {
+        int sourceWidth = 597;
+        int sourceHeight = 373;
+        int channels = 3;
+        byte[] source = new byte[sourceWidth * sourceHeight * channels];
+        setPixel(source, sourceWidth, channels, 0, 0, 1, 2, 3, 0);
+        setPixel(source, sourceWidth, channels, sourceWidth - 1, 0, 4, 5, 6, 0);
+        setPixel(source, sourceWidth, channels, 0, 1, 7, 8, 9, 0);
+        setPixel(source, sourceWidth, channels, 0, sourceHeight - 1, 10, 11, 12, 0);
+        Fixture fixture = fixture(sourceWidth, sourceHeight, channels, source);
+        configure(fixture);
 
-        assertEquals(1024, TexturePreparedPixelRuntime.expectedUploadDimension(597));
-        assertEquals(512, TexturePreparedPixelRuntime.expectedUploadDimension(373));
-        assertEquals(668_043, fixture.pixels().length);
-        assertEquals(1_572_864, 1024 * 512 * 3);
+        assertEquals(1024, TexturePreparedPixelRuntime.expectedUploadDimension(sourceWidth));
+        assertEquals(512, TexturePreparedPixelRuntime.expectedUploadDimension(sourceHeight));
+        assertEquals(668_043, source.length);
+
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertNotNull(carrier);
+        TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(carrier);
+        assertNotNull(prepared);
+        assertEquals(1024, prepared.width());
+        assertEquals(512, prepared.height());
+        assertEquals(1_572_864, prepared.pixelBytes());
+        assertEquals(prepared.width() * prepared.height() * prepared.channels(), prepared.buffer().remaining());
+
+        byte[] upload = bytes(prepared.buffer());
+        assertPixel(upload, 1024, channels, 0, 0, 1, 2, 3, 0);
+        assertPixel(upload, 1024, channels, sourceWidth - 1, 0, 4, 5, 6, 0);
+        assertPixel(upload, 1024, channels, 0, 1, 7, 8, 9, 0);
+        assertPixel(upload, 1024, channels, 0, sourceHeight - 1, 10, 11, 12, 0);
+        assertPixel(upload, 1024, channels, sourceWidth, 0, 0, 0, 0, 0);
+        assertPixel(upload, 1024, channels, 0, sourceHeight, 0, 0, 0, 0);
+
+        Map<String, Object> active = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(1L, active.get("hits"));
+        assertEquals(1L, active.get("paddedUploads"));
+        assertEquals(904_821L, active.get("paddingBytes"));
+        assertEquals(0L, active.get("dimensionFallbacks"));
+        assertEquals(1_572_864L, active.get("activeDirectBytes"));
+        assertEquals(668_043L, active.get("bytesBypassed"));
+        assertEquals(1_572_864L, active.get("uploadBytesSupplied"));
+
+        TexturePreparedPixelRuntime.release(prepared.buffer());
+        Map<String, Object> released = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(0, released.get("activeBuffers"));
+        assertEquals(0L, released.get("activeDirectBytes"));
+        assertEquals(1_572_864L, released.get("releasedBytes"));
+    }
+
+    @Test
+    void padsNpotRgbaWithBottomLeftPlacementAndZeroRightAndTop() throws Exception {
+        int sourceWidth = 3;
+        int sourceHeight = 5;
+        int channels = 4;
+        byte[] source = new byte[sourceWidth * sourceHeight * channels];
+        for (int index = 0; index < source.length; index++) {
+            source[index] = (byte) (index + 1);
+        }
+        Fixture fixture = fixture(sourceWidth, sourceHeight, channels, source);
+        configure(fixture);
+
+        TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(
+                TexturePreparedPixelRuntime.load("graphics/test.png"));
+        assertNotNull(prepared);
+        assertEquals(4, prepared.width());
+        assertEquals(8, prepared.height());
+        assertEquals(128, prepared.buffer().remaining());
+
+        byte[] expected = new byte[4 * 8 * channels];
+        int sourceStride = sourceWidth * channels;
+        int uploadStride = 4 * channels;
+        for (int row = 0; row < sourceHeight; row++) {
+            System.arraycopy(source, row * sourceStride, expected, row * uploadStride, sourceStride);
+        }
+        assertArrayEquals(expected, bytes(prepared.buffer()));
+        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(1L, telemetry.get("paddedUploads"));
+        assertEquals(68L, telemetry.get("paddingBytes"));
+        assertEquals(60L, telemetry.get("bytesBypassed"));
+        assertEquals(128L, telemetry.get("uploadBytesSupplied"));
+    }
+
+    @Test
+    void declinesUnexpectedPrePaddedBlobContractBeforeCreatingCarrier() throws Exception {
+        Fixture fixture = fixture(3, 5, 4, 4, 8, new byte[4 * 8 * 4]);
+        configure(fixture);
+
         assertNull(TexturePreparedPixelRuntime.load("graphics/test.png"));
-
         Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
         assertEquals(1L, telemetry.get("fallbacks"));
         assertEquals(1L, telemetry.get("dimensionFallbacks"));
@@ -114,33 +187,14 @@ class TexturePreparedPixelRuntimeTest {
     }
 
     @Test
-    void declinesNpotRgbaBeforeCreatingCarrierOrDirectBuffer() throws Exception {
-        Fixture fixture = fixture(3, 5, 4);
-        TexturePreparedPixelRuntime.beginSession();
-        assertTrue(TextureCompatibilityRuntime.configure(
-                fixture.cache(), fixture.manifest(), fixture.index()));
-        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
-
-        assertEquals(4, TexturePreparedPixelRuntime.expectedUploadDimension(3));
-        assertEquals(8, TexturePreparedPixelRuntime.expectedUploadDimension(5));
-        assertNull(TexturePreparedPixelRuntime.load("graphics/test.png"));
-
-        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
-        assertEquals(1L, telemetry.get("dimensionFallbacks"));
-        assertEquals(0, telemetry.get("activeBuffers"));
-        assertEquals(0L, telemetry.get("activeDirectBytes"));
-    }
-
-    @Test
-    void exceptionalCallerReleaseReturnsAccountingToZero() throws Exception {
-        Fixture fixture = fixture();
-        TexturePreparedPixelRuntime.beginSession();
-        assertTrue(TextureCompatibilityRuntime.configure(
-                fixture.cache(), fixture.manifest(), fixture.index()));
-        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
+    void exceptionalCallerReleaseReturnsPaddedAccountingToZero() throws Exception {
+        byte[] source = new byte[3 * 5 * 4];
+        Fixture fixture = fixture(3, 5, 4, source);
+        configure(fixture);
 
         TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(
                 TexturePreparedPixelRuntime.load("graphics/test.png"));
+        assertNotNull(prepared);
         assertEquals(1, TexturePreparedPixelRuntime.telemetry().get("activeBuffers"));
         TexturePreparedPixelRuntime.releaseCurrentThreadBuffer();
         TexturePreparedPixelRuntime.releaseCurrentThreadBuffer();
@@ -149,7 +203,7 @@ class TexturePreparedPixelRuntimeTest {
         assertEquals(0, telemetry.get("activeBuffers"));
         assertEquals(0L, telemetry.get("activeDirectBytes"));
         assertEquals(1L, telemetry.get("releases"));
-        assertEquals((long) prepared.pixelBytes(), telemetry.get("releasedBytes"));
+        assertEquals(128L, telemetry.get("releasedBytes"));
     }
 
     @Test
@@ -161,7 +215,7 @@ class TexturePreparedPixelRuntimeTest {
 
         assertFalse(TexturePreparedPixelRuntime.ready());
         assertFalse(AdapterTransformationRegistry.hasPlan(TexturePreparedPixelRuntime.PLAN_ID));
-        assertEquals(null, TexturePreparedPixelRuntime.load("graphics/test.png"));
+        assertNull(TexturePreparedPixelRuntime.load("graphics/test.png"));
         assertEquals(Boolean.FALSE, TexturePreparedPixelRuntime.telemetry().get("ready"));
         assertEquals(0L, TextureCompatibilityRuntime.telemetry().get("attempts"));
 
@@ -171,6 +225,13 @@ class TexturePreparedPixelRuntimeTest {
 
         TexturePreparedPixelRuntime.beginSession();
         assertFalse(TexturePreparedPixelRuntime.ready());
+    }
+
+    private void configure(Fixture fixture) {
+        TexturePreparedPixelRuntime.beginSession();
+        assertTrue(TextureCompatibilityRuntime.configure(
+                fixture.cache(), fixture.manifest(), fixture.index()));
+        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
     }
 
     private Fixture fixture() throws Exception {
@@ -183,14 +244,19 @@ class TexturePreparedPixelRuntimeTest {
         return fixture(2, 2, 3, pixels);
     }
 
-    private Fixture fixture(int width, int height, int channels) throws Exception {
-        int length = Math.multiplyExact(Math.multiplyExact(width, height), channels);
-        return fixture(width, height, channels, new byte[length]);
+    private Fixture fixture(int width, int height, int channels, byte[] pixels) throws Exception {
+        return fixture(width, height, channels, width, height, pixels);
     }
 
-    private Fixture fixture(int width, int height, int channels, byte[] pixels) throws Exception {
-        Path cache = temporaryDirectory.resolve("cache");
-        Path sourceRoot = temporaryDirectory.resolve("game");
+    private Fixture fixture(
+            int originalWidth,
+            int originalHeight,
+            int channels,
+            int uploadWidth,
+            int uploadHeight,
+            byte[] pixels) throws Exception {
+        Path cache = temporaryDirectory.resolve("cache-" + System.nanoTime());
+        Path sourceRoot = temporaryDirectory.resolve("game-" + System.nanoTime());
         Path source = sourceRoot.resolve("graphics/test.png");
         Files.createDirectories(source.getParent());
         byte[] encoded = {1, 2, 3, 4};
@@ -211,10 +277,10 @@ class TexturePreparedPixelRuntimeTest {
         PreparedTexture texture = new PreparedTexture(
                 sourceHash,
                 PreparedTexture.Transformation.IDENTITY,
-                width,
-                height,
-                width,
-                height,
+                originalWidth,
+                originalHeight,
+                uploadWidth,
+                uploadHeight,
                 channels,
                 PreparedTexture.rgba(10, 20, 30, 255),
                 PreparedTexture.rgba(40, 50, 60, 255),
@@ -229,13 +295,51 @@ class TexturePreparedPixelRuntimeTest {
                         sourceHash,
                         PreparedTexture.Transformation.IDENTITY,
                         blobRelative,
-                        width,
-                        height,
+                        uploadWidth,
+                        uploadHeight,
                         channels,
                         pixels.length)));
         Path manifestPath = cache.resolve("manifests").resolve(profile + ".spfm");
         TextureManifestIO.write(manifestPath, manifest);
         return new Fixture(cache, indexPath, manifestPath, pixels);
+    }
+
+    private static void setPixel(
+            byte[] pixels,
+            int width,
+            int channels,
+            int x,
+            int y,
+            int red,
+            int green,
+            int blue,
+            int alpha) {
+        int offset = (y * width + x) * channels;
+        pixels[offset] = (byte) red;
+        pixels[offset + 1] = (byte) green;
+        pixels[offset + 2] = (byte) blue;
+        if (channels == 4) {
+            pixels[offset + 3] = (byte) alpha;
+        }
+    }
+
+    private static void assertPixel(
+            byte[] pixels,
+            int width,
+            int channels,
+            int x,
+            int y,
+            int red,
+            int green,
+            int blue,
+            int alpha) {
+        int offset = (y * width + x) * channels;
+        assertEquals(red, Byte.toUnsignedInt(pixels[offset]));
+        assertEquals(green, Byte.toUnsignedInt(pixels[offset + 1]));
+        assertEquals(blue, Byte.toUnsignedInt(pixels[offset + 2]));
+        if (channels == 4) {
+            assertEquals(alpha, Byte.toUnsignedInt(pixels[offset + 3]));
+        }
     }
 
     private static byte[] bytes(ByteBuffer source) {
