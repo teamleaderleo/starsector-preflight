@@ -1,0 +1,80 @@
+name: Axis dataflow patch
+
+on:
+  push:
+    branches: [repair/prepared-pixel-dimension-axis-dataflow]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: repair/prepared-pixel-dimension-axis-dataflow
+      - name: Apply reviewed axis mapping
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing patch anchor in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace(
+              'preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java',
+              '        return new DimensionSetters(setters.get(0), setters.get(1));',
+              '''        // The reviewed installed converter computes width, then height, but invokes the
+        // height setter first and the width setter second. Preserve the axis mapping rather
+        // than assigning meaning from call order.
+        return new DimensionSetters(setters.get(1), setters.get(0));''')
+
+          for path in [
+              'preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java',
+              'preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelLoaderColorPlanTest.java',
+          ]:
+              p = Path(path)
+              text = p.read_text()
+              text = text.replace('"setUploadWidth",\n                "(I)V",\n                false));\n        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));\n        convert.instructions.add(new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, 8));', '"setUploadHeight",\n                "(I)V",\n                false));\n        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));\n        convert.instructions.add(new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, 8));', 1)
+              text = text.replace('"setUploadHeight",\n                "(I)V",\n                false));', '"setUploadWidth",\n                "(I)V",\n                false));', 1)
+              p.write_text(text)
+
+          p = Path('preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelPlanTest.java')
+          text = p.read_text()
+          text = text.replace('"setUploadWidth",\n                    "(I)V",\n                    false);\n            convert.visitVarInsn(Opcodes.ALOAD, 2);\n            convert.visitIntInsn(Opcodes.BIPUSH, 8);', '"setUploadHeight",\n                    "(I)V",\n                    false);\n            convert.visitVarInsn(Opcodes.ALOAD, 2);\n            convert.visitIntInsn(Opcodes.BIPUSH, 8);', 1)
+          text = text.replace('"setUploadHeight",\n                    "(I)V",\n                    false);', '"setUploadWidth",\n                    "(I)V",\n                    false);', 1)
+          p.write_text(text)
+
+          replace(
+              'preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java',
+              '        texture.Ô00000(nextPowerOfTwo(image.getWidth()));\n        texture.Ó00000(nextPowerOfTwo(image.getHeight()));',
+              '        texture.Ô00000(nextPowerOfTwo(image.getHeight()));\n        texture.Ó00000(nextPowerOfTwo(image.getWidth()));')
+
+          replace(
+              'preflight-cli/src/test/java/com/fs/graphics/Object.java',
+              '''    public void Ô00000(int value) {
+        uploadWidth = value;
+    }
+
+    public void Ó00000(int value) {
+        uploadHeight = value;
+    }''',
+              '''    public void Ô00000(int value) {
+        uploadHeight = value;
+    }
+
+    public void Ó00000(int value) {
+        uploadWidth = value;
+    }''')
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add preflight-agent preflight-cli
+          git commit -m "Map prepared upload dimensions by reviewed axis flow"
+          git push origin HEAD:repair/prepared-pixel-dimension-axis-dataflow
