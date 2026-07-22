@@ -52,10 +52,7 @@ class TexturePreparedPixelAgentIT {
 
     @Test
     void packagedNpotHitUsesOriginalUploadAndClassifiesItsLayout() throws Exception {
-        byte[] source = new byte[3 * 3 * 3];
-        for (int index = 0; index < source.length; index++) {
-            source[index] = (byte) (index + 1);
-        }
+        byte[] source = sequential(3 * 3 * 3);
         Fixture fixture = fixture(false, false, 3, 3, 3, source);
 
         ProcessResult result = launch(
@@ -84,10 +81,7 @@ class TexturePreparedPixelAgentIT {
 
     @Test
     void packagedNpotCoherentCarrierBypassesDecodeButRunsOriginalConverter() throws Exception {
-        byte[] source = new byte[3 * 3 * 3];
-        for (int index = 0; index < source.length; index++) {
-            source[index] = (byte) (index + 1);
-        }
+        byte[] source = sequential(3 * 3 * 3);
         Fixture fixture = fixture(false, false, 3, 3, 3, source);
 
         ProcessResult result = launch(
@@ -121,6 +115,43 @@ class TexturePreparedPixelAgentIT {
         assertTrue(report.contains("\"layoutObservationErrors\":0"), report);
         assertTrue(report.contains("\"activeBuffers\":0"), report);
         assertTrue(report.contains("\"activeDirectBytes\":0"), report);
+    }
+
+    @Test
+    void packagedNpotCoherentDirectBypassesDecodeAndConversion() throws Exception {
+        byte[] source = sequential(3 * 3 * 3);
+        Fixture fixture = fixture(false, false, 3, 3, 3, source);
+
+        ProcessResult result = launch(
+                fixture, "graphics/test.png", false, false, false, false, false, true);
+
+        assertSuccess(result);
+        assertTrue(result.output().contains(
+                "synthetic-pixels:"
+                        + "010203040506070809000000"
+                        + "0a0b0c0d0e0f101112000000"
+                        + "131415161718191a1b000000"
+                        + "000000000000000000000000"
+                        + ":colors=ff0a141e,ff28323c,ff46505a:decode=0:convert=0:cleanup=1"),
+                result.output());
+        String report = Files.readString(fixture.adapterReport());
+        assertTrue(report.contains("\"transformationsApplied\":1"), report);
+        assertTrue(report.contains("\"coherentDirectEnabled\":true"), report);
+        assertTrue(report.contains("\"coherentDirectCarriers\":1"), report);
+        assertTrue(report.contains("\"coherentDirectHits\":1"), report);
+        assertTrue(report.contains("\"coherentCarriers\":1"), report);
+        assertTrue(report.contains("\"coherentCarrierBytes\":27"), report);
+        assertTrue(report.contains("\"hits\":1"), report);
+        assertTrue(report.contains("\"fallbacks\":0"), report);
+        assertTrue(report.contains("\"npotProbeFallbacks\":0"), report);
+        assertTrue(report.contains("\"paddedUploads\":1"), report);
+        assertTrue(report.contains("\"paddingBytes\":21"), report);
+        assertTrue(report.contains("\"imageDecodesBypassed\":1"), report);
+        assertTrue(report.contains("\"conversionCallsBypassed\":1"), report);
+        assertTrue(report.contains("\"activeBuffers\":0"), report);
+        assertTrue(report.contains("\"activeDirectBytes\":0"), report);
+        assertTrue(report.contains("\"releases\":1"), report);
+        assertTrue(report.contains("\"releasedBytes\":48"), report);
     }
 
     @Test
@@ -331,7 +362,7 @@ class TexturePreparedPixelAgentIT {
     }
 
     private ProcessResult launch(Fixture fixture, String logicalPath, boolean killSwitch) throws Exception {
-        return launch(fixture, logicalPath, killSwitch, false, false, false, false);
+        return launch(fixture, logicalPath, killSwitch, false, false, false, false, false);
     }
 
     private ProcessResult launch(
@@ -348,6 +379,7 @@ class TexturePreparedPixelAgentIT {
                 preloaded,
                 uploadFailure,
                 originalUpperLayout,
+                false,
                 false);
     }
 
@@ -359,6 +391,26 @@ class TexturePreparedPixelAgentIT {
             boolean uploadFailure,
             boolean originalUpperLayout,
             boolean coherentOriginalConvert) throws Exception {
+        return launch(
+                fixture,
+                logicalPath,
+                killSwitch,
+                preloaded,
+                uploadFailure,
+                originalUpperLayout,
+                coherentOriginalConvert,
+                false);
+    }
+
+    private ProcessResult launch(
+            Fixture fixture,
+            String logicalPath,
+            boolean killSwitch,
+            boolean preloaded,
+            boolean uploadFailure,
+            boolean originalUpperLayout,
+            boolean coherentOriginalConvert,
+            boolean coherentDirect) throws Exception {
         Path java = Path.of(System.getProperty("java.home"), "bin", executable("java"));
         Path agent = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
         String agentArguments = "dest64=" + encoded(fixture.recording())
@@ -376,6 +428,9 @@ class TexturePreparedPixelAgentIT {
         }
         if (coherentOriginalConvert) {
             command.add("-Dpreflight.preparedPixels.coherentOriginalConvert=true");
+        }
+        if (coherentDirect) {
+            command.add("-Dpreflight.preparedPixels.coherentDirect=true");
         }
         command.add("-javaagent:" + agent + "=" + agentArguments);
         command.add("-cp");
@@ -443,6 +498,14 @@ class TexturePreparedPixelAgentIT {
     private static void assertSuccess(ProcessResult result) {
         assertTrue(result.completed(), result.output());
         assertEquals(0, result.exitCode(), result.output());
+    }
+
+    private static byte[] sequential(int length) {
+        byte[] bytes = new byte[length];
+        for (int index = 0; index < length; index++) {
+            bytes[index] = (byte) (index + 1);
+        }
+        return bytes;
     }
 
     private static String encoded(Path path) {
