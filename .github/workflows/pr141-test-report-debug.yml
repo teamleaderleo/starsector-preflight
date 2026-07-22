@@ -1,0 +1,39 @@
+name: PR 141 test report debug
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  reports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: ./.github/actions/setup-build-jdk
+      - name: Run verification
+        id: verify
+        continue-on-error: true
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Collect Maven test reports
+        if: always()
+        run: |
+          mkdir -p /tmp/maven-test-reports
+          find . -type f \( -path '*/target/surefire-reports/*' -o -path '*/target/failsafe-reports/*' \) -print0 |
+            while IFS= read -r -d '' file; do
+              destination="/tmp/maven-test-reports/${file#./}"
+              mkdir -p "$(dirname "$destination")"
+              cp "$file" "$destination"
+            done
+      - name: Upload Maven test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr141-maven-test-reports
+          path: /tmp/maven-test-reports
+          if-no-files-found: error
+      - name: Preserve verification result
+        if: steps.verify.outcome != 'success'
+        run: exit 1
