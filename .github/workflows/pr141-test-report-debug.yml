@@ -14,16 +14,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-      - name: Patch stale contract fixture once
+      - name: Patch remaining stale converter fixture once
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java')
+          path = Path('preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelLoaderColorPlanTest.java')
           text = path.read_text()
           marker = '"setUploadWidth"'
           if marker not in text:
-              method = text.index('    private static MethodNode convertMethod() {')
+              method = text.index('        MethodNode convert = new MethodNode(')
               anchor = '        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));'
               insertion = text.index(anchor, method)
               replay = '''        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
@@ -48,8 +48,8 @@ jobs:
           if ! git diff --quiet; then
             git config user.name github-actions[bot]
             git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java
-            git commit -m "Update prepared-pixel contract dimension fixture"
+            git add preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelLoaderColorPlanTest.java
+            git commit -m "Update loader color dimension fixture"
             git push origin HEAD:${{ github.event.pull_request.head.ref }}
           fi
       - uses: ./.github/actions/setup-build-jdk
