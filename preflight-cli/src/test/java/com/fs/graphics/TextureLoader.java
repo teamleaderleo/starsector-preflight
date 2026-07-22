@@ -11,6 +11,7 @@ public final class TextureLoader {
     private static int originalConversionCalls;
     private static int originalCleanupCalls;
     private static boolean failAfterConversion;
+    private static byte[] originalUpload;
 
     private BufferedImage Ô00000(String logicalPath) {
         BufferedImage preloaded = L.clazz(logicalPath);
@@ -33,6 +34,12 @@ public final class TextureLoader {
         texture.derived0 = new Color(red, green, blue, 255);
         texture.derived1 = Color.GREEN;
         texture.derived2 = Color.BLUE;
+        byte[] configured = originalUpload;
+        if (configured != null) {
+            ByteBuffer buffer = ByteBuffer.allocateDirect(configured.length);
+            buffer.put(configured).flip();
+            return buffer;
+        }
         ByteBuffer buffer = ByteBuffer.allocateDirect(3);
         buffer.put((byte) red).put((byte) green).put((byte) blue).flip();
         return buffer;
@@ -90,11 +97,16 @@ public final class TextureLoader {
         failAfterConversion = value;
     }
 
+    public static void setOriginalUpload(byte[] value) {
+        originalUpload = value == null ? null : value.clone();
+    }
+
     public static void reset() {
         originalCalls = 0;
         originalConversionCalls = 0;
         originalCleanupCalls = 0;
         failAfterConversion = false;
+        originalUpload = null;
     }
 
     private static int nextPowerOfTwo(int value) {

@@ -15,13 +15,18 @@ public final class SyntheticTextureLauncher {
         boolean pixels = false;
         boolean preloadedMode = false;
         boolean uploadFailure = false;
+        boolean originalUpperLayout = false;
         for (String argument : args) {
             pixels |= "prepared-pixels".equals(argument);
             preloadedMode |= "preloaded".equals(argument);
             uploadFailure |= "upload-failure".equals(argument);
+            originalUpperLayout |= "original-upper-layout".equals(argument);
         }
         TextureLoader.reset();
         TextureLoader.setFailAfterConversion(uploadFailure);
+        if (originalUpperLayout) {
+            TextureLoader.setOriginalUpload(originalUpperLayout3x3Rgb());
+        }
         L.reset();
         if (preloadedMode) {
             BufferedImage preloaded = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
@@ -64,5 +69,18 @@ public final class SyntheticTextureLauncher {
                 image.getRGB(0, 0),
                 TextureLoader.originalCalls(),
                 L.lookupCalls());
+    }
+
+    private static byte[] originalUpperLayout3x3Rgb() {
+        byte[] upload = new byte[4 * 4 * 3];
+        int source = 1;
+        int uploadStride = 4 * 3;
+        for (int row = 1; row < 4; row++) {
+            int offset = row * uploadStride;
+            for (int index = 0; index < 3 * 3; index++) {
+                upload[offset + index] = (byte) source++;
+            }
+        }
+        return upload;
     }
 }

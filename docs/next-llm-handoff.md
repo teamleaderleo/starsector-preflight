@@ -4,103 +4,99 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Perform and review exactly one real installed prepared-pixel lifecycle route after the merged NPOT padding implementation.
+Review and merge PR #135, then perform and review exactly one real installed **launcher-only original-layout probe**.
 
-Do not begin repeated measurement or make acceleration claims until that behavioral evidence is accepted.
+Do not run another prepared-pixel gameplay lifecycle, begin repeated measurement, or make acceleration claims.
 
 Primary evidence:
 
 - [offline contract pass](evidence/2026-07-22-prepared-pixel-installed-contract-pass.md)
-- [live pilot failure](evidence/2026-07-22-prepared-pixel-live-pilot-failure.md)
+- [first live crash](evidence/2026-07-22-prepared-pixel-live-pilot-failure.md)
 - [lifecycle repair](evidence/2026-07-22-prepared-pixel-lifecycle-repair.md)
-- [NPOT upload padding](evidence/2026-07-22-prepared-pixel-npot-padding.md)
-- issue #129 — NPOT upload dimensions and exceptional-path direct-buffer accounting
-- issue #130 — fatal console evidence missed when the launcher exits zero
-- issue #128 — silent prepare progress and stale readiness fields
+- [guessed NPOT padding](evidence/2026-07-22-prepared-pixel-npot-padding.md)
+- [NPOT visual failure](evidence/2026-07-22-prepared-pixel-visual-failure.md)
+- issue #129 — NPOT upload dimensions and visual layout acceptance
+- PR #135 — NPOT fail-open restoration and original-layout evidence
 
 ## State as of 2026-07-22
 
-PR #132 was squash-merged as:
+Merged repair baseline:
 
 ```text
-4f3b79c6d7683242d16cb7b34081cd7800f20017
+PR #132: 4f3b79c6d7683242d16cb7b34081cd7800f20017
 ```
 
-PR #133 was squash-merged as:
+Merged guessed-padding implementation:
 
 ```text
-68ece81782b54022d58d41634dd88491fca13601
+PR #133: 68ece81782b54022d58d41634dd88491fca13601
 ```
 
-Validated implementation head before the documentation-only tail:
+The post-padding installed pilot reached the launcher and exited cleanly, but launcher textures rendered incorrectly. Retained telemetry showed:
 
 ```text
-b3b1b59856008ad91609c02ac52eb1986e7bc14b
+hits: 20
+paddedUploads: 7
+paddingBytes: 1002677
+fallbacks: 0
+internalErrors: 0
+releases: 20
+activeBuffers: 0
+activeDirectBytes: 0
+pendingBuffers: 0
 ```
 
-Successful workflows on that implementation head:
+This isolates the failure to the guessed NPOT byte arrangement. It does not prove upper placement or another substitute layout.
 
-- CI run 500 — `mvn --batch-mode --no-transfer-progress verify`
-- Texture cache tests run 349
-- Vanilla adapter gate tests run 352
-- Prepare command tests run 84
+The retained installed texture-loader contract shows the original converter creates a ByteBuffer, performs indexed `ByteBuffer.put(int, byte)` writes, and explicitly sets buffer position and limit. The layout is deliberate and should be observed rather than replaced with another append/placement guess.
 
-## Implemented NPOT behavior
+## PR #135 behavior
 
-SPFT version 1 remains source-sized and unchanged on disk. Its RGB/RGBA rows are already in bottom-up upload order.
+PR #135:
 
-At the prepared-pixel bridge, the runtime now:
+1. keeps the exact prepared-pixel transformation and power-of-two bypass;
+2. returns NPOT carriers to Starsector's original decode/conversion path before direct allocation;
+3. observes the original buffer after conversion without changing it;
+4. compares it with a fixed candidate set;
+5. retains at most 16 deduplicated logical-path observations;
+6. records no original texture payload bytes;
+7. preserves original upload, cleanup, and exception behavior.
 
-1. calculates the next power of two for width and height;
-2. allocates a direct buffer for `uploadWidth * uploadHeight * channels`;
-3. copies each source row unchanged;
-4. zero-fills the unused right side of each row;
-5. zero-fills unused rows above the source;
-6. retains source dimensions on the carrier.
-
-The source occupies the lower-left of the backing texture. No resampling or visual upscaling occurs.
-
-Observed fixture:
+New telemetry:
 
 ```text
-597 * 373 * 3 = 668043 source bytes
-1024 * 512 * 3 = 1572864 upload bytes
-904821 bytes of zero padding
+npotProbeFallbacks
+originalLayoutObservations
+layoutObservationErrors
 ```
 
-The packaged Java-agent fixture enforces the same power-of-two minimum-buffer requirement that caused the first live failure. The prepared route passes with decode and conversion bypassed, cleanup executed once, and expanded direct-buffer accounting released to zero.
-
-Telemetry keeps `bytesBypassed` source-sized, records expanded upload traffic separately in `uploadBytesSupplied`, and reports `paddedUploads` plus `paddingBytes`.
-
-## Preserved boundaries
-
-The merged implementation preserves:
-
-- exact installed archive, class, source, method, and loader identities;
-- the original Starsector fallback path;
-- the current circuit breaker;
-- original upload and cleanup exceptions;
-- compatibility mode as an independent accepted rollback path;
-- 32 MiB maximum per expanded prepared upload;
-- 64 MiB maximum active prepared direct memory;
-- 1,024 maximum active buffers;
-- unchanged Starsector installation and launcher;
-- SPFT format version 1.
-
-Unexpected blobs whose stored upload dimensions already differ from their source dimensions are still declined. Automatic allowlist generation remains disabled.
-
-## Readiness output
-
-Preparation reports:
+For schema continuity during the probe:
 
 ```text
-preparedPixelsAdapter: offline-contract-accepted-npot-padding-implemented
-preparedPixelsBehavioralAcceptance: failed-2026-07-22-padding-revalidation-pending
-realInstallPilotRequired: true
-launchAccelerationClaimed: false
+paddedUploads: 0
+paddingBytes: 0
 ```
 
-These values remain correct until the real installed lifecycle evidence is accepted.
+Power-of-two hits still use the bounded direct-buffer path and retain the existing ownership telemetry.
+
+## Automated validation
+
+Validated implementation and readiness head:
+
+```text
+6ad76b6964c91649d71bcd7e8b944cd4fe49ff65
+```
+
+Successful workflows:
+
+```text
+CI run 516 — full Maven verification
+Vanilla adapter gate tests run 368
+Texture cache tests run 363
+Prepare command tests run 93
+```
+
+Commits after that head, when present, are documentation-only alignment and must not be represented as additional implementation validation.
 
 ## Exact identities
 
@@ -113,39 +109,60 @@ d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50
 
 archive SHA-256:
 10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708
-
-offline transformed SHA-256 from the prior installed check:
-b32700195f5837c42dba0f2d202cc0a95af75bfd8b7725d8a2878f59d9e01527
 ```
 
-Keep these identities exact. Record any new installed-check result without replacing the historical evidence.
+Keep these identities exact. Automatic allowlist generation remains disabled.
 
-## Operator action
+## Review checklist
 
-Exactly one prepared-pixel lifecycle route is authorized.
+1. Confirm NPOT `prepare()` returns `null` before direct allocation.
+2. Confirm power-of-two prepared hits remain unchanged.
+3. Confirm fallback invokes original decode and conversion once.
+4. Confirm the returned original buffer is the exact buffer sent onward.
+5. Confirm observation uses a duplicate and does not change position, limit, capacity, bytes, cleanup, or exceptions.
+6. Confirm observations and retained fields are bounded and contain no pixel payload.
+7. Confirm failed or ambiguous classification never enables a layout.
+8. Confirm exact identity gates, cache format, circuit breaker, and memory limits remain unchanged.
+9. Confirm compatibility mode remains the accepted rollback.
+10. Confirm no benchmark or acceleration claim.
 
-Use the exact cache, manifest, index, target file, binary, and installation paths from the current preparation report. Do not guess them. The route is:
+## Operator action after merge
+
+Use a newly built merged JAR and exact artifacts from a current successful preparation report.
+
+Perform one route only:
 
 ```text
-launch
-→ main menu
-→ load or start campaign
-→ first combat
-→ save
-→ clean exit
+launch in prepared-pixels mode
+→ inspect normal launcher visuals
+→ do not start Starsector
+→ close from the launcher
+→ retain the complete run directory and a screenshot
 ```
 
-Retain the complete run directory, including `console.txt`, and stop after one run.
+Expected evidence:
 
-Acceptance requires expected prepared hits and padding telemetry, clean dimensions and visuals, only understood original-path fallbacks, zero internal errors, no circuit breaker, zero active buffers/direct bytes/pending buffers at shutdown, no fatal console/log evidence, and completion of the full route.
+- normal launcher visuals;
+- exact transformation applied;
+- NPOT original-path fallbacks above zero;
+- guessed padded uploads equal zero;
+- bounded original-layout observations present;
+- observation errors zero;
+- active prepared buffers/direct bytes/pending buffers zero at shutdown;
+- no fatal console or log evidence;
+- clean exit.
+
+Stop after the one launcher probe. Do not implement a new NPOT bypass until the retained original-layout observations are reviewed.
 
 ## Definition of a good handback
 
 Leave:
 
-1. the exact command and merged binary identity used;
-2. the complete retained run directory;
-3. a dated evidence document with lifecycle and visual findings;
-4. issue #129 updated with pass or failure details;
-5. readiness and operator handoff updated to match the result;
-6. no repeated benchmark or acceleration claim unless a later phase explicitly authorizes it.
+1. PR #135 merged or exact review findings recorded;
+2. final workflow results and validated commit SHA;
+3. the exact probe command and merged JAR SHA-256 when a probe is authorized;
+4. the complete retained launcher-probe directory and screenshot;
+5. a dated evidence document classifying each observed layout result;
+6. issue #129 updated with pass or failure details;
+7. readiness and operator handoff aligned with the result;
+8. no gameplay lifecycle, repeated benchmark, or acceleration claim.

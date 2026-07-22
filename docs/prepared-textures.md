@@ -1,8 +1,8 @@
 # Prepared texture blobs
 
-Preflight Textures converts an encoded image into the exact source-pixel byte layout consumed by the current texture conversion path, then stores that result in a versioned cache blob. The prepared-pixel runtime may place those source bytes into a larger reviewed upload backing when Starsector allocates a next-power-of-two texture.
+Preflight Textures converts an encoded image into the exact byte layout consumed by the current texture conversion path, then stores that result in a versioned cache blob.
 
-The literal reference implementation remains the compatibility authority. Production cache generation now uses a row-bulk converter only after proving complete `PreparedTexture` equality against that reference path.
+The literal reference implementation remains the compatibility authority. Production cache generation uses a row-bulk converter only after proving complete `PreparedTexture` equality against that reference path.
 
 ## Commands
 
@@ -69,13 +69,13 @@ cache/generated_normal.png
 
 Subset preparation:
 
-- normalizes, lowercases, deduplicates, and sorts paths with the same resource-index rules
-- rejects absolute and traversal paths
-- reports missing and non-image paths without discarding valid selections
-- derives a deterministic subset fingerprint from the full-profile fingerprint and selected winning paths
-- writes a matching subset `.spfi` index and `.spfm` manifest
-- reuses the same content-addressed blob store as full builds
-- never overwrites the full-profile index or manifest
+- normalizes, lowercases, deduplicates, and sorts paths with the same resource-index rules;
+- rejects absolute and traversal paths;
+- reports missing and non-image paths without discarding valid selections;
+- derives a deterministic subset fingerprint from the full-profile fingerprint and selected winning paths;
+- writes a matching subset `.spfi` index and `.spfm` manifest;
+- reuses the same content-addressed blob store as full builds;
+- never overwrites the full-profile index or manifest.
 
 The JSON command result reports `sourceIndex`, the active subset `index`, the subset `manifest`, selection counts, and diagnostics. A runtime adapter must use the reported subset index and subset manifest together.
 
@@ -83,29 +83,27 @@ The JSON command result reports `sourceIndex`, the active subset `index`, the su
 
 A prepared texture contains:
 
-- Source SHA-256
-- Transformation identifier
-- Original image dimensions
-- Stored payload dimensions
-- Three or four channels
-- Bottom-up RGB or RGBA source bytes
-- Three packed `RRGGBBAA` color values used by the loader
+- source SHA-256;
+- transformation identifier;
+- original image dimensions;
+- stored payload dimensions;
+- three or four channels;
+- bottom-up RGB or RGBA conversion bytes;
+- three packed `RRGGBBAA` color values used by the loader.
 
-SPFT version 1 stores source-sized payloads: stored width and height match the original image dimensions. The raw pixel payload remains uncompressed. This creates a clean baseline for LZ4, low-level Zstandard, pack-file, and memory-mapping experiments.
-
-A larger next-power-of-two OpenGL backing is a runtime concern rather than a second on-disk image. The prepared-pixel bridge copies the source-sized rows into that backing without resampling.
+The raw pixel payload remains uncompressed in version 1. This creates a clean baseline for LZ4, low-level Zstandard, pack-file, and memory-mapping experiments.
 
 ## Literal reference behavior
 
-The reference converter mirrors the current loader loop:
+The reference converter mirrors the current loader conversion loop:
 
-- Decode through Java ImageIO
-- Read pixels through `Raster.getPixel`
-- Traverse source rows from bottom to top
-- Store RGB for opaque images and RGBA for alpha images
-- Leave fully transparent output texels zeroed
-- Exclude fully transparent texels from color statistics
-- Preserve float accumulation order, histograms, and derived-color calculations exactly
+- decode through Java ImageIO;
+- read pixels through `Raster.getPixel`;
+- traverse source rows from bottom to top;
+- store RGB for opaque images and RGBA for alpha images;
+- leave fully transparent output texels zeroed;
+- exclude fully transparent texels from color statistics;
+- preserve float accumulation order, histograms, and derived-color calculations exactly.
 
 Literal raster behavior is preserved for grayscale and indexed-color images. This can differ from palette-expanded RGB expectations and gives optimized implementations a precise compatibility target.
 
@@ -117,13 +115,13 @@ The optimized converter calls `Raster.getPixels()` once per source row instead o
 
 It preserves:
 
-- Source-row reversal and output byte order
-- Raw raster band indexing, including grayscale and indexed-alpha quirks
-- Persistent missing-band zero behavior
-- Transparent-texel zeroing and exclusion from statistics
-- Float sums and histogram update order
-- All three derived loader colors
-- Source SHA-256 and binary blob bytes
+- source-row reversal and output byte order;
+- raw raster band indexing, including grayscale and indexed-alpha quirks;
+- persistent missing-band zero behavior;
+- transparent-texel zeroing and exclusion from statistics;
+- float sums and histogram update order;
+- all three derived loader colors;
+- source SHA-256 and binary blob bytes.
 
 Translated subimage rasters are accepted when their bounds contain the image's logical `0..width` and `0..height` rectangle. Unsupported or unusual raster layouts fall back to the literal reference converter.
 
@@ -150,20 +148,20 @@ The writer uses a sibling temporary file and atomic replacement where supported.
 Both live consumers use the exact-reviewed `TextureLoader` class, archive, method, source, and loader identity. A launch selects one mode:
 
 - `compatibility` reconstructs a `BufferedImage` at the private decoded-image seam. Starsector retains its original pixel conversion, OpenGL upload, cleanup, and texture lifetime.
-- `prepared-pixels` carries the verified SPFT source payload to the lower `BufferedImage -> ByteBuffer` seam. A hit supplies the bottom-up upload bytes and all three stored derived colors, bypassing ImageIO decode, raster traversal, vertical reversal, RGB/RGBA conversion, transparent-texel normalization, and color calculation. Starsector retains its original texture allocation, OpenGL call, cleanup, flags, filtering, mipmaps, and texture lifetime.
+- `prepared-pixels` carries a verified SPFT payload to the lower `BufferedImage -> ByteBuffer` seam. For currently supported power-of-two payloads, a hit supplies the stored bottom-up bytes and all three stored derived colors, bypassing ImageIO decode, raster traversal, vertical reversal, RGB/RGBA conversion, transparent-texel normalization, and color calculation. Starsector retains its original texture allocation, OpenGL call, cleanup, flags, filtering, mipmaps, and texture lifetime.
 
 Both version-2 plans preserve the original `com.fs.graphics.L.class(String)` asynchronous preloader handoff before any Preflight lookup. A preloaded image always wins. Preflight is consulted only on the original direct-decode branch after that handoff returns `null`; an absent or ambiguous handoff leaves the class untouched.
 
-Compatibility mode may also use `run --adapter --texture-auto` to resolve the already-prepared manifest and index for the exact current installed profile. This convenience mode remains explicit and read-only; it does not support `prepared-pixels` and fails before launch when the cache is absent or stale.
+Compatibility mode may use `run --adapter --texture-auto` to resolve the already-prepared manifest and index for the exact current installed profile. This convenience mode remains explicit and read-only; it does not support `prepared-pixels` and fails before launch when the cache is absent or stale.
 
 Prepared-pixels-v2 supports two reviewed color-sink models:
 
 - three direct non-static `java.awt.Color` fields on the texture object; or
 - three non-static `TextureLoader` color fields that each flow through an instance method into one distinct, exactly typed texture-object setter.
 
-Mixed, incomplete, ambiguous, untyped, static-transfer, or raster-free models decline. PR #117 added the installed-style staged model, and PR #119 added the read-only offline contract checker. The exact installed archive still must pass that checker and one real opt-in lifecycle run before the lower consumer is treated as live-accepted.
+Mixed, incomplete, ambiguous, untyped, static-transfer, or raster-free models decline. The exact installed archive must pass the offline contract checker before any real prepared-pixel evidence run.
 
-Run the offline check against an extracted class or the containing JAR before any real prepared-pixel launch:
+Run the offline check against an extracted class or the containing JAR:
 
 ```bash
 java -cp preflight-cli/target/preflight.jar \
@@ -171,26 +169,26 @@ java -cp preflight-cli/target/preflight.jar \
   "/path/to/Starsector.app/Contents/Resources/Java/fs.common_obf.jar"
 ```
 
-Review [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operator-handoff.md) and stop for report review after this command.
+Review [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operator-handoff.md) before constructing any live command.
 
-Launch the lower consumer only after the installed report passes, using explicit artifacts:
+Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. SPFT version 1 accepts identity textures whose stored dimensions match their source dimensions. `ALPHA_ADDER`, unexpected pre-padded blobs, oversized payloads, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
 
-```bash
-java -jar preflight.jar run \
-  --game "/path/to/Starsector.app" \
-  --adapter \
-  --texture-mode prepared-pixels \
-  --texture-cache-dir "/path/to/cache" \
-  --texture-manifest "/path/to/cache/manifests/<fingerprint>.spfm" \
-  --texture-index "/path/to/cache/indexes/<fingerprint>.spfi"
-```
+## Current NPOT decision
 
-Do not guess the fingerprint or reuse artifacts from a different profile. Use the exact manifest and index reported by preparation for the current installation.
+The first installed prepared-pixel pilot proved that Starsector's NPOT upload requires a next-power-of-two-sized buffer. A later implementation guessed a lower-left, row-padded, zero-filled arrangement. That implementation prevented the buffer-length crash but produced incorrect launcher visuals.
 
-Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. SPFT version 1 accepts identity textures whose stored dimensions match their source dimensions. `ALPHA_ADDER`, unexpected pre-padded blobs, oversized expanded uploads, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
+The visual failure disproves that guessed arrangement. It does not establish upper placement, reversed row order, contiguous pixels followed by padding, edge replication, or any other alternative.
 
-For an admitted NPOT source, prepared-pixels-v2 calculates the next power of two for each dimension, allocates the expanded direct upload buffer, copies each existing bottom-up source row into the lower-left, zero-fills the unused right side of each row, and zero-fills unused rows above. It does not scale, interpolate, or otherwise resample the artwork. The carrier continues to report the original width and height to Starsector.
+PR #135 therefore restores fail-open behavior for NPOT textures:
 
-Prepared direct-buffer ownership remains bounded to 32 MiB per expanded upload, 64 MiB active bytes, and 1,024 active buffers. The existing Starsector cleanup method always runs. Preflight releases its identity-tracked accounting in a `finally` path after that original cleanup call, and the exact converter callers release accounting before rethrowing upload exceptions.
+- the prepared lookup may return a lightweight carrier;
+- the lower bridge declines NPOT direct-buffer creation;
+- Starsector's original decode and conversion execute once;
+- the original buffer continues unchanged to Starsector's upload and cleanup;
+- bounded telemetry compares the original buffer against fixed candidate layouts without retaining its payload bytes.
 
-Prepared-pixel behavioral acceptance still requires one reviewed real-install lifecycle route after the padding change. Compatibility mode remains the accepted rollback path, and no acceleration claim follows from the failed pilot or automated padding tests.
+Power-of-two prepared hits remain available. During the NPOT layout probe, telemetry records `npotProbeFallbacks`, bounded `originalLayoutObservations`, and `layoutObservationErrors`. `paddedUploads` and `paddingBytes` remain zero because no guessed NPOT buffer is supplied.
+
+Prepared direct-buffer ownership remains bounded to 32 MiB per texture, 64 MiB active bytes, and 1,024 active buffers. The existing Starsector cleanup method always runs. Preflight releases its identity-tracked accounting after original cleanup, including exceptional caller paths.
+
+Prepared pixels remain behaviorally failed after the 2026-07-22 visual result. Compatibility mode remains the accepted rollback path. After PR #135 is reviewed and merged, only one launcher-only original-layout probe may be authorized; gameplay lifecycle runs, repeated benchmarks, and acceleration claims remain blocked until its evidence is reviewed.
