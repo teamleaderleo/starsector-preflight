@@ -43,6 +43,7 @@ command -v podman >/dev/null 2>&1 || {
 }
 
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
   echo "Missing rootless Podman runtime directory: $XDG_RUNTIME_DIR" >&2
   echo "Run the VPS bootstrap script or enable lingering for this user." >&2
@@ -90,9 +91,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 image_id="$(podman image inspect --format '{{.Id}}' "$image" 2>/dev/null || printf 'unknown')"
-printf 'suite=%s\nimage=%s\nimageId=%s\nlimits=memory:%s cpus:%s pids:%s\noffline=%s\n' \
-  "$suite" "$image" "$image_id" "$memory" "$cpus" "$pids" "$offline"
+podman_host="$(podman info --format 'rootless={{.Host.Security.Rootless}} cgroupVersion={{.Host.CgroupVersion}} cgroupManager={{.Host.CgroupManager}}' 2>/dev/null || printf 'unavailable')"
+printf 'suite=%s\nimage=%s\nimageId=%s\npodman=%s\nlimits=memory:%s cpus:%s pids:%s\noffline=%s\n' \
+  "$suite" "$image" "$image_id" "$podman_host" "$memory" "$cpus" "$pids" "$offline"
 
+set +e
 podman run --rm \
   --name "$container_name" \
   --pull=never \
@@ -112,3 +115,18 @@ podman run --rm \
   --workdir /workspace \
   "$image" \
   "${maven[@]}"
+status=$?
+set -e
+
+if [[ "$status" -eq 125 ]]; then
+  cat >&2 <<'MESSAGE'
+Podman failed before Maven started. On a systemd-managed rootless runner this
+usually means the runner service lacks cgroup delegation or its user-session
+environment. From an updated repository checkout, run as root:
+
+  bash ./scripts/configure-vps-runner-service.sh
+
+Then retry the workflow.
+MESSAGE
+fi
+exit "$status"
