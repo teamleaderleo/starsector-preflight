@@ -22,8 +22,8 @@ import org.objectweb.asm.tree.MethodNode;
 
 class TexturePreparedPixelPlanTest {
     @Test
-    void rewritesReviewedDecodeConvertAndCleanupPattern() throws Exception {
-        byte[] original = textureLoader(3, true);
+    void rewritesReviewedDecodeConvertCleanupAndDimensionPattern() throws Exception {
+        byte[] original = textureLoader(3, true, true);
         byte[] transformed = TexturePreparedPixelPlan.transform(ClassSignature.parse(original), original);
 
         assertNotNull(transformed);
@@ -41,6 +41,10 @@ class TexturePreparedPixelPlanTest {
 
         MethodNode convert = method(node, TexturePreparedPixelPlan.CONVERT_METHOD, TexturePreparedPixelPlan.CONVERT_DESCRIPTOR);
         assertEquals(List.of("derived0", "derived1", "derived2"), fieldWrites(convert));
+        assertTrue(hasCall(convert, "TexturePreparedPixelRuntime$PreparedPixel", "width"));
+        assertTrue(hasCall(convert, "TexturePreparedPixelRuntime$PreparedPixel", "height"));
+        assertTrue(hasCall(convert, TexturePreparedPixelPlan.TEXTURE_OBJECT, "setUploadWidth"));
+        assertTrue(hasCall(convert, TexturePreparedPixelPlan.TEXTURE_OBJECT, "setUploadHeight"));
         assertTrue(hasCall(convert, "TexturePreparedPixelRuntime$PreparedPixel", "buffer"));
 
         MethodNode cleanup = method(node, TexturePreparedPixelPlan.CLEANUP_METHOD, TexturePreparedPixelPlan.CLEANUP_DESCRIPTOR);
@@ -55,11 +59,13 @@ class TexturePreparedPixelPlanTest {
 
     @Test
     void rejectsAmbiguousOrUnreviewedConversionShape() throws Exception {
-        byte[] twoColors = textureLoader(2, true);
-        byte[] noRasterRead = textureLoader(3, false);
+        byte[] twoColors = textureLoader(2, true, true);
+        byte[] noRasterRead = textureLoader(3, false, true);
+        byte[] noDimensions = textureLoader(3, true, false);
 
         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(twoColors), twoColors));
         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(noRasterRead), noRasterRead));
+        assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(noDimensions), noDimensions));
     }
 
     private static List<String> fieldWrites(MethodNode method) {
@@ -100,7 +106,7 @@ class TexturePreparedPixelPlanTest {
                 .orElse(null);
     }
 
-    private static byte[] textureLoader(int colorFields, boolean rasterRead) {
+    private static byte[] textureLoader(int colorFields, boolean rasterRead, boolean dimensions) {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, TexturePreparedPixelPlan.TARGET_CLASS,
                 null, "java/lang/Object", null);
@@ -139,6 +145,24 @@ class TexturePreparedPixelPlanTest {
                 null,
                 null);
         convert.visitCode();
+        if (dimensions) {
+            convert.visitVarInsn(Opcodes.ALOAD, 2);
+            convert.visitInsn(Opcodes.ICONST_4);
+            convert.visitMethodInsn(
+                    Opcodes.INVOKEVIRTUAL,
+                    TexturePreparedPixelPlan.TEXTURE_OBJECT,
+                    "setUploadWidth",
+                    "(I)V",
+                    false);
+            convert.visitVarInsn(Opcodes.ALOAD, 2);
+            convert.visitIntInsn(Opcodes.BIPUSH, 8);
+            convert.visitMethodInsn(
+                    Opcodes.INVOKEVIRTUAL,
+                    TexturePreparedPixelPlan.TEXTURE_OBJECT,
+                    "setUploadHeight",
+                    "(I)V",
+                    false);
+        }
         if (rasterRead) {
             convert.visitVarInsn(Opcodes.ALOAD, 1);
             convert.visitMethodInsn(

@@ -26,6 +26,8 @@ public final class TextureLoader {
 
     private ByteBuffer o00000(BufferedImage image, Object texture) {
         originalConversionCalls++;
+        texture.Ô00000(nextPowerOfTwo(image.getWidth()));
+        texture.Ó00000(nextPowerOfTwo(image.getHeight()));
         Raster raster = image.getData();
         int[] pixel = raster.getPixel(0, 0, (int[]) null);
         int red = pixel.length > 0 ? pixel[0] : 0;
@@ -108,7 +110,9 @@ public final class TextureLoader {
                 bytes,
                 texture.derived0 == null ? 0 : texture.derived0.getRGB(),
                 texture.derived1 == null ? 0 : texture.derived1.getRGB(),
-                texture.derived2 == null ? 0 : texture.derived2.getRGB());
+                texture.derived2 == null ? 0 : texture.derived2.getRGB(),
+                texture.uploadWidth,
+                texture.uploadHeight);
     }
 
     public static int originalCalls() {
@@ -144,7 +148,13 @@ public final class TextureLoader {
         return highest == value ? value : highest << 1;
     }
 
-    public record Result(byte[] pixels, int color0, int color1, int color2) {
+    public record Result(
+            byte[] pixels,
+            int color0,
+            int color1,
+            int color2,
+            int uploadWidth,
+            int uploadHeight) {
         public Result {
             pixels = pixels.clone();
         }

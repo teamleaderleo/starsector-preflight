@@ -6,7 +6,9 @@ Status: 2026-07-22
 
 Direct NPOT prepared-pixel bypass is **not yet behaviorally accepted**.
 
-PR #139 is merged and authorizes one final launcher-only coherent-direct diagnostic. Gameplay and benchmarks remain blocked.
+The coherent-direct launcher probe rendered black even though its bytes, colors, lifecycle, and buffer accounting followed the diagnostic contract. PR #141 now tests one concrete missing original-converter side effect: power-of-two backing width and height writes on the texture object.
+
+Gameplay and benchmarks remain blocked.
 
 ## Evidence chain
 
@@ -18,16 +20,22 @@ PR #139 is merged and authorizes one final launcher-only coherent-direct diagnos
 - [successful original-layout probe](evidence/2026-07-22-prepared-pixel-original-layout-probe.md)
 - [successful coherent-image/original-converter probe](evidence/2026-07-22-prepared-pixel-coherent-converter-probe.md)
 - [coherent-direct diagnostic contract](evidence/2026-07-22-prepared-pixel-coherent-direct-diagnostic.md)
+- [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
 
-## Technical conclusion
+## Corrected technical conclusion
 
-The first direct NPOT path supplied a complete power-of-two buffer and exited cleanly, but the launcher rendered black.
+The original and prepared NPOT upload buffers use the same relevant row-padded byte arrangement. The cached pixels also form a real source-sized image that Starsector accepts when its original converter is retained.
 
-A later safe probe showed that Starsector's original NPOT buffers used the same relevant `row-pad-source-then-zero-rows` arrangement as the failed direct path. The upper-versus-lower padding diagnosis was wrong.
+The coherent-direct run then used that coherent image, direct cached bytes, and cached colors, with 7 NPOT hits, zero fallbacks/errors, and zero buffer ownership at shutdown. The launcher still rendered black.
 
-The coherent-image/original-converter probe then reconstructed real source-sized cached images, bypassed ImageIO, retained Starsector's converter, and rendered normally. This proves the cached pixels and coherent image are acceptable.
+Therefore the historical synthetic `1x1` carrier was not the sole material cause.
 
-The remaining question is whether the black launcher was caused by the historical synthetic `1x1` carrier or by behavior/colors omitted when bypassing the original converter.
+Review of the exact installed converter shows two additional operations before it returns its buffer:
+
+1. it writes the computed power-of-two upload width to the texture object;
+2. it writes the computed power-of-two upload height to the texture object.
+
+The direct wrapper previously skipped those writes. That can leave UV or backing-size state inconsistent with the actual power-of-two OpenGL upload.
 
 ## Safe default
 
@@ -38,38 +46,33 @@ Without an explicit diagnostic property:
 - compatibility mode remains the accepted rollback;
 - no installation, launcher, mod, or save files are edited.
 
-## Merged coherent-direct diagnostic
+## PR #141 diagnostic
 
-PR #139 merged as:
-
-```text
-23a8ec653d9f07e5df50ff3deab04efdf4104e49
-```
-
-The diagnostic is enabled only by:
+PR #141 keeps the existing opt-in property:
 
 ```text
 -Dpreflight.preparedPixels.coherentDirect=true
 ```
 
-For admitted NPOT prepared-cache hits under that property, Preflight combines:
+For a successful prepared NPOT result under that property only, the transformed wrapper now:
 
-1. the proven real source-sized top-down sRGB image;
-2. the observed row-padded power-of-two upload bytes;
-3. the cached three derived colors;
-4. bounded direct-buffer ownership and cleanup.
+1. obtains the coherent source-sized carrier and direct padded buffer;
+2. calls the first exact reviewed texture-object `(I)V` setter with `PreparedPixel.width()`;
+3. calls the second exact reviewed setter with `PreparedPixel.height()`;
+4. writes the three cached derived colors;
+5. returns the prepared buffer through the existing upload and cleanup path.
 
-It bypasses ImageIO and Starsector's original pixel converter for admitted hits. If both diagnostic properties are set, coherent-direct takes precedence. The runner sets only coherent-direct.
+The transformation declines if the converter does not contain exactly two distinct texture-object `(I)V` calls in the reviewed shape. No setter names are guessed or broadly allowlisted.
 
 ## Result meanings
 
 ```text
 normal launcher visuals
-→ the synthetic 1x1 carrier was the material cause of the prior black launcher;
-→ coherent image + direct cached bytes + cached colors are viable at the launcher seam.
+→ missing backing-dimension writes caused the black rendering;
+→ coherent image + cached bytes + cached colors are viable at the launcher seam with those writes restored.
 
 broken launcher visuals
-→ a required original-converter side effect or cached-color mismatch remains;
+→ another required converter side effect or cached-color mismatch remains;
 → direct NPOT bypass stays disabled.
 ```
 
@@ -89,33 +92,18 @@ A normal launcher is not gameplay acceptance.
 - no automatic allowlist generation;
 - no acceleration claim.
 
-## Automated validation
+## Validation requirement
 
-Final validated PR head:
+Before merge, the final PR head must pass full Maven verification, vanilla adapter gates, texture cache tests, and preparation tests. Record the validated SHA and workflow numbers in PR #141.
 
-```text
-df3f3707c5c1d292e0e112399e468ff7fea1b4ec
-```
-
-Successful workflows:
-
-```text
-CI run 541 — full Maven verification
-Vanilla adapter gate tests run 391
-Texture cache tests run 383
-Prepare command tests run 106
-```
-
-The packaged transformed-loader proof verifies direct NPOT bytes, cached colors, decode `0`, conversion `0`, cleanup `1`, and zero buffer ownership after cleanup.
-
-## Authorized operator action
+## Authorized operator action after PR #141 merges
 
 Run exactly once from the repository root:
 
 ```bash
 git switch main
 git pull --ff-only
-bash scripts/run-prepared-pixel-coherent-direct-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
 ```
 
 Environment overrides:
@@ -123,10 +111,10 @@ Environment overrides:
 ```bash
 GAME="/path/to/Starsector.app" \
 CACHE="$HOME/.starsector-preflight/cache" \
-bash scripts/run-prepared-pixel-coherent-direct-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
 ```
 
-The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, prepares current artifacts, enables only coherent-direct, checks lifecycle and buffer telemetry, and packages the run directory on the Desktop.
+The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, verifies the new preparation-readiness marker and dimension-replay source contract, enables only coherent-direct, checks lifecycle/buffer telemetry, records `dimensionReplay=reviewed-converter-two-setter-order`, and packages the run directory on the Desktop.
 
 When the launcher appears:
 
@@ -137,7 +125,7 @@ Options, Mods, borders, and vendor logos
 → close with the launcher X
 ```
 
-Report only `normal` or `broken` and upload the generated archive. A duplicate screenshot is optional if the launcher is identical to the previously accepted normal launcher.
+Report only `normal` or `broken` and upload the generated archive. A duplicate screenshot is optional when the classification is unambiguous.
 
 ## Required automated evidence
 
@@ -150,7 +138,8 @@ Report only `normal` or `broken` and upload the generated archive. A duplicate s
 - internal errors zero;
 - active direct bytes, active buffers, and pending buffers zero at shutdown;
 - no fatal console/log evidence;
-- clean launcher exit.
+- clean launcher exit;
+- operator identity records the reviewed two-setter dimension replay.
 
 ## Standing safety rules
 

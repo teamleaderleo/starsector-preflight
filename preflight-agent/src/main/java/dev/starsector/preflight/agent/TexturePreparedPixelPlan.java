@@ -13,6 +13,7 @@ import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -38,6 +39,7 @@ final class TexturePreparedPixelPlan {
     private static final String PRELOADER = "com/fs/graphics/L";
     private static final String PRELOADER_METHOD = "class";
     private static final String PREPARED_PIXEL = RUNTIME + "$PreparedPixel";
+    private static final String DIMENSION_SETTER_DESCRIPTOR = "(I)V";
 
     private TexturePreparedPixelPlan() {
     }
@@ -73,7 +75,8 @@ final class TexturePreparedPixelPlan {
 
         List<TexturePreparedPixelColorSink.SinkField> colors =
                 TexturePreparedPixelColorSink.reviewed(owner, convert);
-        if (colors.size() != 3) {
+        DimensionSetters dimensions = dimensionSetters(convert);
+        if (colors.size() != 3 || dimensions == null) {
             return null;
         }
         List<MethodNode> uploadCallers = directConvertCallers(owner, convert);
@@ -89,7 +92,7 @@ final class TexturePreparedPixelPlan {
         MethodMetadata convertMetadata = rename(owner.name, convert, ORIGINAL_CONVERT, CONVERT_METHOD, CONVERT_DESCRIPTOR);
         MethodMetadata cleanupMetadata = rename(owner.name, cleanup, ORIGINAL_CLEANUP, CLEANUP_METHOD, CLEANUP_DESCRIPTOR);
         owner.methods.add(originalDecode);
-        owner.methods.add(convertWrapper(owner.name, convertMetadata, colors));
+        owner.methods.add(convertWrapper(owner.name, convertMetadata, colors, dimensions));
         owner.methods.add(cleanupWrapper(owner.name, cleanupMetadata));
         uploadCallers.forEach(TexturePreparedPixelPlan::addExceptionalRelease);
 
@@ -101,12 +104,14 @@ final class TexturePreparedPixelPlan {
     private static MethodNode convertWrapper(
             String owner,
             MethodMetadata metadata,
-            List<TexturePreparedPixelColorSink.SinkField> colors) {
+            List<TexturePreparedPixelColorSink.SinkField> colors,
+            DimensionSetters dimensions) {
         MethodNode wrapper = method(metadata, CONVERT_METHOD, CONVERT_DESCRIPTOR);
         LabelNode ordinary = new LabelNode();
         LabelNode preparedFallback = new LabelNode();
         LabelNode decodeOriginal = new LabelNode();
         LabelNode converted = new LabelNode();
+        LabelNode skipDimensionReplay = new LabelNode();
 
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
         wrapper.instructions.add(new MethodInsnNode(
@@ -126,6 +131,21 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new VarInsnNode(Opcodes.ASTORE, 3));
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 3));
         wrapper.instructions.add(new JumpInsnNode(Opcodes.IFNULL, preparedFallback));
+
+        // The installed converter writes the computed power-of-two backing dimensions into
+        // the texture object before returning its buffer. Replay that exact reviewed side
+        // effect only for the explicit coherent-direct diagnostic.
+        wrapper.instructions.add(new LdcInsnNode(TexturePreparedPixelRuntime.COHERENT_DIRECT_PROPERTY));
+        wrapper.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                "java/lang/Boolean",
+                "getBoolean",
+                "(Ljava/lang/String;)Z",
+                false));
+        wrapper.instructions.add(new JumpInsnNode(Opcodes.IFEQ, skipDimensionReplay));
+        addDimensionSetter(wrapper, dimensions.widthMethod(), "width");
+        addDimensionSetter(wrapper, dimensions.heightMethod(), "height");
+        wrapper.instructions.add(skipDimensionReplay);
 
         for (int i = 0; i < colors.size(); i++) {
             TexturePreparedPixelColorSink.SinkField field = colors.get(i);
@@ -207,6 +227,23 @@ final class TexturePreparedPixelPlan {
         return wrapper;
     }
 
+    private static void addDimensionSetter(MethodNode wrapper, String method, String preparedAccessor) {
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        wrapper.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKEVIRTUAL,
+                PREPARED_PIXEL,
+                preparedAccessor,
+                "()I",
+                false));
+        wrapper.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKEVIRTUAL,
+                TEXTURE_OBJECT,
+                method,
+                DIMENSION_SETTER_DESCRIPTOR,
+                false));
+    }
+
     private static MethodNode cleanupWrapper(String owner, MethodMetadata metadata) {
         MethodNode wrapper = method(metadata, CLEANUP_METHOD, CLEANUP_DESCRIPTOR);
         LabelNode start = new LabelNode();
@@ -233,6 +270,27 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
         wrapper.instructions.add(new InsnNode(Opcodes.ATHROW));
         return wrapper;
+    }
+
+    private static DimensionSetters dimensionSetters(MethodNode convert) {
+        List<String> setters = new ArrayList<>();
+        for (AbstractInsnNode instruction = convert.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (instruction instanceof MethodInsnNode call
+                    && call.getOpcode() == Opcodes.INVOKEVIRTUAL
+                    && TEXTURE_OBJECT.equals(call.owner)
+                    && DIMENSION_SETTER_DESCRIPTOR.equals(call.desc)) {
+                setters.add(call.name);
+                if (setters.size() > 2) {
+                    return null;
+                }
+            }
+        }
+        if (setters.size() != 2 || setters.get(0).equals(setters.get(1))) {
+            return null;
+        }
+        return new DimensionSetters(setters.get(0), setters.get(1));
     }
 
     private static List<MethodNode> directConvertCallers(ClassNode owner, MethodNode convert) {
@@ -464,6 +522,9 @@ final class TexturePreparedPixelPlan {
             AbstractInsnNode argumentLoad,
             AbstractInsnNode returnImage,
             AbstractInsnNode directDecode) {
+    }
+
+    private record DimensionSetters(String widthMethod, String heightMethod) {
     }
 
     private record MethodMetadata(int access, String signature, List<String> exceptions) {

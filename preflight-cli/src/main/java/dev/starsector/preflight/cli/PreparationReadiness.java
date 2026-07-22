@@ -18,11 +18,11 @@ final class PreparationReadiness {
         readiness.put("vanillaAdapter", "compatibility-v2-behaviorally-accepted");
         readiness.put("compatibilityBehavioralAcceptance", "accepted-2026-07-19-starsector-0.98a-rc8");
         readiness.put("repeatTimingCampaignRequired", true);
-        readiness.put("preparedPixelsAdapter", "pot-bypass-enabled-npot-coherent-direct-diagnostic");
-        readiness.put("preparedPixelsBehavioralAcceptance", "diagnostic-under-review-2026-07-22");
+        readiness.put("preparedPixelsAdapter", "pot-bypass-enabled-npot-coherent-direct-dimension-diagnostic");
+        readiness.put("preparedPixelsBehavioralAcceptance", "failed-2026-07-22-coherent-direct-without-dimensions");
         readiness.put("textureAdapterModes", List.of("compatibility", "prepared-pixels"));
         readiness.put("realInstallPilotRequired", true);
-        readiness.put("preparedPixelsNextOperatorAction", "launcher-only-coherent-direct-probe");
+        readiness.put("preparedPixelsNextOperatorAction", "launcher-only-coherent-direct-dimension-probe");
         readiness.put("fastRenderingAdapter", "requires-exact-compatible-method-evidence");
         readiness.put("launchAccelerationClaimed", false);
         return Collections.unmodifiableMap(readiness);
