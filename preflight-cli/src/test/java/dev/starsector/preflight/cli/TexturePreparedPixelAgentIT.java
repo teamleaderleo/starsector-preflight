@@ -83,6 +83,47 @@ class TexturePreparedPixelAgentIT {
     }
 
     @Test
+    void packagedNpotCoherentCarrierBypassesDecodeButRunsOriginalConverter() throws Exception {
+        byte[] source = new byte[3 * 3 * 3];
+        for (int index = 0; index < source.length; index++) {
+            source[index] = (byte) (index + 1);
+        }
+        Fixture fixture = fixture(false, false, 3, 3, 3, source);
+
+        ProcessResult result = launch(
+                fixture, "graphics/test.png", false, false, false, false, true);
+
+        assertSuccess(result);
+        assertTrue(result.output().contains(
+                "synthetic-pixels:"
+                        + "010203040506070809000000"
+                        + "0a0b0c0d0e0f101112000000"
+                        + "131415161718191a1b000000"
+                        + "000000000000000000000000"
+                        + ":colors=ff131415,ff00ff00,ff0000ff:decode=0:convert=1:cleanup=1"),
+                result.output());
+        String report = Files.readString(fixture.adapterReport());
+        assertTrue(report.contains("\"transformationsApplied\":1"), report);
+        assertTrue(report.contains("\"coherentOriginalConvertEnabled\":true"), report);
+        assertTrue(report.contains("\"coherentCarriers\":1"), report);
+        assertTrue(report.contains("\"coherentCarrierBytes\":27"), report);
+        assertTrue(report.contains("\"hits\":0"), report);
+        assertTrue(report.contains("\"fallbacks\":1"), report);
+        assertTrue(report.contains("\"npotProbeFallbacks\":1"), report);
+        assertTrue(report.contains("\"coherentOriginalConvertFallbacks\":1"), report);
+        assertTrue(report.contains("\"coherentOriginalDecodeBypasses\":1"), report);
+        assertTrue(report.contains("\"imageDecodesBypassed\":1"), report);
+        assertTrue(report.contains("\"conversionCallsBypassed\":0"), report);
+        assertTrue(report.contains("row-pad-source-then-zero-rows"), report);
+        assertTrue(report.contains("\"carrierRasterWidth\":3"), report);
+        assertTrue(report.contains("\"carrierRasterHeight\":3"), report);
+        assertTrue(report.contains("\"coherentOriginalConvert\":true"), report);
+        assertTrue(report.contains("\"layoutObservationErrors\":0"), report);
+        assertTrue(report.contains("\"activeBuffers\":0"), report);
+        assertTrue(report.contains("\"activeDirectBytes\":0"), report);
+    }
+
+    @Test
     void packagedUploadExceptionPreservesOriginalFailureAndReleasesDirectBuffer() throws Exception {
         Fixture fixture = fixture(false, false);
 
@@ -290,7 +331,7 @@ class TexturePreparedPixelAgentIT {
     }
 
     private ProcessResult launch(Fixture fixture, String logicalPath, boolean killSwitch) throws Exception {
-        return launch(fixture, logicalPath, killSwitch, false, false, false);
+        return launch(fixture, logicalPath, killSwitch, false, false, false, false);
     }
 
     private ProcessResult launch(
@@ -300,6 +341,24 @@ class TexturePreparedPixelAgentIT {
             boolean preloaded,
             boolean uploadFailure,
             boolean originalUpperLayout) throws Exception {
+        return launch(
+                fixture,
+                logicalPath,
+                killSwitch,
+                preloaded,
+                uploadFailure,
+                originalUpperLayout,
+                false);
+    }
+
+    private ProcessResult launch(
+            Fixture fixture,
+            String logicalPath,
+            boolean killSwitch,
+            boolean preloaded,
+            boolean uploadFailure,
+            boolean originalUpperLayout,
+            boolean coherentOriginalConvert) throws Exception {
         Path java = Path.of(System.getProperty("java.home"), "bin", executable("java"));
         Path agent = Path.of("target", "preflight.jar").toAbsolutePath().normalize();
         String agentArguments = "dest64=" + encoded(fixture.recording())
@@ -314,6 +373,9 @@ class TexturePreparedPixelAgentIT {
         command.add(java.toString());
         if (killSwitch) {
             command.add("-Dpreflight.adapter.disabled=true");
+        }
+        if (coherentOriginalConvert) {
+            command.add("-Dpreflight.preparedPixels.coherentOriginalConvert=true");
         }
         command.add("-javaagent:" + agent + "=" + agentArguments);
         command.add("-cp");
