@@ -2,77 +2,74 @@
 
 Status: 2026-07-22
 
-This document defines who acts next and where each person must stop. The goal is to complete exact installed-class validation, one real prepared-pixel lifecycle acceptance run, and only then a repeated startup benchmark campaign.
+This document defines who acts next and where each person must stop. The current goal is one real prepared-pixel lifecycle acceptance run, followed only then by repeated startup measurement.
 
 ## Current decision
 
-Do not add another optimization subsystem yet. Do not optimize CI further. Do not run a prepared-pixel launch until the offline installed-class report has been reviewed.
+The offline installed-class contract gate passed on 2026-07-22. See [the retained evidence](evidence/2026-07-22-prepared-pixel-installed-contract-pass.md).
 
-The immediate sequence is:
+Do not add another optimization subsystem. Do not optimize CI further. Do not begin repeated benchmarks yet.
 
-1. repository and documentation cleanup;
-2. operator runs the offline installed-class contract check;
-3. an LLM reviews that report;
-4. operator performs one approved real lifecycle run;
-5. an LLM reviews the retained evidence;
-6. operator runs the repeated benchmark campaign only after behavioral acceptance passes.
+The immediate sequence is now:
+
+1. operator prepares or verifies the exact current profile cache;
+2. operator returns the preparation report and stops;
+3. reviewing LLM extracts the exact cache, manifest, and resource-index paths;
+4. reviewing LLM supplies one explicit prepared-pixel launch command;
+5. operator performs one bounded lifecycle route and stops;
+6. reviewing LLM accepts or rejects the retained evidence;
+7. repeated measurement begins only after behavioral acceptance.
 
 ## Current project state
 
-The repository already contains:
+The repository contains:
 
 - the exact-gated `texture-compatibility-v2` consumer with one bounded real-install behavioral acceptance run;
 - the lower `prepared-pixels` consumer;
 - support for both direct texture-object color fields and the installed-style staged `TextureLoader` color flow into three distinct texture-object setters;
-- `PreparedPixelContractCheck` for an extracted class or the containing JAR;
+- `PreparedPixelContractCheck` for an extracted class or containing JAR;
 - bounded direct-buffer ownership and fail-open fallback behavior;
 - benchmark collection and comparison tooling for repeated OFF-versus-ENABLED campaigns.
 
-Prepared pixels are not yet live-accepted. The remaining gate is evidence from the exact installed Starsector class followed by one successful opt-in lifecycle route.
+The exact installed archive passed the offline contract check:
+
+- archive SHA-256: `10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708`;
+- class SHA-256: `d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50`;
+- all nine required methods present;
+- staged loader-field-to-setter model exact and unambiguous;
+- complete transformation successful;
+- no problems reported.
+
+Prepared pixels are still not live-accepted.
 
 ## Responsibilities
 
-### Current cleanup session
-
-The current repository-maintenance session must:
-
-1. reconcile this handoff, the roadmap, and prepared-texture documentation with merged PRs #117–#123;
-2. remove instructions that still tell the next session to reimplement the prepared-pixel color model or CI runner;
-3. leave one exact operator command for the offline contract check;
-4. avoid enabling a new live target or changing the exact allowlist;
-5. merge a documentation-only PR and comment on the controlling issue with the next operator action.
-
-The operator should wait until that cleanup is merged.
-
 ### Operator
 
-The operator owns actions that require the real Starsector installation and normal gameplay.
-
-The operator must:
+The operator owns actions requiring the real installation and normal gameplay. The operator must:
 
 - run only the command authorized for the current phase;
-- retain console output and generated run directories;
-- stop immediately at the documented review boundary;
+- retain console output, reports, and generated run directories;
+- stop at every documented review boundary;
 - avoid editing the game, mods, launcher, saves, or VM parameter files;
-- report crashes, visual corruption, missing assets, or unusual fallback/error counters exactly as observed;
-- keep raw proprietary game archives local.
+- report crashes, visual corruption, missing assets, or unusual counters exactly as observed;
+- keep proprietary game archives local.
 
 ### Reviewing LLM
 
 The reviewing LLM must:
 
-- validate exact identities and bounded report fields before allowing the next phase;
-- never infer acceptance from a successful process exit alone;
-- provide one copy-paste operator command using the operator's actual paths and generated artifact names;
-- review adapter, lifecycle, buffer-accounting, and failure telemetry after the real run;
-- update evidence documents and controlling issues before starting benchmarks;
+- validate exact identities and report fields before authorizing the next phase;
+- provide one copy-paste launch command using actual generated paths;
+- review adapter, lifecycle, buffer-accounting, and failure telemetry after the live run;
+- update evidence documents and controlling issues before benchmarks;
 - keep audio and Janino reuse disabled while texture acceptance is unresolved.
 
-### Next implementation LLM
+### Implementation LLM
 
-No implementation PR is automatically required after the offline check.
+No implementation PR is currently required. Code changes are justified only when new evidence exposes a concrete mismatch, missing bound, telemetry gap, or unsafe lifecycle behavior.
 
-The next implementation LLM writes code only when the installed report exposes a concrete mismatch, missing bound, telemetry gap, or unsafe lifecycle behavior. Any such PR must remain narrow and must state:
+Any implementation PR must state:
 
 - exact identity boundary;
 - original fallback behavior;
@@ -81,76 +78,104 @@ The next implementation LLM writes code only when the installed report exposes a
 - evidence or counters added;
 - what remains disabled.
 
-## Phase 1 — operator runs the offline installed-class check
+## Completed Phase 1 — offline installed-class check
 
-After the cleanup PR is merged, sync and build the current packaged JAR:
+The read-only checker passed against:
+
+```text
+/Applications/Starsector.app/Contents/Resources/Java/fs.common_obf.jar
+```
+
+The operator attempted to save the pipeline result in `status`, which is a read-only special parameter in zsh. Future shell examples must use `checker_status` or another ordinary variable.
+
+No prepared-pixel launch occurred during Phase 1.
+
+## Phase 2 — operator prepares the exact current profile cache
+
+Sync the merged repository explicitly and build the current packaged JAR:
 
 ```bash
 git switch main
-git pull --ff-only
-mvn --batch-mode --no-transfer-progress -pl preflight-cli -am package
+git fetch --prune origin
+git merge --ff-only origin/main
+
+mvn --batch-mode --no-transfer-progress \
+  -pl preflight-cli -am clean package
 ```
 
-Set the real installation path. On the reviewed macOS installation, the core archive is below `Contents/Resources/Java`:
+Use the confirmed installation path and a stable explicit cache/report location:
 
 ```bash
-export STARSECTOR_HOME="/path/to/Starsector.app"
-export PREFLIGHT_CORE_JAR="$STARSECTOR_HOME/Contents/Resources/Java/fs.common_obf.jar"
+export STARSECTOR_HOME="/Applications/Starsector.app"
+export PREFLIGHT_CACHE="$HOME/.starsector-preflight/cache"
+export PREFLIGHT_PREP_REPORT="$PREFLIGHT_CACHE/reports/prepared-pixel-lifecycle.json"
+
+mkdir -p "$PREFLIGHT_CACHE/reports"
+
+java -jar preflight-cli/target/preflight.jar prepare \
+  --game "$STARSECTOR_HOME" \
+  --cache-dir "$PREFLIGHT_CACHE" \
+  --report "$PREFLIGHT_PREP_REPORT"
+
+prepare_status=$?
+echo "prepare exit status: $prepare_status"
+ls -lh "$PREFLIGHT_PREP_REPORT"
 ```
 
-Run the read-only contract checker and retain its text report:
-
-```bash
-java -cp preflight-cli/target/preflight.jar \
-  dev.starsector.preflight.agent.PreparedPixelContractCheck \
-  "$PREFLIGHT_CORE_JAR" \
-  | tee prepared-pixel-contract.txt
-```
-
-This command must not launch Starsector or alter the installation.
+The command may take time because it inventories the profile, builds or validates resource and classpath indexes, and builds or reuses the texture cache.
 
 ### Operator stop point
 
-Stop after this command. Send `prepared-pixel-contract.txt` to the reviewing LLM. Do not run `--texture-mode prepared-pixels` yet.
+Stop after preparation. Return:
 
-### Review gate
+- the console output;
+- `prepare exit status`;
+- the contents of `$PREFLIGHT_PREP_REPORT`.
 
-The reviewing LLM must confirm all of the following from the report:
+Do not run `--texture-mode prepared-pixels` yet.
 
-- input and class identities match the manually reviewed installation;
-- the expected `TextureLoader` class and all nine required methods are present;
-- the installed staged color-sink model is recognized without ambiguity;
-- the complete prepared-pixel transform succeeds;
-- decline reasons are absent;
-- output is bounded and contains no proprietary class bytes.
+### Preparation review gate
 
-A mismatch, ambiguity, incomplete transform, or unexpected identity ends the phase as a safe decline. It does not justify weakening the target gate.
+The reviewing LLM must confirm:
 
-## Phase 2 — reviewing LLM prepares the real lifecycle command
+- top-level `successful` is `true`;
+- the installation and launcher are the expected current ones;
+- the resource-index stage succeeded and its `valid` field is `true`;
+- the texture stage succeeded and its `valid` field is `true`;
+- `failedBlobs` is zero;
+- top-level diagnostics contain no unresolved failure;
+- the top-level `cacheDirectory`, `resourceIndex`, and texture-stage `manifest` paths are exact and internally consistent;
+- the profile fingerprint represented by the index and manifest is the current profile.
 
-Only after Phase 1 passes, the reviewing LLM must:
+A failed or stale preparation report ends this phase safely. Do not guess artifact paths.
 
-1. verify or build the exact current profile cache;
-2. obtain the actual generated manifest and index paths from the preparation result;
-3. produce one explicit `run` command using those exact paths;
-4. state the expected adapter mode and counters before the operator starts;
-5. identify the run-directory location to retain afterward.
+## Phase 3 — reviewing LLM prepares the real lifecycle command
 
-The lower consumer requires explicit artifacts. The command shape is:
+Only after Phase 2 passes, the reviewing LLM must produce one explicit command using the exact paths from the preparation report.
+
+The command shape is:
 
 ```bash
 java -jar preflight-cli/target/preflight.jar run \
-  --game "$STARSECTOR_HOME" \
+  --game "/Applications/Starsector.app" \
   --adapter \
   --texture-mode prepared-pixels \
   --texture-cache-dir "/exact/cache/path" \
-  --texture-manifest "/exact/cache/path/manifests/<fingerprint>.spfm" \
-  --texture-index "/exact/cache/path/indexes/<fingerprint>.spfi"
+  --texture-manifest "/exact/manifest/path.spfm" \
+  --texture-index "/exact/resource-index/path.spfi"
 ```
 
 Do not substitute guessed fingerprints or stale artifacts.
 
-## Phase 3 — operator performs one behavioral acceptance route
+Before authorizing the launch, the reviewing LLM must state:
+
+- expected adapter mode;
+- expected exact transformation count;
+- expected prepared-pixel counters;
+- acceptable fallback categories;
+- run-directory location to retain afterward.
+
+## Phase 4 — operator performs one behavioral acceptance route
 
 The operator runs the approved command and completes:
 
@@ -175,13 +200,13 @@ Retain locally:
 - `startup.jfr`;
 - console output and the exact command used.
 
-Share sanitized JSON reports and console notes first. Keep proprietary archives and unrelated private paths local unless a reviewer specifically needs a bounded redacted field.
+Share sanitized JSON reports and console notes first. Keep proprietary archives local.
 
 ### Operator stop point
 
 Stop after the one lifecycle run. Do not begin a five-run benchmark campaign until the reviewing LLM accepts the behavioral evidence.
 
-## Phase 4 — reviewing LLM accepts or rejects the lifecycle
+## Phase 5 — reviewing LLM accepts or rejects the lifecycle
 
 Acceptance requires:
 
@@ -194,9 +219,9 @@ Acceptance requires:
 - completed lifecycle and clean process exit;
 - no reported visual, loading, campaign, combat, save, or shutdown regression.
 
-The reviewing LLM then records a sanitized evidence document and updates issues #51, #78, #102, and #80 as applicable.
+The reviewing LLM then records sanitized evidence and updates issues #51, #78, #102, and #80 as applicable.
 
-## Phase 5 — repeated measurement campaign
+## Phase 6 — repeated measurement campaign
 
 Only after behavioral acceptance passes, collect comparable runs on the same machine, installation, Java runtime, enabled mod order, save action, and cache state.
 
@@ -209,15 +234,15 @@ Minimum campaign:
 - one controlled corrupt-artifact fallback or repair run;
 - one changed-profile rejection run reported separately.
 
-Retain failed runs and classify them. Report median, minimum, and maximum, along with main-menu and campaign readiness, adapter counters, remaining image/decode/conversion attribution, peak heap/direct-buffer use, and cache size.
+Retain failed runs and classify them. Report every run plus median, minimum, and maximum. Include main-menu and campaign readiness, adapter counters, remaining image/decode/conversion attribution, peak heap/direct-buffer use, and cache size.
 
 No acceleration claim is allowed before this campaign is reviewed.
 
 ## Decision after measurement
 
-- A meaningful prepared-pixel improvement moves the project toward one exact-profile prepare-and-launch command and an alpha texture-pilot release.
-- A weak texture result should redirect effort using the same-run JFR evidence, with prepared audio preferred before deeper Janino context work when the evidence supports it.
-- A correctness failure returns to a narrow repair PR; it does not justify broadening target identities or weakening fallback rules.
+- A meaningful prepared-pixel improvement advances one exact-profile prepare-and-launch command and an alpha texture-pilot release.
+- A weak texture result redirects effort using same-run JFR evidence, with prepared audio preferred before deeper Janino context work when supported by evidence.
+- A correctness failure returns to one narrow repair PR; it does not justify broader identities or weaker fallbacks.
 
 ## Standing safety rules
 
