@@ -261,6 +261,22 @@ class PreparedPixelContractCheckTest {
                 TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
                 null,
                 null);
+        convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+convert.instructions.add(new InsnNode(Opcodes.ICONST_4));
+convert.instructions.add(new MethodInsnNode(
+        Opcodes.INVOKEVIRTUAL,
+        TexturePreparedPixelPlan.TEXTURE_OBJECT,
+        "setUploadWidth",
+        "(I)V",
+        false));
+convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+convert.instructions.add(new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, 8));
+convert.instructions.add(new MethodInsnNode(
+        Opcodes.INVOKEVIRTUAL,
+        TexturePreparedPixelPlan.TEXTURE_OBJECT,
+        "setUploadHeight",
+        "(I)V",
+        false));
         convert.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
         convert.instructions.add(new MethodInsnNode(
                 Opcodes.INVOKEVIRTUAL,
