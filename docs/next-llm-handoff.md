@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Perform and review exactly one installed **launcher-only coherent-direct NPOT probe** from current `main` using the repository runner.
+Review and merge PR #141, then perform and review exactly one installed **launcher-only coherent-direct backing-dimension probe** using the repository runner.
 
 Do not click Play, enter gameplay, repeat the probe, benchmark, or make an acceleration claim.
 
@@ -18,7 +18,9 @@ Do not click Play, enter gameplay, repeat the probe, benchmark, or make an accel
 - [successful original-layout probe](evidence/2026-07-22-prepared-pixel-original-layout-probe.md)
 - [successful coherent-image/original-converter probe](evidence/2026-07-22-prepared-pixel-coherent-converter-probe.md)
 - [coherent-direct diagnostic contract](evidence/2026-07-22-prepared-pixel-coherent-direct-diagnostic.md)
+- [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
 - issue #129 — NPOT upload dimensions and prepared-path visual acceptance
+- PR #141 — replay reviewed backing-dimension side effects
 
 ## Merged milestones
 
@@ -44,90 +46,70 @@ PR #139 coherent source-sized carrier plus direct cached NPOT diagnostic:
 
 ## Established facts
 
-The first direct NPOT build stopped crashing but rendered a black launcher. Its lifecycle and direct-buffer accounting were clean.
+The direct NPOT upload no longer crashes and its observed bytes match Starsector's original converter layout. The safe original-converter probes render normally.
 
-The later original-layout probe rendered normally and showed that Starsector's original NPOT buffers used the same relevant row-padded arrangement as the failed direct path. The upper-versus-lower placement diagnosis was wrong.
-
-The coherent-image/original-converter probe also rendered normally. It proved the cached pixels can form a real source-sized image that Starsector accepts. Retained run identity:
+The coherent-direct probe also supplied the expected coherent carrier, cached colors, padded bytes, cleanup, and lifecycle accounting, but still rendered the launcher black. Retained identity:
 
 ```text
-repositoryHead: ab208dd2f16aaf521b07431cac86dca20763bf5e
-jarSha256: d579f6f16bca0c8a73db91bfa8aee2fe3eddd68ceb5932187bb461d6fd77a9d0
+repositoryHead: f252e6eff207e2ed7d2b3682396c3450bbccccf8
+jarSha256: 69a8a99a64b86049de6181eb2359f94ed510a5d94dd0dc286b69fa897721eab5
 archiveSha256: 10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708
 classSha256: d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50
 ```
 
-The remaining controlled split is:
+Telemetry included 20 hits, 7 coherent-direct NPOT hits, 7 padded uploads, zero fallbacks/errors, 20 releases, and zero active/pending buffers at shutdown.
 
-1. the historical synthetic `1x1` carrier caused the black launcher; or
-2. the original converter performs another required side effect, or cached derived colors differ.
+Therefore the synthetic `1x1` carrier was not the sole cause.
 
-## Merged coherent-direct diagnostic
+## Concrete missing side effect
 
-Current `main` recognizes:
+The exact installed converter performs two texture-object `(I)V` calls before deriving colors and returning its buffer:
+
+1. first setter receives the computed power-of-two upload width;
+2. second setter receives the computed power-of-two upload height.
+
+The prepared wrapper already carried those upload dimensions but did not apply the setters. That can leave renderer UV/backing state inconsistent with the actual OpenGL upload even when the byte buffer is correct.
+
+## PR #141 behavior
+
+PR #141 extracts exactly two distinct `(I)V` calls on `com/fs/graphics/Object` from the reviewed converter shape and declines transformation if that shape is missing or ambiguous.
+
+For a successful prepared result, and only while:
 
 ```text
 -Dpreflight.preparedPixels.coherentDirect=true
 ```
 
-For admitted NPOT prepared-cache hits under that property only, the path combines:
+is enabled, the wrapper replays the setters in reviewed width-then-height order using `PreparedPixel.width()` and `PreparedPixel.height()`, then writes the cached colors and returns the prepared buffer.
 
-1. the proven real source-sized coherent image;
-2. the exact observed row-padded next-power-of-two upload bytes;
-3. the cached three derived colors;
-4. bounded direct-buffer ownership and cleanup.
-
-It bypasses ImageIO and the original pixel converter. The safe default is unchanged without the property. If both diagnostic properties are present, coherent-direct takes precedence.
-
-Telemetry includes:
-
-```text
-coherentDirectEnabled
-coherentDirectCarriers
-coherentDirectHits
-paddedUploads
-paddingBytes
-```
+Without the property, safe NPOT behavior is unchanged. Identity gates, compatibility rollback, SPFT v1, cleanup, exceptions, circuit breaker, and direct-memory limits remain unchanged.
 
 ## Interpretation
 
 ```text
 normal launcher
-→ the historical synthetic 1x1 carrier was the material cause;
-→ coherent carrier + cached direct bytes + cached colors are viable at the launcher seam.
+→ missing backing-dimension writes caused the black rendering;
+→ coherent carrier + cached data are viable at the launcher seam with those writes restored.
 
 broken launcher
-→ a required converter side effect or cached-color mismatch remains;
-→ keep direct NPOT bypass disabled.
+→ another converter side effect or cached-color difference remains;
+→ direct NPOT bypass stays unaccepted.
 ```
 
 A normal launcher is not gameplay acceptance.
 
-## Automated validation
+## Validation state
 
-Final validated PR head:
+A temporary report workflow identified and corrected two stale converter fixtures. Full Maven verification passed in the patched workspace. The temporary workflow was removed.
 
-```text
-df3f3707c5c1d292e0e112399e468ff7fea1b4ec
-```
+Before merge, record all final affected workflows on the final PR head and update the PR body with the validated SHA.
 
-Successful workflows:
-
-```text
-CI run 541 — full Maven verification
-Vanilla adapter gate tests run 391
-Texture cache tests run 383
-Prepare command tests run 106
-```
-
-Exact identity gates, compatibility rollback, SPFT v1, circuit breaker, cleanup, exceptions, and direct-memory limits remain unchanged.
-
-## Authorized operator action
+## Authorized operator action after merge
 
 ```bash
 git switch main
 git pull --ff-only
-bash scripts/run-prepared-pixel-coherent-direct-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
 ```
 
 When the launcher appears:
@@ -140,7 +122,7 @@ inspect all launcher visuals
 → upload the generated Desktop archive
 ```
 
-A duplicate screenshot is optional when the launcher is visually identical to the already retained accepted launcher.
+A duplicate screenshot is optional when the classification is unambiguous.
 
 ## Expected automated evidence
 
@@ -153,7 +135,8 @@ A duplicate screenshot is optional when the launcher is visually identical to th
 - internal errors zero;
 - active direct bytes, active buffers, and pending buffers zero at shutdown;
 - no fatal console or log evidence;
-- clean launcher exit.
+- clean launcher exit;
+- operator identity records `dimensionReplay=reviewed-converter-two-setter-order`.
 
 ## Definition of a good handback
 
