@@ -479,7 +479,7 @@ final class PrepareCommand {
         }
 
         boolean successful() {
-            return "SUCCESS".equals(status);
+            return !"FAILED".equals(status);
         }
 
         Map<String, Object> toMap() {
