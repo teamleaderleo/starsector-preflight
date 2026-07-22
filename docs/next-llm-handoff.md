@@ -4,9 +4,9 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge PR #133, which adds bounded next-power-of-two upload padding to the prepared-pixel bridge after the repaired baseline from PR #132.
+Perform and review exactly one real installed prepared-pixel lifecycle route after the merged NPOT padding implementation.
 
-After merge and explicit review approval, perform exactly one real installed lifecycle route. Repeated measurement and acceleration claims remain blocked until that evidence is accepted.
+Do not begin repeated measurement or make acceleration claims until that behavioral evidence is accepted.
 
 Primary evidence:
 
@@ -26,9 +26,13 @@ PR #132 was squash-merged as:
 4f3b79c6d7683242d16cb7b34081cd7800f20017
 ```
 
-PR #133 is review-ready on branch `feature/prepared-pixel-npot-padding`.
+PR #133 was squash-merged as:
 
-Validated implementation head:
+```text
+68ece81782b54022d58d41634dd88491fca13601
+```
+
+Validated implementation head before the documentation-only tail:
 
 ```text
 b3b1b59856008ad91609c02ac52eb1986e7bc14b
@@ -40,8 +44,6 @@ Successful workflows on that implementation head:
 - Texture cache tests run 349
 - Vanilla adapter gate tests run 352
 - Prepare command tests run 84
-
-Documentation-only commits follow that validated implementation head.
 
 ## Implemented NPOT behavior
 
@@ -66,13 +68,13 @@ Observed fixture:
 904821 bytes of zero padding
 ```
 
-The packaged Java-agent fixture now enforces the same power-of-two minimum-buffer requirement that caused the first live failure. The prepared route passes with decode and conversion bypassed, cleanup executed once, and expanded direct-buffer accounting released to zero.
+The packaged Java-agent fixture enforces the same power-of-two minimum-buffer requirement that caused the first live failure. The prepared route passes with decode and conversion bypassed, cleanup executed once, and expanded direct-buffer accounting released to zero.
 
 Telemetry keeps `bytesBypassed` source-sized, records expanded upload traffic separately in `uploadBytesSupplied`, and reports `paddedUploads` plus `paddingBytes`.
 
 ## Preserved boundaries
 
-PR #133 preserves:
+The merged implementation preserves:
 
 - exact installed archive, class, source, method, and loader identities;
 - the original Starsector fallback path;
@@ -98,6 +100,8 @@ realInstallPilotRequired: true
 launchAccelerationClaimed: false
 ```
 
+These values remain correct until the real installed lifecycle evidence is accepted.
+
 ## Exact identities
 
 ```text
@@ -114,27 +118,13 @@ offline transformed SHA-256 from the prior installed check:
 b32700195f5837c42dba0f2d202cc0a95af75bfd8b7725d8a2878f59d9e01527
 ```
 
-Keep these identities exact. A future installed check may produce different transformed bytes because PR #133 changes runtime support code rather than the reviewed target-class matching boundary; record any new result without replacing the historical evidence.
+Keep these identities exact. Record any new installed-check result without replacing the historical evidence.
 
-## Review checklist
+## Operator action
 
-1. Confirm SPFT files remain source-sized and format version 1 is unchanged.
-2. Confirm bottom-up source rows are copied into the lower-left of the power-of-two backing.
-3. Confirm right and upper padding are zero-filled.
-4. Confirm the direct-memory bounds apply to expanded upload bytes.
-5. Confirm original dimensions remain visible to Starsector through the carrier.
-6. Confirm normal and exceptional releases return active buffers and active direct bytes to zero.
-7. Confirm unexpected pre-padded blobs fail open.
-8. Confirm the packaged fixture reproduces the minimum upload-buffer contract.
-9. Confirm `bytesBypassed` excludes padding and `uploadBytesSupplied` includes it.
-10. Confirm exact identities, fallback behavior, circuit breaker, cleanup, and compatibility rollback remain unchanged.
-11. Confirm no benchmark or acceleration claim is present.
+Exactly one prepared-pixel lifecycle route is authorized.
 
-## Operator status
-
-No prepared-pixel command is authorized while PR #133 remains unmerged.
-
-After PR #133 is reviewed and merged, authorize one lifecycle route only:
+Use the exact cache, manifest, index, target file, binary, and installation paths from the current preparation report. Do not guess them. The route is:
 
 ```text
 launch
@@ -145,7 +135,7 @@ launch
 → clean exit
 ```
 
-Use the exact cache, manifest, index, target file, binary, and installation paths from the current preparation report. Do not guess them. Retain the complete run directory, including `console.txt`, and stop after one run.
+Retain the complete run directory, including `console.txt`, and stop after one run.
 
 Acceptance requires expected prepared hits and padding telemetry, clean dimensions and visuals, only understood original-path fallbacks, zero internal errors, no circuit breaker, zero active buffers/direct bytes/pending buffers at shutdown, no fatal console/log evidence, and completion of the full route.
 
@@ -153,8 +143,9 @@ Acceptance requires expected prepared hits and padding telemetry, clean dimensio
 
 Leave:
 
-1. PR #133 reviewed and merged, or review findings recorded against exact commits;
-2. full and focused automated validation results;
-3. issue #129 updated with the implementation and remaining installed-pilot requirement;
-4. evidence and handoff documents aligned with merged code;
-5. exactly one operator action, or an explicit statement that no operator run was possible.
+1. the exact command and merged binary identity used;
+2. the complete retained run directory;
+3. a dated evidence document with lifecycle and visual findings;
+4. issue #129 updated with pass or failure details;
+5. readiness and operator handoff updated to match the result;
+6. no repeated benchmark or acceleration claim unless a later phase explicitly authorizes it.

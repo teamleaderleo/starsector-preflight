@@ -2,7 +2,7 @@
 
 Date: 2026-07-22
 
-Status: implementation and automated validation complete on PR #133. A real installed lifecycle pilot remains required.
+Status: implementation merged and automated validation complete. One real installed lifecycle pilot remains required.
 
 ## Baseline
 
@@ -14,11 +14,17 @@ PR #132 was squash-merged as:
 
 That baseline safely declined non-power-of-two prepared payloads, repaired exceptional direct-buffer accounting, captured bounded launcher console evidence, and corrected preparation reporting.
 
+PR #133 was squash-merged as:
+
+```text
+68ece81782b54022d58d41634dd88491fca13601
+```
+
 ## Implemented upload layout
 
 SPFT version 1 remains unchanged on disk. It stores source-sized, bottom-up RGB or RGBA rows and the three derived loader colors.
 
-The prepared-pixel bridge now constructs the next-power-of-two OpenGL backing buffer at runtime:
+The prepared-pixel bridge constructs the next-power-of-two OpenGL backing buffer at runtime:
 
 1. calculate the next power of two independently for source width and height;
 2. allocate one bounded direct buffer for `uploadWidth * uploadHeight * channels`;
@@ -53,7 +59,7 @@ The existing exact archive, class, source, method, and loader identity gates rem
 
 ## Automated proof
 
-Validated implementation head:
+Validated implementation head before the documentation-only tail:
 
 ```text
 b3b1b59856008ad91609c02ac52eb1986e7bc14b
@@ -86,7 +92,7 @@ Telemetry adds `paddedUploads`, `paddingBytes`, and `uploadBytesSupplied`. `byte
 
 No Starsector installation is available in the implementation environment, so the installed-class checker and real lifecycle route were not rerun here.
 
-After PR #133 is reviewed and merged, perform exactly one controlled route on the reviewed 0.98a-RC8 installation:
+PR #133 is merged. One controlled route is now authorized on the reviewed 0.98a-RC8 installation, using only the exact artifacts and paths from the current preparation report:
 
 ```text
 launch

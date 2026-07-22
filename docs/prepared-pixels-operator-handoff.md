@@ -12,7 +12,13 @@ PR #132 repaired fail-open admission, exceptional direct-buffer release, fatal c
 4f3b79c6d7683242d16cb7b34081cd7800f20017
 ```
 
-PR #133 implements bounded runtime upload padding and is awaiting review and merge. Automated validation passed on implementation head:
+PR #133 implemented bounded runtime upload padding and was squash-merged as:
+
+```text
+68ece81782b54022d58d41634dd88491fca13601
+```
+
+Automated validation passed on implementation head:
 
 ```text
 b3b1b59856008ad91609c02ac52eb1986e7bc14b
@@ -25,7 +31,7 @@ See:
 - [lifecycle repair](evidence/2026-07-22-prepared-pixel-lifecycle-repair.md)
 - [NPOT upload padding](evidence/2026-07-22-prepared-pixel-npot-padding.md)
 
-No prepared-pixel launch is authorized while PR #133 remains unmerged. Compatibility mode remains the accepted rollback path.
+Exactly one prepared-pixel lifecycle route is now authorized. Compatibility mode remains the accepted rollback path.
 
 ## Original failure
 
@@ -39,7 +45,7 @@ required buffer elements: 1572864
 
 The launcher shell also returned zero despite a fatal visible in its child console. PR #132 now captures that console and classifies the run as non-clean.
 
-## PR #133 padding behavior
+## Merged padding behavior
 
 SPFT version 1 remains unchanged and source-sized. The bridge creates the live upload backing without resampling:
 
@@ -89,7 +95,7 @@ The CI run executed the full Maven verification suite.
 
 ## Preserved boundaries
 
-PR #133 preserves:
+The merged implementation preserves:
 
 - exact archive, class, source, method, and loader identity gates;
 - original Starsector fallback behavior;
@@ -104,7 +110,7 @@ PR #133 preserves:
 
 Automatic allowlist generation remains disabled. The failed pilot and the new automated tests support no acceleration claim.
 
-## Future operator route after merge and review approval
+## Authorized operator route
 
 Use the exact current preparation report to obtain all paths. Do not infer or guess the cache fingerprint, manifest, index, target file, Java binary, or Starsector installation path.
 
@@ -154,8 +160,8 @@ Acceptance requires:
 
 Do not:
 
-- run prepared pixels before PR #133 is reviewed and merged;
-- repeat a pilot or begin benchmarks;
+- run more than this one authorized prepared-pixel pilot;
+- begin benchmarks;
 - generate allowlists from probe output;
 - weaken exact identity gates;
 - patch Starsector or its launcher;
@@ -164,4 +170,4 @@ Do not:
 - add unbounded caches, maps, logs, buffers, or worker pools;
 - treat zero padding as image resampling or claim visual upscaling;
 - claim acceleration before a separate accepted measurement campaign;
-- delete the failed run or any new pilot evidence.
+- delete the failed run or the new pilot evidence.
