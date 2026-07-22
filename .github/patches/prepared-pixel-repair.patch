@@ -1,0 +1,602 @@
+diff --git a/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntime.java b/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntime.java
+index 36bcfbf..0000000 100644
+--- a/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntime.java
++++ b/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntime.java
+@@ -6,6 +6,7 @@ import dev.starsector.preflight.core.PreparedTexture;
+ import java.awt.Color;
+ import java.awt.image.BufferedImage;
+ import java.nio.ByteBuffer;
++import java.util.ArrayDeque;
+ import java.util.IdentityHashMap;
+ import java.util.LinkedHashMap;
+ import java.util.Map;
+@@ -20,6 +21,7 @@ public final class TexturePreparedPixelRuntime {
+ 
+     private static final Object LOCK = new Object();
+     private static final IdentityHashMap<ByteBuffer, Integer> ACTIVE = new IdentityHashMap<>();
++    private static final IdentityHashMap<Thread, ArrayDeque<ByteBuffer>> IN_FLIGHT = new IdentityHashMap<>();
+     private static final Telemetry TELEMETRY = new Telemetry();
+     private static volatile boolean selected;
+     private static long activeBytes;
+@@ -33,6 +35,7 @@ public final class TexturePreparedPixelRuntime {
+         selected = false;
+         synchronized (LOCK) {
+             ACTIVE.clear();
++            IN_FLIGHT.clear();
+             activeBytes = 0;
+             peakBytes = 0;
+             pendingBuffers = 0;
+@@ -57,10 +60,8 @@ public final class TexturePreparedPixelRuntime {
+         if (texture == null) {
+             return null;
+         }
+-        if (texture.originalWidth() != texture.uploadWidth()
+-                || texture.originalHeight() != texture.uploadHeight()
+-                || texture.pixelBytes() > MAX_TEXTURE_BYTES) {
++        if (!supportedDimensions(texture) || texture.pixelBytes() > MAX_TEXTURE_BYTES) {
++            TELEMETRY.dimensionFallback();
+             TELEMETRY.fallback();
+             TextureCompatibilityRuntime.declined(TextureCompatibilityRuntime.FallbackReason.UNSUPPORTED_TEXTURE);
+             return null;
+@@ -99,6 +100,7 @@ public final class TexturePreparedPixelRuntime {
+             synchronized (LOCK) {
+                 pendingBuffers--;
+                 ACTIVE.put(buffer, bytes);
++                IN_FLIGHT.computeIfAbsent(Thread.currentThread(), ignored -> new ArrayDeque<>()).addLast(buffer);
+                 registered = true;
+             }
+             PreparedPixel result = new PreparedPixel(
+@@ -106,8 +108,8 @@ public final class TexturePreparedPixelRuntime {
+                     color(texture.color0Rgba()),
+                     color(texture.color1Rgba()),
+                     color(texture.color2Rgba()),
+-                    texture.originalWidth(),
+-                    texture.originalHeight(),
++                    texture.uploadWidth(),
++                    texture.uploadHeight(),
+                     texture.channels(),
+                     bytes);
+             TELEMETRY.hit(bytes);
+@@ -116,8 +118,10 @@ public final class TexturePreparedPixelRuntime {
+             }
+             return result;
+         } catch (ThreadDeath | VirtualMachineError fatal) {
+-            if (!registered) {
++            if (registered) {
++                release(buffer);
++            } else {
+                 undoReservation(bytes);
+             }
+             throw fatal;
+@@ -135,6 +139,19 @@ public final class TexturePreparedPixelRuntime {
+         }
+     }
+ 
++    /** Releases the newest prepared buffer owned by the current converter caller. */
++    public static void releaseCurrentThreadBuffer() {
++        ByteBuffer buffer = null;
++        synchronized (LOCK) {
++            ArrayDeque<ByteBuffer> buffers = IN_FLIGHT.get(Thread.currentThread());
++            if (buffers != null) {
++                buffer = buffers.pollLast();
++                if (buffers.isEmpty()) {
++                    IN_FLIGHT.remove(Thread.currentThread());
++                }
++            }
++        }
++        release(buffer);
++    }
++
+     /** Releases accounting after Starsector's original cleanup method has run. */
+     public static void release(ByteBuffer buffer) {
+         if (buffer == null) {
+@@ -142,6 +159,7 @@ public final class TexturePreparedPixelRuntime {
+         }
+         Integer bytes;
+         synchronized (LOCK) {
++            removeTrackedLocked(buffer);
+             bytes = ACTIVE.remove(buffer);
+             if (bytes != null) {
+                 activeBytes -= bytes;
+@@ -200,6 +218,48 @@ public final class TexturePreparedPixelRuntime {
+         }
+     }
+ 
++    static int expectedUploadDimension(int sourceDimension) {
++        if (sourceDimension <= 0) {
++            return -1;
++        }
++        int highest = Integer.highestOneBit(sourceDimension);
++        if (highest == sourceDimension) {
++            return sourceDimension;
++        }
++        return highest > (1 << 30) ? -1 : highest << 1;
++    }
++
++    private static boolean supportedDimensions(PreparedTexture texture) {
++        int expectedWidth = expectedUploadDimension(texture.originalWidth());
++        int expectedHeight = expectedUploadDimension(texture.originalHeight());
++        if (expectedWidth != texture.originalWidth() || expectedHeight != texture.originalHeight()) {
++            return false;
++        }
++        if (texture.uploadWidth() != expectedWidth || texture.uploadHeight() != expectedHeight) {
++            return false;
++        }
++        long expectedBytes = Math.multiplyExact(
++                Math.multiplyExact((long) texture.uploadWidth(), texture.uploadHeight()),
++                texture.channels());
++        return expectedBytes == texture.pixelBytes();
++    }
++
++    private static void removeTrackedLocked(ByteBuffer buffer) {
++        var threadIterator = IN_FLIGHT.entrySet().iterator();
++        while (threadIterator.hasNext()) {
++            Map.Entry<Thread, ArrayDeque<ByteBuffer>> entry = threadIterator.next();
++            var bufferIterator = entry.getValue().iterator();
++            while (bufferIterator.hasNext()) {
++                if (bufferIterator.next() == buffer) {
++                    bufferIterator.remove();
++                    if (entry.getValue().isEmpty()) {
++                        threadIterator.remove();
++                    }
++                    return;
++                }
++            }
++        }
++    }
++
+     private static Color color(int rgba) {
+         return new Color(
+                 PreparedTexture.red(rgba),
+@@ -252,6 +312,7 @@ public final class TexturePreparedPixelRuntime {
+         private long hits;
+         private long fallbacks;
++        private long dimensionFallbacks;
+         private long internalErrors;
+         private long releases;
+         private long bytesBypassed;
+@@ -261,6 +322,7 @@ public final class TexturePreparedPixelRuntime {
+             directAttempts = 0;
+             hits = 0;
+             fallbacks = 0;
++            dimensionFallbacks = 0;
+             internalErrors = 0;
+             releases = 0;
+             bytesBypassed = 0;
+@@ -284,6 +346,10 @@ public final class TexturePreparedPixelRuntime {
+             fallbacks++;
+         }
+ 
++        synchronized void dimensionFallback() {
++            dimensionFallbacks++;
++        }
++
+         synchronized void internalError() {
+             internalErrors++;
+         }
+@@ -309,6 +375,7 @@ public final class TexturePreparedPixelRuntime {
+             values.put("directAttempts", directAttempts);
+             values.put("hits", hits);
+             values.put("fallbacks", fallbacks);
++            values.put("dimensionFallbacks", dimensionFallbacks);
+             values.put("internalErrors", internalErrors);
+             values.put("releases", releases);
+             values.put("bytesBypassed", bytesBypassed);
+diff --git a/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java b/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java
+index 09ca44e..0000000 100644
+--- a/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java
++++ b/preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java
+@@ -78,6 +78,10 @@ final class TexturePreparedPixelPlan {
+         if (colors.size() != 3) {
+             return null;
+         }
++        List<MethodNode> uploadCallers = directConvertCallers(owner, convert);
++        if (uploadCallers.isEmpty()) {
++            return null;
++        }
+ 
+         MethodNode originalDecode = directDecodeClone(decode);
+         if (originalDecode == null) {
+@@ -89,6 +93,7 @@ final class TexturePreparedPixelPlan {
+         owner.methods.add(originalDecode);
+         owner.methods.add(convertWrapper(owner.name, convertMetadata, colors));
+         owner.methods.add(cleanupWrapper(owner.name, cleanupMetadata));
++        uploadCallers.forEach(TexturePreparedPixelPlan::addExceptionalRelease);
+ 
+         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+         owner.accept(writer);
+@@ -202,6 +207,52 @@ final class TexturePreparedPixelPlan {
+         return wrapper;
+     }
+ 
++    private static List<MethodNode> directConvertCallers(ClassNode owner, MethodNode convert) {
++        List<MethodNode> callers = new ArrayList<>();
++        for (MethodNode method : owner.methods) {
++            if (method == convert) {
++                continue;
++            }
++            for (AbstractInsnNode instruction = method.instructions.getFirst();
++                    instruction != null;
++                    instruction = instruction.getNext()) {
++                if (instruction instanceof MethodInsnNode call
++                        && owner.name.equals(call.owner)
++                        && CONVERT_METHOD.equals(call.name)
++                        && CONVERT_DESCRIPTOR.equals(call.desc)) {
++                    callers.add(method);
++                    break;
++                }
++            }
++        }
++        return List.copyOf(callers);
++    }
++
++    private static void addExceptionalRelease(MethodNode method) {
++        if (method.instructions.getFirst() == null) {
++            return;
++        }
++        int errorLocal = method.maxLocals;
++        method.maxLocals++;
++        LabelNode start = new LabelNode();
++        LabelNode end = new LabelNode();
++        LabelNode handler = new LabelNode();
++        method.instructions.insertBefore(method.instructions.getFirst(), start);
++        method.instructions.add(end);
++        method.instructions.add(handler);
++        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, errorLocal));
++        method.instructions.add(new MethodInsnNode(
++                Opcodes.INVOKESTATIC,
++                RUNTIME,
++                "releaseCurrentThreadBuffer",
++                "()V",
++                false));
++        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, errorLocal));
++        method.instructions.add(new InsnNode(Opcodes.ATHROW));
++        method.tryCatchBlocks.add(new TryCatchBlockNode(start, end, handler, "java/lang/Throwable"));
++    }
++
+     private static MethodMetadata rename(
+             String owner,
+             MethodNode original,
+diff --git a/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelPlanTest.java b/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelPlanTest.java
+index 94094c3..0000000 100644
+--- a/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelPlanTest.java
++++ b/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelPlanTest.java
+@@ -47,6 +47,11 @@ class TexturePreparedPixelPlanTest {
+ 
+         MethodNode cleanup = method(node, TexturePreparedPixelPlan.CLEANUP_METHOD, TexturePreparedPixelPlan.CLEANUP_DESCRIPTOR);
+         assertTrue(hasCall(cleanup, "TexturePreparedPixelRuntime", "release"));
++        MethodNode upload = method(node, "uploadForTest", TexturePreparedPixelPlan.CONVERT_DESCRIPTOR);
++        assertNotNull(upload);
++        assertTrue(hasCall(upload, "TexturePreparedPixelRuntime", "releaseCurrentThreadBuffer"));
++        assertTrue(upload.tryCatchBlocks.stream()
++                .anyMatch(block -> "java/lang/Throwable".equals(block.type)));
+         assertNull(TexturePreparedPixelPlan.transform(ClassSignature.parse(transformed), transformed));
+     }
+@@ -160,6 +165,24 @@ class TexturePreparedPixelPlanTest {
+         convert.visitMaxs(0, 0);
+         convert.visitEnd();
+ 
++        MethodVisitor upload = writer.visitMethod(
++                Opcodes.ACC_PUBLIC,
++                "uploadForTest",
++                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
++                null,
++                null);
++        upload.visitCode();
++        upload.visitVarInsn(Opcodes.ALOAD, 0);
++        upload.visitVarInsn(Opcodes.ALOAD, 1);
++        upload.visitVarInsn(Opcodes.ALOAD, 2);
++        upload.visitMethodInsn(
++                Opcodes.INVOKESPECIAL,
++                TexturePreparedPixelPlan.TARGET_CLASS,
++                TexturePreparedPixelPlan.CONVERT_METHOD,
++                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
++                false);
++        upload.visitInsn(Opcodes.ARETURN);
++        upload.visitMaxs(0, 0);
++        upload.visitEnd();
++
+         MethodVisitor cleanup = writer.visitMethod(
+                 Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                 TexturePreparedPixelPlan.CLEANUP_METHOD,
+diff --git a/preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java b/preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java
+index 7018130..0000000 100644
+--- a/preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java
++++ b/preflight-agent/src/test/java/dev/starsector/preflight/agent/PreparedPixelContractCheckTest.java
+@@ -220,6 +220,7 @@ class PreparedPixelContractCheckTest {
+         decodeMethod().accept(writer);
+         convertMethod().accept(writer);
+         cleanupMethod().accept(writer);
++        uploadMethod().accept(writer);
+         addRequiredMethodStubs(writer);
+         transferMethod(transferModel).accept(writer);
+@@ -296,6 +297,29 @@ class PreparedPixelContractCheckTest {
+         return cleanup;
+     }
+ 
++    private static MethodNode uploadMethod() {
++        MethodNode upload = new MethodNode(
++                Opcodes.ASM9,
++                Opcodes.ACC_PUBLIC,
++                "preflightTestUpload",
++                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
++                null,
++                null);
++        upload.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
++        upload.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
++        upload.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
++        upload.instructions.add(new MethodInsnNode(
++                Opcodes.INVOKEVIRTUAL,
++                TexturePreparedPixelPlan.TARGET_CLASS,
++                TexturePreparedPixelPlan.CONVERT_METHOD,
++                TexturePreparedPixelPlan.CONVERT_DESCRIPTOR,
++                false));
++        upload.instructions.add(new InsnNode(Opcodes.ARETURN));
++        return upload;
++    }
++
+     private static void addRequiredMethodStubs(ClassWriter writer) {
+         for (AdapterTarget.RequiredMethod required
+diff --git a/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntimeTest.java b/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntimeTest.java
+index 27374f4..0000000 100644
+--- a/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntimeTest.java
++++ b/preflight-agent/src/test/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntimeTest.java
+@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
+ import static org.junit.jupiter.api.Assertions.assertFalse;
+ import static org.junit.jupiter.api.Assertions.assertNotSame;
++import static org.junit.jupiter.api.Assertions.assertNull;
+ import static org.junit.jupiter.api.Assertions.assertTrue;
+@@ -57,6 +58,10 @@ class TexturePreparedPixelRuntimeTest {
+         assertEquals(0, first.buffer().position());
+         assertEquals(fixture.pixels().length, first.buffer().limit());
+         assertArrayEquals(fixture.pixels(), bytes(first.buffer()));
++        assertEquals(first.pixelBytes(), first.buffer().remaining());
++        assertEquals(first.width() * first.height() * first.channels(), first.buffer().remaining());
++        assertEquals(2, first.width());
++        assertEquals(2, first.height());
+         assertEquals(0xff0a141e, first.color0().getRGB());
+@@ -89,6 +94,59 @@ class TexturePreparedPixelRuntimeTest {
+         assertEquals(0, reportedPrepared.get("activeBuffers"));
+     }
+ 
++    @Test
++    void declinesObservedNpotRgbBeforeCreatingCarrierOrDirectBuffer() throws Exception {
++        Fixture fixture = fixture(597, 373, 3);
++        TexturePreparedPixelRuntime.beginSession();
++        assertTrue(TextureCompatibilityRuntime.configure(
++                fixture.cache(), fixture.manifest(), fixture.index()));
++        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
++
++        assertEquals(1024, TexturePreparedPixelRuntime.expectedUploadDimension(597));
++        assertEquals(512, TexturePreparedPixelRuntime.expectedUploadDimension(373));
++        assertEquals(668_043, fixture.pixels().length);
++        assertEquals(1_572_864, 1024 * 512 * 3);
++        assertNull(TexturePreparedPixelRuntime.load("graphics/test.png"));
++
++        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
++        assertEquals(1L, telemetry.get("fallbacks"));
++        assertEquals(1L, telemetry.get("dimensionFallbacks"));
++        assertEquals(0L, telemetry.get("directAttempts"));
++        assertEquals(0, telemetry.get("activeBuffers"));
++        assertEquals(0L, telemetry.get("activeDirectBytes"));
++    }
++
++    @Test
++    void declinesNpotRgbaBeforeCreatingCarrierOrDirectBuffer() throws Exception {
++        Fixture fixture = fixture(3, 5, 4);
++        TexturePreparedPixelRuntime.beginSession();
++        assertTrue(TextureCompatibilityRuntime.configure(
++                fixture.cache(), fixture.manifest(), fixture.index()));
++        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
++
++        assertEquals(4, TexturePreparedPixelRuntime.expectedUploadDimension(3));
++        assertEquals(8, TexturePreparedPixelRuntime.expectedUploadDimension(5));
++        assertNull(TexturePreparedPixelRuntime.load("graphics/test.png"));
++
++        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
++        assertEquals(1L, telemetry.get("dimensionFallbacks"));
++        assertEquals(0, telemetry.get("activeBuffers"));
++        assertEquals(0L, telemetry.get("activeDirectBytes"));
++    }
++
++    @Test
++    void exceptionalCallerReleaseReturnsAccountingToZero() throws Exception {
++        Fixture fixture = fixture();
++        TexturePreparedPixelRuntime.beginSession();
++        assertTrue(TextureCompatibilityRuntime.configure(
++                fixture.cache(), fixture.manifest(), fixture.index()));
++        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
++
++        TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(
++                TexturePreparedPixelRuntime.load("graphics/test.png"));
++        assertEquals(1, TexturePreparedPixelRuntime.telemetry().get("activeBuffers"));
++        TexturePreparedPixelRuntime.releaseCurrentThreadBuffer();
++        TexturePreparedPixelRuntime.releaseCurrentThreadBuffer();
++
++        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
++        assertEquals(0, telemetry.get("activeBuffers"));
++        assertEquals(0L, telemetry.get("activeDirectBytes"));
++        assertEquals(1L, telemetry.get("releases"));
++        assertEquals((long) prepared.pixelBytes(), telemetry.get("releasedBytes"));
++    }
++
+     @Test
+     void compatibilitySelectionNeverReportsOrServesPreparedPixels() throws Exception {
+@@ -110,6 +168,17 @@ class TexturePreparedPixelRuntimeTest {
+     }
+ 
+     private Fixture fixture() throws Exception {
++        byte[] pixels = {
++                0, 0, (byte) 255,
++                (byte) 255, (byte) 255, (byte) 255,
++                (byte) 255, 0, 0,
++                0, (byte) 255, 0
++        };
++        return fixture(2, 2, 3, pixels);
++    }
++
++    private Fixture fixture(int width, int height, int channels) throws Exception {
++        return fixture(width, height, channels, new byte[Math.multiplyExact(Math.multiplyExact(width, height), channels)]);
++    }
++
++    private Fixture fixture(int width, int height, int channels, byte[] pixels) throws Exception {
+         Path cache = temporaryDirectory.resolve("cache");
+         Path sourceRoot = temporaryDirectory.resolve("game");
+@@ -129,22 +198,16 @@ class TexturePreparedPixelRuntimeTest {
+         Path indexPath = cache.resolve("indexes").resolve(profile + ".spfi");
+         ResourceIndexIO.write(indexPath, index);
+ 
+-        byte[] pixels = {
+-                0, 0, (byte) 255,
+-                (byte) 255, (byte) 255, (byte) 255,
+-                (byte) 255, 0, 0,
+-                0, (byte) 255, 0
+-        };
+         PreparedTexture texture = new PreparedTexture(
+                 sourceHash,
+                 PreparedTexture.Transformation.IDENTITY,
+-                2,
+-                2,
+-                2,
+-                2,
+-                3,
++                width,
++                height,
++                width,
++                height,
++                channels,
+                 PreparedTexture.rgba(10, 20, 30, 255),
+@@ -156,9 +219,9 @@ class TexturePreparedPixelRuntimeTest {
+                         sourceHash,
+                         PreparedTexture.Transformation.IDENTITY,
+                         blobRelative,
+-                        2,
+-                        2,
+-                        3,
++                        width,
++                        height,
++                        channels,
+                         pixels.length)));
+diff --git a/preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java b/preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java
+index 3c6262b..0000000 100644
+--- a/preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java
++++ b/preflight-cli/src/test/java/com/fs/graphics/TextureLoader.java
+@@ -12,6 +12,7 @@ public final class TextureLoader {
+     private static int originalCalls;
+     private static int originalConversionCalls;
+     private static int originalCleanupCalls;
++    private static boolean failAfterConversion;
+@@ -51,6 +52,9 @@ public final class TextureLoader {
+         BufferedImage image = Ô00000(logicalPath);
+         Object texture = new Object();
+         ByteBuffer buffer = o00000(image, texture);
++        if (failAfterConversion) {
++            throw new IllegalStateException("synthetic upload failure");
++        }
+         byte[] bytes = new byte[buffer.remaining()];
+@@ -73,10 +77,15 @@ public final class TextureLoader {
+         return originalCleanupCalls;
+     }
+ 
++    public static void setFailAfterConversion(boolean value) {
++        failAfterConversion = value;
++    }
++
+     public static void reset() {
+         originalCalls = 0;
+         originalConversionCalls = 0;
+         originalCleanupCalls = 0;
++        failAfterConversion = false;
+     }
+diff --git a/preflight-cli/src/test/java/com/fs/starfarer/SyntheticTextureLauncher.java b/preflight-cli/src/test/java/com/fs/starfarer/SyntheticTextureLauncher.java
+index fbb0b85..0000000 100644
+--- a/preflight-cli/src/test/java/com/fs/starfarer/SyntheticTextureLauncher.java
++++ b/preflight-cli/src/test/java/com/fs/starfarer/SyntheticTextureLauncher.java
+@@ -16,15 +16,18 @@ public final class SyntheticTextureLauncher {
+         String logicalPath = args.length == 0 ? "graphics/test.png" : args[0];
+         boolean pixels = false;
+         boolean preloadedMode = false;
++        boolean uploadFailure = false;
+         for (String argument : args) {
+             pixels |= "prepared-pixels".equals(argument);
+             preloadedMode |= "preloaded".equals(argument);
++            uploadFailure |= "upload-failure".equals(argument);
+         }
+         TextureLoader.reset();
++        TextureLoader.setFailAfterConversion(uploadFailure);
+         L.reset();
+@@ -30,6 +33,20 @@ public final class SyntheticTextureLauncher {
+         TextureLoader loader = new TextureLoader();
+         if (pixels) {
+-            TextureLoader.Result result = loader.loadPixelsForTest(logicalPath);
++            TextureLoader.Result result;
++            try {
++                result = loader.loadPixelsForTest(logicalPath);
++            } catch (IllegalStateException error) {
++                if (!uploadFailure) {
++                    throw error;
++                }
++                System.out.printf(
++                        "synthetic-upload-failure:%s:%s:decode=%d:convert=%d:cleanup=%d%n",
++                        error.getClass().getSimpleName(),
++                        error.getMessage(),
++                        TextureLoader.originalCalls(),
++                        TextureLoader.originalConversionCalls(),
++                        TextureLoader.originalCleanupCalls());
++                return;
++            }
+             System.out.printf(
+diff --git a/preflight-cli/src/test/java/dev/starsector/preflight/cli/TexturePreparedPixelAgentIT.java b/preflight-cli/src/test/java/dev/starsector/preflight/cli/TexturePreparedPixelAgentIT.java
+index 77f8801..0000000 100644
+--- a/preflight-cli/src/test/java/dev/starsector/preflight/cli/TexturePreparedPixelAgentIT.java
++++ b/preflight-cli/src/test/java/dev/starsector/preflight/cli/TexturePreparedPixelAgentIT.java
+@@ -52,6 +52,24 @@ class TexturePreparedPixelAgentIT {
+         assertTrue(report.contains("\"fallbacks\":0"), report);
+     }
+ 
++    @Test
++    void packagedUploadExceptionPreservesOriginalFailureAndReleasesDirectBuffer() throws Exception {
++        Fixture fixture = fixture(false, false);
++
++        ProcessResult result = launch(fixture, "graphics/test.png", false, false, true);
++
++        assertSuccess(result);
++        assertTrue(result.output().contains(
++                "synthetic-upload-failure:IllegalStateException:synthetic upload failure:decode=0:convert=0:cleanup=0"),
++                result.output());
++        String report = Files.readString(fixture.adapterReport());
++        assertTrue(report.contains("\"hits\":1"), report);
++        assertTrue(report.contains("\"activeBuffers\":0"), report);
++        assertTrue(report.contains("\"activeDirectBytes\":0"), report);
++        assertTrue(report.contains("\"releases\":1"), report);
++        assertTrue(report.contains("\"releasedBytes\":3"), report);
++    }
++
+@@ -230,7 +248,7 @@ class TexturePreparedPixelAgentIT {
+     private ProcessResult launch(Fixture fixture, String logicalPath, boolean killSwitch) throws Exception {
+-        return launch(fixture, logicalPath, killSwitch, false);
++        return launch(fixture, logicalPath, killSwitch, false, false);
+     }
+ 
+     private ProcessResult launch(
+@@ -238,7 +256,15 @@ class TexturePreparedPixelAgentIT {
+             String logicalPath,
+             boolean killSwitch,
+             boolean preloaded) throws Exception {
++        return launch(fixture, logicalPath, killSwitch, preloaded, false);
++    }
++
++    private ProcessResult launch(
++            Fixture fixture,
++            String logicalPath,
++            boolean killSwitch,
++            boolean preloaded,
++            boolean uploadFailure) throws Exception {
+@@ -260,6 +286,9 @@ class TexturePreparedPixelAgentIT {
+         if (preloaded) {
+             command.add("preloaded");
+         }
++        if (uploadFailure) {
++            command.add("upload-failure");
++        }
+         Process process = new ProcessBuilder(command)
