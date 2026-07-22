@@ -19,10 +19,14 @@ public final class TexturePreparedPixelRuntime {
     static final String PLAN_ID = "texture-prepared-pixels-v2";
     static final String COHERENT_ORIGINAL_CONVERT_PROPERTY =
             "preflight.preparedPixels.coherentOriginalConvert";
+    static final String COHERENT_DIRECT_PROPERTY =
+            "preflight.preparedPixels.coherentDirect";
     static final int MAX_TEXTURE_BYTES = 32 * 1024 * 1024;
     static final long MAX_ACTIVE_DIRECT_BYTES = 64L * 1024 * 1024;
     static final int MAX_ACTIVE_BUFFERS = 1_024;
     private static final int MAX_LAYOUT_OBSERVATIONS = 16;
+    private static final int ZERO_CHUNK_BYTES = 8 * 1024;
+    private static final byte[] ZERO_CHUNK = new byte[ZERO_CHUNK_BYTES];
 
     private static final Object LOCK = new Object();
     private static final IdentityHashMap<ByteBuffer, Integer> ACTIVE = new IdentityHashMap<>();
@@ -56,7 +60,7 @@ public final class TexturePreparedPixelRuntime {
         return selected && TextureCompatibilityRuntime.ready();
     }
 
-    /** Returns a lightweight prepared-texture carrier, or {@code null} for original decode fallback. */
+    /** Returns a prepared-texture carrier, or {@code null} for original decode fallback. */
     public static BufferedImage load(String logicalPath) {
         if (!ready()) {
             return null;
@@ -73,15 +77,19 @@ public final class TexturePreparedPixelRuntime {
             return null;
         }
 
-        boolean coherentOriginalConvert = layout.paddingBytes() > 0
+        boolean npot = layout.paddingBytes() > 0;
+        boolean coherentDirect = npot && Boolean.getBoolean(COHERENT_DIRECT_PROPERTY);
+        boolean coherentOriginalConvert = npot
+                && !coherentDirect
                 && Boolean.getBoolean(COHERENT_ORIGINAL_CONVERT_PROPERTY);
         try {
             CarrierImage carrier = new CarrierImage(
                     logicalPath,
                     texture,
                     layout,
-                    coherentOriginalConvert);
-            TELEMETRY.carrier(carrier.rasterBytes, carrier.coherentOriginalConvert);
+                    coherentOriginalConvert,
+                    coherentDirect);
+            TELEMETRY.carrier(carrier.rasterBytes, carrier.coherent(), carrier.coherentDirect);
             return carrier;
         } catch (ThreadDeath | VirtualMachineError fatal) {
             throw fatal;
@@ -126,10 +134,9 @@ public final class TexturePreparedPixelRuntime {
         PreparedTexture texture = carrier.texture;
         UploadLayout layout = carrier.layout;
 
-        // NPOT direct-buffer bypass remains disabled after the visual failure. The explicit
-        // coherent-original-convert diagnostic bypasses ImageIO only and lets Starsector's
-        // original converter produce the buffer and all of its side effects.
-        if (layout.paddingBytes() > 0) {
+        // The safe default keeps NPOT textures on Starsector's original path. The explicit
+        // coherent-direct diagnostic is the only path allowed to supply a direct NPOT buffer.
+        if (layout.paddingBytes() > 0 && !carrier.coherentDirect) {
             TELEMETRY.npotProbeFallback();
             if (carrier.coherentOriginalConvert) {
                 TELEMETRY.coherentOriginalConvertFallback();
@@ -150,7 +157,11 @@ public final class TexturePreparedPixelRuntime {
         boolean registered = false;
         try {
             buffer = ByteBuffer.allocateDirect(bytes);
-            buffer.put(texture.pixels());
+            if (layout.paddingBytes() > 0) {
+                writeUploadPixels(buffer, texture, layout);
+            } else {
+                buffer.put(texture.pixels());
+            }
             buffer.flip();
             synchronized (LOCK) {
                 pendingBuffers--;
@@ -167,7 +178,11 @@ public final class TexturePreparedPixelRuntime {
                     layout.uploadHeight(),
                     texture.channels(),
                     bytes);
-            TELEMETRY.hit(texture.pixelBytes(), bytes);
+            TELEMETRY.hit(
+                    texture.pixelBytes(),
+                    bytes,
+                    layout.paddingBytes(),
+                    carrier.coherentDirect);
             if (carrier.creditSharedHit()) {
                 TextureCompatibilityRuntime.hit(texture.pixelBytes());
             }
@@ -337,6 +352,36 @@ public final class TexturePreparedPixelRuntime {
         }
     }
 
+    private static void writeUploadPixels(
+            ByteBuffer buffer,
+            PreparedTexture texture,
+            UploadLayout layout) {
+        byte[] source = texture.pixels();
+        int sourceStride = Math.multiplyExact(texture.originalWidth(), texture.channels());
+        int uploadStride = Math.multiplyExact(layout.uploadWidth(), texture.channels());
+        int rightPadding = uploadStride - sourceStride;
+        for (int row = 0; row < texture.originalHeight(); row++) {
+            buffer.put(source, row * sourceStride, sourceStride);
+            putZeroes(buffer, rightPadding);
+        }
+        putZeroes(buffer, Math.multiplyExact(
+                layout.uploadHeight() - texture.originalHeight(),
+                uploadStride));
+        if (buffer.position() != layout.uploadBytes()) {
+            throw new IllegalStateException(
+                    "Prepared upload wrote " + buffer.position() + " bytes; expected " + layout.uploadBytes());
+        }
+    }
+
+    private static void putZeroes(ByteBuffer buffer, int count) {
+        int remaining = count;
+        while (remaining > 0) {
+            int chunk = Math.min(remaining, ZERO_CHUNK.length);
+            buffer.put(ZERO_CHUNK, 0, chunk);
+            remaining -= chunk;
+        }
+    }
+
     private static Map<String, Object> inspectOriginalLayout(
             CarrierImage carrier,
             ByteBuffer originalBuffer) {
@@ -358,6 +403,7 @@ public final class TexturePreparedPixelRuntime {
         values.put("bufferCapacity", sourceBuffer.capacity());
         values.put("bufferRemaining", available);
         values.put("coherentOriginalConvert", carrier.coherentOriginalConvert);
+        values.put("coherentDirect", carrier.coherentDirect);
         values.put("carrierRasterWidth", carrier.getRaster().getWidth());
         values.put("carrierRasterHeight", carrier.getRaster().getHeight());
         values.put("carrierSampleModelWidth", carrier.getSampleModel().getWidth());
@@ -515,6 +561,7 @@ public final class TexturePreparedPixelRuntime {
         private final PreparedTexture texture;
         private final UploadLayout layout;
         private final boolean coherentOriginalConvert;
+        private final boolean coherentDirect;
         private final int rasterBytes;
         private final AtomicBoolean sharedHitCredited = new AtomicBoolean();
 
@@ -522,15 +569,17 @@ public final class TexturePreparedPixelRuntime {
                 String logicalPath,
                 PreparedTexture texture,
                 UploadLayout layout,
-                boolean coherentOriginalConvert) {
+                boolean coherentOriginalConvert,
+                boolean coherentDirect) {
             this(
                     logicalPath,
                     texture,
                     layout,
-                    coherentOriginalConvert
+                    coherentOriginalConvert || coherentDirect
                             ? TexturePreparedPixelCarrierSurface.coherent(texture)
                             : TexturePreparedPixelCarrierSurface.legacy(texture.channels()),
-                    coherentOriginalConvert);
+                    coherentOriginalConvert,
+                    coherentDirect);
         }
 
         private CarrierImage(
@@ -538,13 +587,19 @@ public final class TexturePreparedPixelRuntime {
                 PreparedTexture texture,
                 UploadLayout layout,
                 TexturePreparedPixelCarrierSurface.Surface surface,
-                boolean coherentOriginalConvert) {
+                boolean coherentOriginalConvert,
+                boolean coherentDirect) {
             super(surface.colorModel(), surface.raster(), false, null);
             this.logicalPath = logicalPath;
             this.texture = texture;
             this.layout = layout;
             this.coherentOriginalConvert = coherentOriginalConvert && surface.coherent();
+            this.coherentDirect = coherentDirect && surface.coherent();
             this.rasterBytes = surface.rasterBytes();
+        }
+
+        private boolean coherent() {
+            return coherentOriginalConvert || coherentDirect;
         }
 
         private boolean creditSharedHit() {
@@ -566,6 +621,8 @@ public final class TexturePreparedPixelRuntime {
         private long carriers;
         private long coherentCarriers;
         private long coherentCarrierBytes;
+        private long coherentDirectCarriers;
+        private long coherentDirectHits;
         private long directAttempts;
         private long hits;
         private long fallbacks;
@@ -573,6 +630,8 @@ public final class TexturePreparedPixelRuntime {
         private long npotProbeFallbacks;
         private long coherentOriginalConvertFallbacks;
         private long coherentOriginalDecodeBypasses;
+        private long paddedUploads;
+        private long paddingBytes;
         private long layoutObservationErrors;
         private long internalErrors;
         private long releases;
@@ -585,6 +644,8 @@ public final class TexturePreparedPixelRuntime {
             carriers = 0;
             coherentCarriers = 0;
             coherentCarrierBytes = 0;
+            coherentDirectCarriers = 0;
+            coherentDirectHits = 0;
             directAttempts = 0;
             hits = 0;
             fallbacks = 0;
@@ -592,6 +653,8 @@ public final class TexturePreparedPixelRuntime {
             npotProbeFallbacks = 0;
             coherentOriginalConvertFallbacks = 0;
             coherentOriginalDecodeBypasses = 0;
+            paddedUploads = 0;
+            paddingBytes = 0;
             layoutObservationErrors = 0;
             internalErrors = 0;
             releases = 0;
@@ -601,11 +664,14 @@ public final class TexturePreparedPixelRuntime {
             originalLayoutObservations.clear();
         }
 
-        synchronized void carrier(long rasterBytes, boolean coherent) {
+        synchronized void carrier(long rasterBytes, boolean coherent, boolean coherentDirect) {
             carriers++;
             if (coherent) {
                 coherentCarriers++;
                 coherentCarrierBytes = saturatedAdd(coherentCarrierBytes, rasterBytes);
+            }
+            if (coherentDirect) {
+                coherentDirectCarriers++;
             }
         }
 
@@ -613,10 +679,17 @@ public final class TexturePreparedPixelRuntime {
             directAttempts++;
         }
 
-        synchronized void hit(long sourceBytes, long uploadBytes) {
+        synchronized void hit(long sourceBytes, long uploadBytes, long padding, boolean coherentDirect) {
             hits++;
             bytesBypassed = saturatedAdd(bytesBypassed, sourceBytes);
             uploadBytesSupplied = saturatedAdd(uploadBytesSupplied, uploadBytes);
+            if (padding > 0) {
+                paddedUploads++;
+                paddingBytes = saturatedAdd(paddingBytes, padding);
+            }
+            if (coherentDirect) {
+                coherentDirectHits++;
+            }
         }
 
         synchronized void fallback() {
@@ -676,6 +749,8 @@ public final class TexturePreparedPixelRuntime {
             values.put("ready", ready);
             values.put("coherentOriginalConvertProperty", COHERENT_ORIGINAL_CONVERT_PROPERTY);
             values.put("coherentOriginalConvertEnabled", Boolean.getBoolean(COHERENT_ORIGINAL_CONVERT_PROPERTY));
+            values.put("coherentDirectProperty", COHERENT_DIRECT_PROPERTY);
+            values.put("coherentDirectEnabled", Boolean.getBoolean(COHERENT_DIRECT_PROPERTY));
             values.put("maxTextureBytes", MAX_TEXTURE_BYTES);
             values.put("maxActiveDirectBytes", MAX_ACTIVE_DIRECT_BYTES);
             values.put("maxActiveBuffers", MAX_ACTIVE_BUFFERS);
@@ -683,6 +758,8 @@ public final class TexturePreparedPixelRuntime {
             values.put("carriers", carriers);
             values.put("coherentCarriers", coherentCarriers);
             values.put("coherentCarrierBytes", coherentCarrierBytes);
+            values.put("coherentDirectCarriers", coherentDirectCarriers);
+            values.put("coherentDirectHits", coherentDirectHits);
             values.put("directAttempts", directAttempts);
             values.put("hits", hits);
             values.put("fallbacks", fallbacks);
@@ -692,8 +769,8 @@ public final class TexturePreparedPixelRuntime {
             values.put("coherentOriginalDecodeBypasses", coherentOriginalDecodeBypasses);
             values.put("originalLayoutObservations", List.copyOf(originalLayoutObservations));
             values.put("layoutObservationErrors", layoutObservationErrors);
-            values.put("paddedUploads", 0L);
-            values.put("paddingBytes", 0L);
+            values.put("paddedUploads", paddedUploads);
+            values.put("paddingBytes", paddingBytes);
             values.put("internalErrors", internalErrors);
             values.put("releases", releases);
             values.put("bytesBypassed", bytesBypassed);
