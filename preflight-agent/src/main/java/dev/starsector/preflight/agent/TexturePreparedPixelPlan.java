@@ -164,6 +164,16 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
         wrapper.instructions.add(new MethodInsnNode(
                 Opcodes.INVOKESPECIAL, owner, ORIGINAL_CONVERT, CONVERT_DESCRIPTOR, false));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ASTORE, 5));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 5));
+        wrapper.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                RUNTIME,
+                "observeOriginalFallback",
+                "(Ljava/awt/image/BufferedImage;Ljava/nio/ByteBuffer;)V",
+                false));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 5));
         wrapper.instructions.add(new InsnNode(Opcodes.ARETURN));
 
         wrapper.instructions.add(ordinary);
