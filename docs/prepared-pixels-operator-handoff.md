@@ -6,9 +6,9 @@ Status: 2026-07-22
 
 Direct NPOT prepared-pixel bypass is **not yet behaviorally accepted**.
 
-The coherent-direct launcher probe rendered black even though its bytes, colors, lifecycle, and buffer accounting followed the diagnostic contract. PR #141 now tests one concrete missing original-converter side effect: power-of-two backing width and height writes on the texture object.
+The coherent-direct launcher probe rendered black even though its bytes, colors, lifecycle, and buffer accounting followed the diagnostic contract. Merged PR #141 restores one concrete omitted original-converter side effect: power-of-two backing width and height writes on the texture object.
 
-Gameplay and benchmarks remain blocked.
+Exactly one launcher-only validation is authorized. Gameplay and benchmarks remain blocked.
 
 ## Evidence chain
 
@@ -26,16 +26,9 @@ Gameplay and benchmarks remain blocked.
 
 The original and prepared NPOT upload buffers use the same relevant row-padded byte arrangement. The cached pixels also form a real source-sized image that Starsector accepts when its original converter is retained.
 
-The coherent-direct run then used that coherent image, direct cached bytes, and cached colors, with 7 NPOT hits, zero fallbacks/errors, and zero buffer ownership at shutdown. The launcher still rendered black.
+The coherent-direct run used that coherent image, direct cached bytes, and cached colors, with 7 NPOT hits, zero fallbacks/errors, and zero buffer ownership at shutdown. The launcher still rendered black. The historical synthetic `1x1` carrier was therefore not the sole material cause.
 
-Therefore the historical synthetic `1x1` carrier was not the sole material cause.
-
-Review of the exact installed converter shows two additional operations before it returns its buffer:
-
-1. it writes the computed power-of-two upload width to the texture object;
-2. it writes the computed power-of-two upload height to the texture object.
-
-The direct wrapper previously skipped those writes. That can leave UV or backing-size state inconsistent with the actual power-of-two OpenGL upload.
+The exact installed converter also writes the computed power-of-two upload width and height to the texture object before returning the buffer. The direct wrapper previously skipped those writes, potentially leaving UV or backing-size state inconsistent with the OpenGL upload.
 
 ## Safe default
 
@@ -46,9 +39,15 @@ Without an explicit diagnostic property:
 - compatibility mode remains the accepted rollback;
 - no installation, launcher, mod, or save files are edited.
 
-## PR #141 diagnostic
+## Merged dimension-replay diagnostic
 
-PR #141 keeps the existing opt-in property:
+PR #141 squash-merged as:
+
+```text
+1b4194977c0fac9a5717d05bec6e858cb2fec419
+```
+
+It keeps the existing opt-in property:
 
 ```text
 -Dpreflight.preparedPixels.coherentDirect=true
@@ -63,6 +62,23 @@ For a successful prepared NPOT result under that property only, the transformed 
 5. returns the prepared buffer through the existing upload and cleanup path.
 
 The transformation declines if the converter does not contain exactly two distinct texture-object `(I)V` calls in the reviewed shape. No setter names are guessed or broadly allowlisted.
+
+## Validation
+
+Validated PR head:
+
+```text
+50907f3d52dc1c22b9a1ab83c66369448ac548ce
+```
+
+Successful workflows:
+
+```text
+CI run 557 — full Maven verification
+Vanilla adapter gate tests run 407
+Texture cache tests run 398
+Prepare command tests run 111
+```
 
 ## Result meanings
 
@@ -92,11 +108,7 @@ A normal launcher is not gameplay acceptance.
 - no automatic allowlist generation;
 - no acceleration claim.
 
-## Validation requirement
-
-Before merge, the final PR head must pass full Maven verification, vanilla adapter gates, texture cache tests, and preparation tests. Record the validated SHA and workflow numbers in PR #141.
-
-## Authorized operator action after PR #141 merges
+## Authorized operator action
 
 Run exactly once from the repository root:
 
@@ -114,7 +126,7 @@ CACHE="$HOME/.starsector-preflight/cache" \
 bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
 ```
 
-The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, verifies the new preparation-readiness marker and dimension-replay source contract, enables only coherent-direct, checks lifecycle/buffer telemetry, records `dimensionReplay=reviewed-converter-two-setter-order`, and packages the run directory on the Desktop.
+The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, verifies the preparation-readiness marker and dimension-replay source contract, enables only coherent-direct, checks lifecycle/buffer telemetry, records `dimensionReplay=reviewed-converter-two-setter-order`, and packages the run directory on the Desktop.
 
 When the launcher appears:
 
