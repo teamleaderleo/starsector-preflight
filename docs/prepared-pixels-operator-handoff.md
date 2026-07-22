@@ -18,43 +18,13 @@ PR #133 then supplied a guessed expanded layout: bottom-up source rows at the lo
 
 The visual failure disproves the guessed lower-left zero-padding layout. It does not prove upper placement or any other replacement layout.
 
-## Retained visual-failure evidence
-
-Run directory:
+PR #135 restored NPOT fail-open behavior and added bounded original-buffer layout evidence. It was squash-merged as:
 
 ```text
-prepared-pixel-pilot-20260722-143238
+1fd63567e5834546ab5d617234f84371df9909ea
 ```
 
-Lifecycle result:
-
-```text
-outcome: COMPLETED
-exitCode: 0
-launcherExitCode: 0
-fatalDetected: false
-```
-
-Prepared-pixel result:
-
-```text
-transformationsApplied: 1
-hits: 20
-paddedUploads: 7
-paddingBytes: 1002677
-fallbacks: 0
-internalErrors: 0
-releases: 20
-activeBuffers: 0
-activeDirectBytes: 0
-pendingBuffers: 0
-```
-
-The launcher screenshot showed a mostly black panel with missing or incorrectly sampled background/control textures. The operator stopped before campaign gameplay.
-
-## PR #135 repair behavior
-
-PR #135 restores safe fail-open behavior and adds evidence collection:
+## Merged runtime behavior
 
 - power-of-two prepared payloads remain eligible for the lower-seam bypass;
 - NPOT prepared payloads do not use guessed padding;
@@ -64,7 +34,7 @@ PR #135 restores safe fail-open behavior and adds evidence collection:
 - no original texture bytes are retained in telemetry;
 - original buffer position, limit, bytes, cleanup, upload, and exceptions remain authoritative.
 
-Telemetry adds:
+Telemetry includes:
 
 ```text
 npotProbeFallbacks
@@ -84,9 +54,11 @@ first mismatch offset per candidate
 
 Candidate layouts cover row-padded and contiguous source bytes, leading or trailing unused rows, and normal or reversed source-row order. An unclassified result is valid evidence and must not be converted into another guess.
 
+The exact installed converter-shape evidence also shows indexed `ByteBuffer.put(int, byte)` writes plus explicit position and limit changes. This confirms that the layout is deliberate rather than a simple append-zero convention.
+
 ## Preserved boundaries
 
-The repair keeps:
+The merged repair keeps:
 
 - exact archive, class, method, source, and loader identity gates;
 - SPFT version 1 unchanged;
@@ -101,25 +73,46 @@ The repair keeps:
 
 Automatic allowlist generation remains disabled. No benchmark or acceleration claim is authorized.
 
-## Current operator status
+## Authorized operator action
 
-Do not run the old padded build again.
+Exactly one **launcher-only original-layout probe** is authorized from current `main`.
 
-Do not perform another full prepared-pixel gameplay lifecycle and do not benchmark.
+Run from the repository root:
 
-After PR #135 is reviewed and merged, exactly one **launcher-only original-layout probe** may be authorized. Use the exact cache, manifest, index, target file, binary, and installation paths from a current successful preparation report.
+```bash
+bash scripts/run-prepared-pixel-layout-probe.sh
+```
 
-The route is:
+The script:
+
+1. requires merged commit `1fd63567e5834546ab5d617234f84371df9909ea`;
+2. builds and verifies the checkout;
+3. verifies the exact installed archive and class hashes;
+4. reruns the offline contract check;
+5. prepares the exact current profile;
+6. prints a dry-run launch plan;
+7. starts one explicit prepared-pixel launcher probe;
+8. checks lifecycle, fallback, observation, and cleanup telemetry;
+9. packages the complete run directory on the Desktop.
+
+When the launcher appears:
 
 ```text
-launch
-→ verify the launcher renders normally
-→ do not start the game
-→ close from the launcher
-→ retain the complete run directory
+verify normal launcher visuals
+→ take a screenshot
+→ do not click Play
+→ close with the launcher X
 ```
 
 Stop after that one probe.
+
+Environment overrides are available when needed:
+
+```bash
+GAME="/path/to/Starsector.app" \
+CACHE="$HOME/.starsector-preflight/cache" \
+bash scripts/run-prepared-pixel-layout-probe.sh
+```
 
 ## Probe acceptance requirements
 
@@ -130,7 +123,7 @@ The launcher-only probe must show:
 - power-of-two prepared hits may remain above zero;
 - `npotProbeFallbacks` above zero when NPOT textures are encountered;
 - `paddedUploads == 0` and `paddingBytes == 0`;
-- at least one bounded `originalLayoutObservations` entry, unless no NPOT texture is encountered;
+- at least one bounded `originalLayoutObservations` entry;
 - `layoutObservationErrors == 0`;
 - only understood original-path fallbacks;
 - `internalErrors == 0` and no circuit breaker;
@@ -138,17 +131,7 @@ The launcher-only probe must show:
 - fatal console/log evidence absent;
 - clean launcher exit.
 
-Retain:
-
-- `run.json`;
-- `profile.json`;
-- `summary.json`;
-- `adapter.json`;
-- `adapter-analysis.json` when present;
-- `startup.jfr`;
-- `console.txt`;
-- the exact command and binary SHA-256;
-- a screenshot of the normal launcher.
+Upload the generated `.tar.gz` and launcher screenshot for review. Do not implement a new NPOT bypass until the observations are classified.
 
 ## Standing safety rules
 
@@ -157,6 +140,7 @@ Do not:
 - infer a new NPOT layout from the screenshot alone;
 - enable NPOT prepared bypass from an ambiguous or unclassified observation;
 - run more than the single authorized launcher probe;
+- click Play or enter gameplay during the probe;
 - begin benchmarks;
 - generate allowlists from probe output;
 - weaken exact identity gates;
@@ -165,4 +149,4 @@ Do not:
 - perform OpenGL work on background threads;
 - add unbounded caches, maps, logs, buffers, observations, or worker pools;
 - claim acceleration before a separate accepted measurement campaign;
-- delete either failed pilot or the next probe evidence.
+- delete either failed pilot or the launcher-probe evidence.
