@@ -6,11 +6,13 @@ Preflight follows a measurement-first sequence. Each optimization keeps the orig
 
 The July 2026 unified real-install runs completed the broad discovery gate for texture loading, Janino compilation, and audio decoding.
 
-- [Optimization North Star](optimization-north-star.md) records the two-run evidence, exact reviewed targets, ordered implementation program, benchmark protocol, and release gates.
+- [Optimization North Star](optimization-north-star.md) records the real-install evidence, exact reviewed targets, ordered implementation program, benchmark protocol, and release gates.
 - [Real texture preparation and compatibility pilot](evidence/2026-07-18-real-texture-preparation-and-compatibility-pilot.md) records the passing full-profile preparation, the title-screen renderer failure, and the bounded launcher-lifecycle reporting fix.
-- [Next LLM Implementation Handoff](next-llm-handoff.md) provides the concrete starting task, pinned identities, test requirements, and prohibited shortcuts for the next implementation session.
+- [Compatibility-v2 acceptance evidence](evidence/2026-07-19-real-texture-compatibility-v2-acceptance.md) records one bounded accepted real-install texture run.
+- [Prepared-pixel operator and LLM handoff](prepared-pixels-operator-handoff.md) defines the exact current sequence and stop points.
+- [Next LLM Implementation Handoff](next-llm-handoff.md) provides current identities, responsibilities, prohibited shortcuts, and the next implementation decision tree.
 
-The adapter-OFF control reached the main screen and exited normally. Source review then confirmed that compatibility-v1 bypassed Starsector's asynchronous image-preloader rendezvous; compatibility-v2 preserves that handoff and matches the exact installed bytes. Compatibility-v2 passed bounded real-install behavioral acceptance on 2026-07-19 — see [the acceptance evidence](evidence/2026-07-19-real-texture-compatibility-v2-acceptance.md). The prepared-pixel prototype remains fail-closed because its synthetic color-sink model differs from the installed dataflow. The immediate sequence is now repeated OFF-versus-ENABLED texture measurement, exact prepared-pixel dataflow repair, resolution of the negative audio-equivalence evidence, and complete-key Janino reuse.
+The adapter-OFF control reached the main screen and exited normally. Compatibility-v2 preserves Starsector's asynchronous image-preloader handoff, matches the exact installed bytes, and passed bounded real-install behavioral acceptance on 2026-07-19. PR #117 repaired the installed-style prepared-pixel color flow, and PR #119 added an offline exact installed-class contract checker. The immediate sequence is now: run that checker against the reviewed installation, review the report, complete one prepared-pixel lifecycle through campaign/combat/save/clean exit, and only then run repeated OFF-versus-compatibility-versus-prepared-pixel measurements. Audio and Janino remain exact-evidence gated until the texture decision is made.
 
 ## M0: Measurement foundation
 
