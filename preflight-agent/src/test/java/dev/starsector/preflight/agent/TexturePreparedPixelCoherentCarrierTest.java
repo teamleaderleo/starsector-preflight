@@ -1,0 +1,196 @@
+package dev.starsector.preflight.agent;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.starsector.preflight.core.Hashes;
+import dev.starsector.preflight.core.PreparedTexture;
+import dev.starsector.preflight.core.PreparedTextureIO;
+import dev.starsector.preflight.core.ResourceIndex;
+import dev.starsector.preflight.core.ResourceIndexIO;
+import dev.starsector.preflight.core.TextureManifest;
+import dev.starsector.preflight.core.TextureManifestIO;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class TexturePreparedPixelCoherentCarrierTest {
+    @TempDir
+    Path temporaryDirectory;
+
+    @AfterEach
+    void resetRuntime() {
+        System.clearProperty(TexturePreparedPixelRuntime.COHERENT_ORIGINAL_CONVERT_PROPERTY);
+        TexturePreparedPixelRuntime.beginSession();
+        TextureCompatibilityRuntime.beginSession();
+    }
+
+    @Test
+    void optInNpotCarrierHasCoherentPixelsAndUsesOriginalConverterFallback() throws Exception {
+        int width = 2;
+        int height = 3;
+        byte[] bottomUpRgb = {
+                0, 0, (byte) 255,
+                (byte) 255, (byte) 255, (byte) 255,
+                0, 0, 0,
+                (byte) 255, (byte) 255, 0,
+                (byte) 255, 0, 0,
+                0, (byte) 255, 0
+        };
+        Fixture fixture = fixture(width, height, 3, bottomUpRgb);
+        System.setProperty(TexturePreparedPixelRuntime.COHERENT_ORIGINAL_CONVERT_PROPERTY, "true");
+        configure(fixture);
+
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertTrue(TexturePreparedPixelRuntime.isCarrier(carrier));
+        assertEquals(width, carrier.getWidth());
+        assertEquals(height, carrier.getHeight());
+        assertEquals(width, carrier.getWidth(null));
+        assertEquals(height, carrier.getHeight(null));
+        assertEquals(width, carrier.getRaster().getWidth());
+        assertEquals(height, carrier.getRaster().getHeight());
+        assertEquals(width, carrier.getSampleModel().getWidth());
+        assertEquals(height, carrier.getSampleModel().getHeight());
+        assertEquals(DataBuffer.TYPE_BYTE, carrier.getRaster().getDataBuffer().getDataType());
+        assertFalse(carrier.getColorModel().hasAlpha());
+
+        assertEquals(0xffff0000, carrier.getRGB(0, 0));
+        assertEquals(0xff00ff00, carrier.getRGB(1, 0));
+        assertEquals(0xff000000, carrier.getRGB(0, 1));
+        assertEquals(0xffffff00, carrier.getRGB(1, 1));
+        assertEquals(0xff0000ff, carrier.getRGB(0, 2));
+        assertEquals(0xffffffff, carrier.getRGB(1, 2));
+
+        assertNull(TexturePreparedPixelRuntime.prepare(carrier));
+        assertTrue(TexturePreparedPixelRuntime.useCarrierForOriginalFallback(carrier));
+
+        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(1L, telemetry.get("carriers"));
+        assertEquals(1L, telemetry.get("coherentCarriers"));
+        assertEquals(18L, telemetry.get("coherentCarrierBytes"));
+        assertEquals(1L, telemetry.get("fallbacks"));
+        assertEquals(1L, telemetry.get("npotProbeFallbacks"));
+        assertEquals(1L, telemetry.get("coherentOriginalConvertFallbacks"));
+        assertEquals(1L, telemetry.get("coherentOriginalDecodeBypasses"));
+        assertEquals(1L, telemetry.get("imageDecodesBypassed"));
+        assertEquals(0L, telemetry.get("conversionCallsBypassed"));
+        assertEquals(0L, telemetry.get("hits"));
+        assertEquals(0, telemetry.get("activeBuffers"));
+        assertEquals(0L, telemetry.get("activeDirectBytes"));
+
+        Map<String, Object> cache = TextureCompatibilityRuntime.telemetry();
+        assertEquals(1L, cache.get("attempts"));
+        assertEquals(1L, cache.get("hits"));
+        assertEquals(18L, cache.get("bytesServed"));
+    }
+
+    @Test
+    void optInRgbaCarrierPreservesTopDownColorAndAlpha() throws Exception {
+        byte[] bottomUpRgba = {
+                1, 2, 3, 4,
+                5, 6, 7, 8,
+                9, 10, 11, 12,
+                13, 14, 15, 16
+        };
+        Fixture fixture = fixture(2, 2, 4, bottomUpRgba);
+        System.setProperty(TexturePreparedPixelRuntime.COHERENT_ORIGINAL_CONVERT_PROPERTY, "true");
+        configure(fixture);
+
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertTrue(carrier.getColorModel().hasAlpha());
+        assertEquals(0x0c090a0b, carrier.getRGB(0, 0));
+        assertEquals(0x100d0e0f, carrier.getRGB(1, 0));
+        assertEquals(0x04010203, carrier.getRGB(0, 1));
+        assertEquals(0x08050607, carrier.getRGB(1, 1));
+    }
+
+    @Test
+    void defaultNpotPathKeepsLegacyCarrierAndOriginalDecodeFallback() throws Exception {
+        Fixture fixture = fixture(2, 3, 3, new byte[18]);
+        configure(fixture);
+
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertEquals(2, carrier.getWidth());
+        assertEquals(3, carrier.getHeight());
+        assertEquals(1, carrier.getWidth(null));
+        assertEquals(1, carrier.getHeight(null));
+        assertEquals(1, carrier.getRaster().getWidth());
+        assertEquals(1, carrier.getRaster().getHeight());
+        assertNull(TexturePreparedPixelRuntime.prepare(carrier));
+        assertFalse(TexturePreparedPixelRuntime.useCarrierForOriginalFallback(carrier));
+
+        Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(0L, telemetry.get("coherentCarriers"));
+        assertEquals(0L, telemetry.get("coherentCarrierBytes"));
+        assertEquals(0L, telemetry.get("coherentOriginalConvertFallbacks"));
+        assertEquals(0L, telemetry.get("coherentOriginalDecodeBypasses"));
+    }
+
+    private void configure(Fixture fixture) {
+        TexturePreparedPixelRuntime.beginSession();
+        assertTrue(TextureCompatibilityRuntime.configure(
+                fixture.cache(), fixture.manifest(), fixture.index()));
+        TexturePreparedPixelRuntime.select(TextureAdapterMode.PREPARED_PIXELS);
+    }
+
+    private Fixture fixture(int width, int height, int channels, byte[] pixels) throws Exception {
+        Path cache = temporaryDirectory.resolve("cache-" + System.nanoTime());
+        Path sourceRoot = temporaryDirectory.resolve("game-" + System.nanoTime());
+        Path source = sourceRoot.resolve("graphics/test.png");
+        Files.createDirectories(source.getParent());
+        byte[] encoded = {1, 2, 3, 4};
+        Files.write(source, encoded);
+        String sourceHash = Hashes.sha256(encoded);
+        String profile = "ac".repeat(32);
+        ResourceIndex index = new ResourceIndex(
+                profile,
+                List.of(new ResourceIndex.Root("core", sourceRoot, true)),
+                Map.of("graphics/test.png", List.of(new ResourceIndex.Provider(
+                        0,
+                        "graphics/test.png",
+                        Files.size(source),
+                        Files.getLastModifiedTime(source).toMillis()))));
+        Path indexPath = cache.resolve("indexes").resolve(profile + ".spfi");
+        ResourceIndexIO.write(indexPath, index);
+
+        PreparedTexture texture = new PreparedTexture(
+                sourceHash,
+                PreparedTexture.Transformation.IDENTITY,
+                width,
+                height,
+                width,
+                height,
+                channels,
+                PreparedTexture.rgba(10, 20, 30, 255),
+                PreparedTexture.rgba(40, 50, 60, 255),
+                PreparedTexture.rgba(70, 80, 90, 255),
+                pixels);
+        String blobRelative = "blobs/" + sourceHash.substring(0, 2) + "/" + sourceHash + "-identity.spft";
+        Path blob = cache.resolve(blobRelative);
+        PreparedTextureIO.write(blob, texture);
+        TextureManifest manifest = new TextureManifest(profile, Map.of(
+                "graphics/test.png",
+                new TextureManifest.Entry(
+                        sourceHash,
+                        PreparedTexture.Transformation.IDENTITY,
+                        blobRelative,
+                        width,
+                        height,
+                        channels,
+                        pixels.length)));
+        Path manifestPath = cache.resolve("manifests").resolve(profile + ".spfm");
+        TextureManifestIO.write(manifestPath, manifest);
+        return new Fixture(cache, indexPath, manifestPath);
+    }
+
+    private record Fixture(Path cache, Path index, Path manifest) {
+    }
+}
