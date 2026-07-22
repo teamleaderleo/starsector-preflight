@@ -4,9 +4,9 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Perform and review exactly one real installed **launcher-only original-layout probe** using current `main` and the repository runner.
+Review and merge PR #137, then perform and review exactly one real installed **launcher-only coherent-image/original-converter probe** using the repository runner.
 
-Do not run another prepared-pixel gameplay lifecycle, begin repeated measurement, or make acceleration claims.
+Do not re-enable direct NPOT prepared buffers, run a prepared-pixel gameplay lifecycle, begin repeated measurement, or make acceleration claims.
 
 Primary evidence:
 
@@ -15,93 +15,131 @@ Primary evidence:
 - [lifecycle repair](evidence/2026-07-22-prepared-pixel-lifecycle-repair.md)
 - [guessed NPOT padding](evidence/2026-07-22-prepared-pixel-npot-padding.md)
 - [NPOT visual failure](evidence/2026-07-22-prepared-pixel-visual-failure.md)
-- issue #129 — NPOT upload dimensions and visual layout acceptance
+- [successful original-layout probe](evidence/2026-07-22-prepared-pixel-original-layout-probe.md)
+- issue #129 — NPOT upload dimensions and prepared-path visual acceptance
+- PR #137 — coherent cached image with retained original converter
 
 ## State as of 2026-07-22
 
-Merged repair baseline:
+Merged milestones:
 
 ```text
-PR #132: 4f3b79c6d7683242d16cb7b34081cd7800f20017
+PR #132 lifecycle, release, and fatal-evidence repair:
+4f3b79c6d7683242d16cb7b34081cd7800f20017
+
+PR #133 guessed direct NPOT padding:
+68ece81782b54022d58d41634dd88491fca13601
+
+PR #135 NPOT fail-open and original-layout observation:
+1fd63567e5834546ab5d617234f84371df9909ea
+
+PR #136 one-shot original-layout runner:
+60071e12cfc29d691142f272857b37b06233b32c
 ```
 
-Merged guessed-padding implementation:
+The guessed direct upload no longer crashed but rendered the launcher incorrectly. The later safe probe used Starsector's original NPOT conversion path and rendered normally.
+
+Retained safe-probe telemetry:
 
 ```text
-PR #133: 68ece81782b54022d58d41634dd88491fca13601
-```
-
-Merged NPOT fail-open and original-layout probe repair:
-
-```text
-PR #135: 1fd63567e5834546ab5d617234f84371df9909ea
-```
-
-The post-padding installed pilot reached the launcher and exited cleanly, but launcher textures rendered incorrectly. Retained telemetry showed:
-
-```text
-hits: 20
-paddedUploads: 7
-paddingBytes: 1002677
-fallbacks: 0
+carriers: 20
+hits: 13
+fallbacks: 7
+npotProbeFallbacks: 7
+paddedUploads: 0
+paddingBytes: 0
+layoutObservationErrors: 0
 internalErrors: 0
-releases: 20
 activeBuffers: 0
 activeDirectBytes: 0
 pendingBuffers: 0
 ```
 
-This isolates the failure to the guessed NPOT byte arrangement. It does not prove upper placement or another substitute layout.
+All seven observed original NPOT buffers matched `row-pad-source-then-zero-rows`. The two `172x32 -> 256x32` play-button observations also matched the leading-row name because no unused vertical rows existed; those names represented identical bytes in that case.
 
-The retained installed texture-loader contract shows the original converter creates a ByteBuffer, performs indexed `ByteBuffer.put(int, byte)` writes, and explicitly sets buffer position and limit. The layout is deliberate and should be observed rather than replaced with another append/placement guess.
+The prior lower-versus-upper padding diagnosis is therefore disproved. The failed direct path supplied the relevant bytes in the same arrangement as Starsector's original converter.
 
-## Merged runtime behavior
+## Remaining hypotheses
 
-Current `main`:
+The material difference is outside the returned upload bytes:
 
-1. keeps the exact prepared-pixel transformation and power-of-two bypass;
-2. returns NPOT carriers to Starsector's original decode/conversion path before direct allocation;
-3. observes the original buffer after conversion without changing it;
-4. compares it with a fixed candidate set;
-5. retains at most 16 deduplicated logical-path observations;
-6. records no original texture payload bytes;
-7. preserves original upload, cleanup, and exception behavior.
+1. the prepared path's historical carrier was a real `1x1` raster and sample model that only overrode no-argument width and height; or
+2. Starsector's original converter performs required side effects beyond returning the buffer and assigning the three reviewed colors.
+
+A blind direct-buffer retry cannot distinguish those cases.
+
+## PR #137 diagnostic
+
+PR #137 adds an explicit opt-in system property:
+
+```text
+-Dpreflight.preparedPixels.coherentOriginalConvert=true
+```
+
+For NPOT prepared-cache hits under that property only, the transformed path:
+
+1. reconstructs a dimensionally coherent top-down sRGB `BufferedImage` from the cached bottom-up RGB/RGBA source payload;
+2. bypasses the original ImageIO decode;
+3. executes Starsector's retained original converter on that coherent cached image;
+4. returns the original converter's exact buffer;
+5. preserves every original converter side effect, cleanup call, upload, and exception;
+6. records bounded original-buffer and coherent-carrier metadata.
+
+Without the property, current safe NPOT behavior is unchanged: Starsector performs both original decode and conversion.
+
+The diagnostic does **not** supply a direct padded prepared buffer. `paddedUploads` and `paddingBytes` remain zero.
 
 New telemetry:
 
 ```text
-npotProbeFallbacks
-originalLayoutObservations
-layoutObservationErrors
+coherentOriginalConvertEnabled
+coherentCarriers
+coherentCarrierBytes
+coherentOriginalConvertFallbacks
+coherentOriginalDecodeBypasses
 ```
 
-For schema continuity during the probe:
+Each layout observation also records:
 
 ```text
-paddedUploads: 0
-paddingBytes: 0
+coherentOriginalConvert
+carrierRasterWidth / carrierRasterHeight
+carrierSampleModelWidth / carrierSampleModelHeight
+carrierColorComponents
+carrierHasAlpha
 ```
 
-Power-of-two hits still use the bounded direct-buffer path and retain the existing ownership telemetry.
+## Diagnostic interpretation
+
+```text
+normal launcher visuals
+→ the cached coherent image is acceptable to Starsector;
+→ the failed direct path skipped additional required original-converter behavior.
+
+broken launcher visuals
+→ the reconstructed cached image is not equivalent to Starsector's decoded image;
+→ inspect image type, color model, raster organization, properties, or source-pixel reconstruction.
+```
+
+Do not infer more than this single split from the result.
 
 ## Automated validation
 
-Validated implementation and readiness head before documentation-only alignment:
+Validated code head before readiness, runner, and evidence alignment:
 
 ```text
-6ad76b6964c91649d71bcd7e8b944cd4fe49ff65
+b5af3ef0982583c3563113cd0a882b3fb48aac31
 ```
 
 Successful workflows:
 
 ```text
-CI run 516 — full Maven verification
-Vanilla adapter gate tests run 368
-Texture cache tests run 363
-Prepare command tests run 93
+CI run 524 — full Maven verification
+Vanilla adapter gate tests run 374
+Texture cache tests run 368
 ```
 
-PR #135 was squash-merged after documentation-only evidence alignment.
+The final PR head, including readiness and documentation, must pass all newly triggered affected workflows before merge. Record those final results in the PR.
 
 ## Exact identities
 
@@ -118,50 +156,53 @@ archive SHA-256:
 
 Keep these identities exact. Automatic allowlist generation remains disabled.
 
-## Authorized operator action
+## Operator action after merge
 
-From a checkout containing PR #135 and the runner follow-up, use:
+Use a newly built merged JAR and exact artifacts from a current successful preparation report:
 
 ```bash
 git switch main
 git pull --ff-only
-bash scripts/run-prepared-pixel-layout-probe.sh
+bash scripts/run-prepared-pixel-coherent-converter-probe.sh
 ```
 
-The runner verifies the merged commit, build, exact installed identities, offline contract, current preparation artifacts, lifecycle result, NPOT fallback telemetry, layout observations, and shutdown accounting.
+The runner verifies the build, installed identities, offline contract, preparation artifacts, diagnostic property, original-converter observations, lifecycle result, and shutdown accounting.
 
 When the launcher appears:
 
 ```text
-inspect normal launcher visuals
+inspect all launcher visuals
 → take a screenshot
 → do not click Play
 → close with the launcher X
 ```
 
-The runner packages the complete run directory on the Desktop. Upload that archive and the screenshot.
+Retain and upload the generated archive and screenshot. Stop after that one run.
 
-Expected evidence:
+## Expected evidence
 
-- normal launcher visuals;
-- exact transformation applied;
-- NPOT original-path fallbacks above zero;
-- guessed padded uploads equal zero;
-- bounded original-layout observations present;
-- observation errors zero;
+- normal or clearly classified broken launcher visuals;
+- exact transformation applied once;
+- diagnostic property enabled;
+- coherent carriers and coherent carrier bytes above zero;
+- NPOT fallbacks and coherent-original-converter fallbacks above zero;
+- ImageIO decode bypasses above zero while direct conversion bypasses remain separate;
+- original layout observations present with raster/sample-model dimensions equal to source dimensions;
+- direct padded uploads equal zero;
+- observation and internal errors zero;
 - active prepared buffers/direct bytes/pending buffers zero at shutdown;
 - no fatal console or log evidence;
 - clean launcher exit.
-
-Stop after the one launcher probe. Do not implement a new NPOT bypass until the retained original-layout observations are reviewed.
 
 ## Definition of a good handback
 
 Leave:
 
-1. the exact command, repository head, and merged JAR SHA-256;
-2. the complete retained launcher-probe directory and screenshot;
-3. a dated evidence document classifying each observed layout result;
-4. issue #129 updated with pass or failure details;
-5. readiness and operator handoff aligned with the result;
-6. no gameplay lifecycle, repeated benchmark, or acceleration claim.
+1. PR #137 merged or exact review findings recorded;
+2. final workflow results and validated commit SHA;
+3. exact probe command and merged JAR SHA-256;
+4. complete retained coherent-converter run directory and screenshot;
+5. a dated evidence document classifying the diagnostic result;
+6. issue #129 updated;
+7. readiness and operator handoff aligned;
+8. no direct NPOT retry, gameplay lifecycle, repeated benchmark, or acceleration claim.
