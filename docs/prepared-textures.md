@@ -154,9 +154,24 @@ Both version-2 plans preserve the original `com.fs.graphics.L.class(String)` asy
 
 Compatibility mode may also use `run --adapter --texture-auto` to resolve the already-prepared manifest and index for the exact current installed profile. This convenience mode remains explicit and read-only; it does not support `prepared-pixels` and fails before launch when the cache is absent or stale.
 
-Compatibility-v2 matches the exact installed class bytes. Prepared-pixels-v2 currently declines those bytes at its color-sink matcher, so the lower path remains fail-closed despite passing repository-owned synthetic tests. It must not be treated as live-ready until its fixture models the installed `TextureLoader` fields and subsequent texture-object setter calls.
+Prepared-pixels-v2 supports two reviewed color-sink models:
 
-Launch the lower consumer with explicit artifacts:
+- three direct non-static `java.awt.Color` fields on the texture object; or
+- three non-static `TextureLoader` color fields that each flow through an instance method into one distinct, exactly typed texture-object setter.
+
+Mixed, incomplete, ambiguous, untyped, static-transfer, or raster-free models decline. PR #117 added the installed-style staged model, and PR #119 added the read-only offline contract checker. The exact installed archive still must pass that checker and one real opt-in lifecycle run before the lower consumer is treated as live-accepted.
+
+Run the offline check against an extracted class or the containing JAR before any real prepared-pixel launch:
+
+```bash
+java -cp preflight-cli/target/preflight.jar \
+  dev.starsector.preflight.agent.PreparedPixelContractCheck \
+  "/path/to/Starsector.app/Contents/Resources/Java/fs.common_obf.jar"
+```
+
+Review [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operator-handoff.md) and stop for report review after this command.
+
+Launch the lower consumer only after the installed report passes, using explicit artifacts:
 
 ```bash
 java -jar preflight.jar run \
@@ -168,7 +183,7 @@ java -jar preflight.jar run \
   --texture-index "/path/to/cache/indexes/<fingerprint>.spfi"
 ```
 
-The prepared-pixel rewrite additionally requires the reviewed conversion pattern: one raster-reading conversion method, exactly three distinct `java.awt.Color` writes on the texture object, and the reviewed static ByteBuffer cleanup method. An ambiguous pattern leaves the class untouched.
+Do not guess the fingerprint or reuse artifacts from a different profile. Use the exact manifest and index reported by preparation for the current installation.
 
 Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. The current payload format accepts identity textures whose original and upload dimensions match. `ALPHA_ADDER`, resized payloads, oversized images, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
 
