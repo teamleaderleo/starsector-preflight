@@ -15,7 +15,7 @@ PR #132 repaired fail-open admission, exceptional direct-buffer release, fatal c
 PR #133 implements bounded runtime upload padding and is awaiting review and merge. Automated validation passed on implementation head:
 
 ```text
-d97f362b56a669c7faeaacc477d8e652cacb93c3
+b3b1b59856008ad91609c02ac52eb1986e7bc14b
 ```
 
 See:
@@ -69,19 +69,20 @@ Telemetry includes:
 ```text
 paddedUploads
 paddingBytes
+uploadBytesSupplied
 ```
 
-The existing `bytesBypassed`, release, active-buffer, and active-direct-byte counters remain available.
+`bytesBypassed` remains source-sized so zero padding does not overstate conversion work avoided. Existing release, active-buffer, and active-direct-byte counters remain available.
 
 ## Automated validation
 
 Successful workflows on the validated implementation head:
 
 ```text
-CI run 494
-Texture cache tests run 343
-Vanilla adapter gate tests run 346
-Prepare command tests run 78
+CI run 500
+Texture cache tests run 349
+Vanilla adapter gate tests run 352
+Prepare command tests run 84
 ```
 
 The CI run executed the full Maven verification suite.
@@ -137,7 +138,8 @@ Stop after that one repaired pilot. Repeated benchmarks remain blocked until beh
 Acceptance requires:
 
 - the exact expected transformation;
-- prepared-pixel hits and bypassed bytes above zero;
+- prepared-pixel hits and source-sized bypassed bytes above zero;
+- `uploadBytesSupplied` at least as large as `bytesBypassed`;
 - `paddedUploads` and `paddingBytes` consistent with encountered NPOT textures;
 - clean sprite, UI, campaign, and combat visuals with no flipped images, borders, fringes, or bleeding;
 - only understood original-path fallbacks;
