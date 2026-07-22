@@ -90,7 +90,7 @@ jobs:
 
           printf 'ref=%s\nsuite=%s\noffline=%s\n' "$ref" "$suite" "$offline" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.request.outputs.ref }}
           clean: true
@@ -102,8 +102,9 @@ jobs:
           set -Eeuo pipefail
           test "$(id -u)" -ne 0
           export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
           test -d "$XDG_RUNTIME_DIR"
-          podman info --format 'rootless={{.Host.Security.Rootless}} cgroup={{.Host.CgroupVersion}}'
+          podman info --format 'rootless={{.Host.Security.Rootless}} cgroupVersion={{.Host.CgroupVersion}} cgroupManager={{.Host.CgroupManager}}'
           podman image exists localhost/starsector-preflight-build:1
 
       - name: Run disposable verification container
