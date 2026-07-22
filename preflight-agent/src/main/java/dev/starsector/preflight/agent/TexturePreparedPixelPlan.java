@@ -105,6 +105,8 @@ final class TexturePreparedPixelPlan {
         MethodNode wrapper = method(metadata, CONVERT_METHOD, CONVERT_DESCRIPTOR);
         LabelNode ordinary = new LabelNode();
         LabelNode preparedFallback = new LabelNode();
+        LabelNode decodeOriginal = new LabelNode();
+        LabelNode converted = new LabelNode();
 
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
         wrapper.instructions.add(new MethodInsnNode(
@@ -148,6 +150,23 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new InsnNode(Opcodes.ARETURN));
 
         wrapper.instructions.add(preparedFallback);
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        wrapper.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                RUNTIME,
+                "useCarrierForOriginalFallback",
+                "(Ljava/awt/image/BufferedImage;)Z",
+                false));
+        wrapper.instructions.add(new JumpInsnNode(Opcodes.IFEQ, decodeOriginal));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
+        wrapper.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKESPECIAL, owner, ORIGINAL_CONVERT, CONVERT_DESCRIPTOR, false));
+        wrapper.instructions.add(new VarInsnNode(Opcodes.ASTORE, 5));
+        wrapper.instructions.add(new JumpInsnNode(Opcodes.GOTO, converted));
+
+        wrapper.instructions.add(decodeOriginal);
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
         wrapper.instructions.add(new MethodInsnNode(
@@ -165,6 +184,8 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new MethodInsnNode(
                 Opcodes.INVOKESPECIAL, owner, ORIGINAL_CONVERT, CONVERT_DESCRIPTOR, false));
         wrapper.instructions.add(new VarInsnNode(Opcodes.ASTORE, 5));
+
+        wrapper.instructions.add(converted);
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 5));
         wrapper.instructions.add(new MethodInsnNode(
