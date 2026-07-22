@@ -57,13 +57,13 @@ class PrepareCommandTest {
         assertTrue(first.contains("\"realInstallPilotRequired\":true"), first);
         assertTrue(first.contains("\"repeatTimingCampaignRequired\":true"), first);
         assertTrue(first.contains(
-                "\"preparedPixelsAdapter\":\"pot-bypass-enabled-npot-coherent-original-converter-diagnostic\""),
+                "\"preparedPixelsAdapter\":\"pot-bypass-enabled-npot-coherent-direct-diagnostic\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsBehavioralAcceptance\":\"failed-2026-07-22-direct-npot-bypass\""),
+                "\"preparedPixelsBehavioralAcceptance\":\"diagnostic-under-review-2026-07-22\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsNextOperatorAction\":\"launcher-only-coherent-original-converter-probe\""),
+                "\"preparedPixelsNextOperatorAction\":\"launcher-only-coherent-direct-probe\""),
                 first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 

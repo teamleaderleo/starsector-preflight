@@ -1,7 +1,9 @@
 package dev.starsector.preflight.agent;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -14,6 +16,7 @@ import dev.starsector.preflight.core.TextureManifest;
 import dev.starsector.preflight.core.TextureManifestIO;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBuffer;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -29,6 +32,7 @@ class TexturePreparedPixelCoherentCarrierTest {
     @AfterEach
     void resetRuntime() {
         System.clearProperty(TexturePreparedPixelRuntime.COHERENT_ORIGINAL_CONVERT_PROPERTY);
+        System.clearProperty(TexturePreparedPixelRuntime.COHERENT_DIRECT_PROPERTY);
         TexturePreparedPixelRuntime.beginSession();
         TextureCompatibilityRuntime.beginSession();
     }
@@ -76,6 +80,7 @@ class TexturePreparedPixelCoherentCarrierTest {
         assertEquals(1L, telemetry.get("carriers"));
         assertEquals(1L, telemetry.get("coherentCarriers"));
         assertEquals(18L, telemetry.get("coherentCarrierBytes"));
+        assertEquals(0L, telemetry.get("coherentDirectCarriers"));
         assertEquals(1L, telemetry.get("fallbacks"));
         assertEquals(1L, telemetry.get("npotProbeFallbacks"));
         assertEquals(1L, telemetry.get("coherentOriginalConvertFallbacks"));
@@ -90,6 +95,59 @@ class TexturePreparedPixelCoherentCarrierTest {
         assertEquals(1L, cache.get("attempts"));
         assertEquals(1L, cache.get("hits"));
         assertEquals(18L, cache.get("bytesServed"));
+    }
+
+    @Test
+    void optInCoherentDirectNpotSuppliesExactObservedPaddedBuffer() throws Exception {
+        int width = 3;
+        int height = 3;
+        int channels = 3;
+        byte[] source = sequential(width * height * channels);
+        Fixture fixture = fixture(width, height, channels, source);
+        System.setProperty(TexturePreparedPixelRuntime.COHERENT_ORIGINAL_CONVERT_PROPERTY, "true");
+        System.setProperty(TexturePreparedPixelRuntime.COHERENT_DIRECT_PROPERTY, "true");
+        configure(fixture);
+
+        BufferedImage carrier = TexturePreparedPixelRuntime.load("graphics/test.png");
+        assertEquals(width, carrier.getRaster().getWidth());
+        assertEquals(height, carrier.getRaster().getHeight());
+        assertEquals(width, carrier.getSampleModel().getWidth());
+        assertEquals(height, carrier.getSampleModel().getHeight());
+        assertFalse(TexturePreparedPixelRuntime.useCarrierForOriginalFallback(carrier));
+
+        TexturePreparedPixelRuntime.PreparedPixel prepared = TexturePreparedPixelRuntime.prepare(carrier);
+        assertNotNull(prepared);
+        assertEquals(4, prepared.width());
+        assertEquals(4, prepared.height());
+        assertEquals(channels, prepared.channels());
+        assertEquals(48, prepared.pixelBytes());
+        assertArrayEquals(rowPadded3x3Rgb(source), bytes(prepared.buffer()));
+        assertEquals(0xff0a141e, prepared.color0().getRGB());
+        assertEquals(0xff28323c, prepared.color1().getRGB());
+        assertEquals(0xff46505a, prepared.color2().getRGB());
+
+        Map<String, Object> active = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(Boolean.TRUE, active.get("coherentDirectEnabled"));
+        assertEquals(1L, active.get("carriers"));
+        assertEquals(1L, active.get("coherentCarriers"));
+        assertEquals(1L, active.get("coherentDirectCarriers"));
+        assertEquals(1L, active.get("coherentDirectHits"));
+        assertEquals(1L, active.get("hits"));
+        assertEquals(0L, active.get("fallbacks"));
+        assertEquals(0L, active.get("npotProbeFallbacks"));
+        assertEquals(1L, active.get("paddedUploads"));
+        assertEquals(21L, active.get("paddingBytes"));
+        assertEquals(27L, active.get("bytesBypassed"));
+        assertEquals(48L, active.get("uploadBytesSupplied"));
+        assertEquals(1, active.get("activeBuffers"));
+        assertEquals(48L, active.get("activeDirectBytes"));
+
+        TexturePreparedPixelRuntime.release(prepared.buffer());
+        Map<String, Object> released = TexturePreparedPixelRuntime.telemetry();
+        assertEquals(0, released.get("activeBuffers"));
+        assertEquals(0L, released.get("activeDirectBytes"));
+        assertEquals(1L, released.get("releases"));
+        assertEquals(48L, released.get("releasedBytes"));
     }
 
     @Test
@@ -136,8 +194,11 @@ class TexturePreparedPixelCoherentCarrierTest {
         Map<String, Object> telemetry = TexturePreparedPixelRuntime.telemetry();
         assertEquals(0L, telemetry.get("coherentCarriers"));
         assertEquals(0L, telemetry.get("coherentCarrierBytes"));
+        assertEquals(0L, telemetry.get("coherentDirectCarriers"));
+        assertEquals(0L, telemetry.get("coherentDirectHits"));
         assertEquals(0L, telemetry.get("coherentOriginalConvertFallbacks"));
         assertEquals(0L, telemetry.get("coherentOriginalDecodeBypasses"));
+        assertEquals(0L, telemetry.get("paddedUploads"));
     }
 
     private void configure(Fixture fixture) {
@@ -195,6 +256,29 @@ class TexturePreparedPixelCoherentCarrierTest {
         Path manifestPath = cache.resolve("manifests").resolve(profile + ".spfm");
         TextureManifestIO.write(manifestPath, manifest);
         return new Fixture(cache, indexPath, manifestPath);
+    }
+
+    private static byte[] sequential(int length) {
+        byte[] bytes = new byte[length];
+        for (int index = 0; index < length; index++) {
+            bytes[index] = (byte) (index + 1);
+        }
+        return bytes;
+    }
+
+    private static byte[] rowPadded3x3Rgb(byte[] source) {
+        byte[] upload = new byte[4 * 4 * 3];
+        for (int row = 0; row < 3; row++) {
+            System.arraycopy(source, row * 9, upload, row * 12, 9);
+        }
+        return upload;
+    }
+
+    private static byte[] bytes(ByteBuffer source) {
+        ByteBuffer copy = source.duplicate();
+        byte[] bytes = new byte[copy.remaining()];
+        copy.get(bytes);
+        return bytes;
     }
 
     private record Fixture(Path cache, Path index, Path manifest) {
