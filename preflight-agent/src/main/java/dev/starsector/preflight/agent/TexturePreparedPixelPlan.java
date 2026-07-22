@@ -7,6 +7,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
@@ -17,7 +18,6 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.VarInsnNode;
-import org.objectweb.asm.tree.FieldInsnNode;
 
 /** Exact target rewrite for upload-ready prepared pixels below the ImageIO compatibility seam. */
 final class TexturePreparedPixelPlan {
@@ -76,6 +76,10 @@ final class TexturePreparedPixelPlan {
         if (colors.size() != 3) {
             return null;
         }
+        List<MethodNode> uploadCallers = directConvertCallers(owner, convert);
+        if (uploadCallers.isEmpty()) {
+            return null;
+        }
 
         MethodNode originalDecode = directDecodeClone(decode);
         if (originalDecode == null) {
@@ -87,6 +91,7 @@ final class TexturePreparedPixelPlan {
         owner.methods.add(originalDecode);
         owner.methods.add(convertWrapper(owner.name, convertMetadata, colors));
         owner.methods.add(cleanupWrapper(owner.name, cleanupMetadata));
+        uploadCallers.forEach(TexturePreparedPixelPlan::addExceptionalRelease);
 
         ClassWriter writer = new SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         owner.accept(writer);
@@ -197,6 +202,51 @@ final class TexturePreparedPixelPlan {
         wrapper.instructions.add(new VarInsnNode(Opcodes.ALOAD, 2));
         wrapper.instructions.add(new InsnNode(Opcodes.ATHROW));
         return wrapper;
+    }
+
+    private static List<MethodNode> directConvertCallers(ClassNode owner, MethodNode convert) {
+        List<MethodNode> callers = new ArrayList<>();
+        for (MethodNode method : owner.methods) {
+            if (method == convert) {
+                continue;
+            }
+            for (AbstractInsnNode instruction = method.instructions.getFirst();
+                    instruction != null;
+                    instruction = instruction.getNext()) {
+                if (instruction instanceof MethodInsnNode call
+                        && owner.name.equals(call.owner)
+                        && CONVERT_METHOD.equals(call.name)
+                        && CONVERT_DESCRIPTOR.equals(call.desc)) {
+                    callers.add(method);
+                    break;
+                }
+            }
+        }
+        return List.copyOf(callers);
+    }
+
+    private static void addExceptionalRelease(MethodNode method) {
+        if (method.instructions.getFirst() == null) {
+            return;
+        }
+        int errorLocal = method.maxLocals;
+        method.maxLocals++;
+        LabelNode start = new LabelNode();
+        LabelNode end = new LabelNode();
+        LabelNode handler = new LabelNode();
+        method.instructions.insertBefore(method.instructions.getFirst(), start);
+        method.instructions.add(end);
+        method.instructions.add(handler);
+        method.instructions.add(new VarInsnNode(Opcodes.ASTORE, errorLocal));
+        method.instructions.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                RUNTIME,
+                "releaseCurrentThreadBuffer",
+                "()V",
+                false));
+        method.instructions.add(new VarInsnNode(Opcodes.ALOAD, errorLocal));
+        method.instructions.add(new InsnNode(Opcodes.ATHROW));
+        method.tryCatchBlocks.add(new TryCatchBlockNode(start, end, handler, "java/lang/Throwable"));
     }
 
     private static MethodMetadata rename(
