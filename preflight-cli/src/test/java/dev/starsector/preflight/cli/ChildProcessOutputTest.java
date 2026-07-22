@@ -34,6 +34,7 @@ class ChildProcessOutputTest {
         }
 
         assertEquals(0, result.exitCode());
+        assertEquals(console.toAbsolutePath().normalize(), result.file());
         assertTrue(Files.isRegularFile(console));
         assertTrue(result.truncated());
         assertEquals(ChildProcessOutput.MAX_CAPTURE_BYTES, result.capturedBytes());
