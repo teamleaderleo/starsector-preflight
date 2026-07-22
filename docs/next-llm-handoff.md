@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge PR #137, then perform and review exactly one real installed **launcher-only coherent-image/original-converter probe** using the repository runner.
+Perform and review exactly one real installed **launcher-only coherent-image/original-converter probe** using current `main` and the repository runner.
 
 Do not re-enable direct NPOT prepared buffers, run a prepared-pixel gameplay lifecycle, begin repeated measurement, or make acceleration claims.
 
@@ -17,7 +17,7 @@ Primary evidence:
 - [NPOT visual failure](evidence/2026-07-22-prepared-pixel-visual-failure.md)
 - [successful original-layout probe](evidence/2026-07-22-prepared-pixel-original-layout-probe.md)
 - issue #129 — NPOT upload dimensions and prepared-path visual acceptance
-- PR #137 — coherent cached image with retained original converter
+- PR #137 — merged coherent cached image with retained original converter
 
 ## State as of 2026-07-22
 
@@ -35,6 +35,9 @@ PR #135 NPOT fail-open and original-layout observation:
 
 PR #136 one-shot original-layout runner:
 60071e12cfc29d691142f272857b37b06233b32c
+
+PR #137 coherent cached image with retained original converter:
+fd390ff797e554101cc78ab52516273c1c06fc24
 ```
 
 The guessed direct upload no longer crashed but rendered the launcher incorrectly. The later safe probe used Starsector's original NPOT conversion path and rendered normally.
@@ -68,9 +71,9 @@ The material difference is outside the returned upload bytes:
 
 A blind direct-buffer retry cannot distinguish those cases.
 
-## PR #137 diagnostic
+## Merged coherent-converter diagnostic
 
-PR #137 adds an explicit opt-in system property:
+Current `main` recognizes the explicit opt-in system property:
 
 ```text
 -Dpreflight.preparedPixels.coherentOriginalConvert=true
@@ -89,7 +92,7 @@ Without the property, current safe NPOT behavior is unchanged: Starsector perfor
 
 The diagnostic does **not** supply a direct padded prepared buffer. `paddedUploads` and `paddingBytes` remain zero.
 
-New telemetry:
+Telemetry:
 
 ```text
 coherentOriginalConvertEnabled
@@ -125,21 +128,22 @@ Do not infer more than this single split from the result.
 
 ## Automated validation
 
-Validated code head before readiness, runner, and evidence alignment:
+Final validated PR head:
 
 ```text
-b5af3ef0982583c3563113cd0a882b3fb48aac31
+0b27b821be4845dd36dfc0398bef2fcdf667aa8b
 ```
 
 Successful workflows:
 
 ```text
-CI run 524 — full Maven verification
-Vanilla adapter gate tests run 374
-Texture cache tests run 368
+CI run 530 — full Maven verification
+Vanilla adapter gate tests run 380
+Texture cache tests run 374
+Prepare command tests run 100
 ```
 
-The final PR head, including readiness and documentation, must pass all newly triggered affected workflows before merge. Record those final results in the PR.
+PR #137 was squash-merged as `fd390ff797e554101cc78ab52516273c1c06fc24` after those checks passed.
 
 ## Exact identities
 
@@ -156,7 +160,7 @@ archive SHA-256:
 
 Keep these identities exact. Automatic allowlist generation remains disabled.
 
-## Operator action after merge
+## Authorized operator action
 
 Use a newly built merged JAR and exact artifacts from a current successful preparation report:
 
@@ -198,11 +202,9 @@ Retain and upload the generated archive and screenshot. Stop after that one run.
 
 Leave:
 
-1. PR #137 merged or exact review findings recorded;
-2. final workflow results and validated commit SHA;
-3. exact probe command and merged JAR SHA-256;
-4. complete retained coherent-converter run directory and screenshot;
-5. a dated evidence document classifying the diagnostic result;
-6. issue #129 updated;
-7. readiness and operator handoff aligned;
-8. no direct NPOT retry, gameplay lifecycle, repeated benchmark, or acceleration claim.
+1. exact probe command, repository head, and merged JAR SHA-256;
+2. complete retained coherent-converter run directory and screenshot;
+3. a dated evidence document classifying the diagnostic result;
+4. issue #129 updated;
+5. readiness and operator handoff aligned;
+6. no direct NPOT retry, gameplay lifecycle, repeated benchmark, or acceleration claim.
