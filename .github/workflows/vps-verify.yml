@@ -45,6 +45,7 @@ jobs:
       PREFLIGHT_CONTAINER_MEMORY: 768m
       PREFLIGHT_CONTAINER_CPUS: '0.85'
       PREFLIGHT_CONTAINER_PIDS: '512'
+      PREFLIGHT_PODMAN_CGROUP_MANAGER: cgroupfs
 
     steps:
       - name: Resolve trusted ref and suite
@@ -105,10 +106,11 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
           test -d "$XDG_RUNTIME_DIR"
           podman_info="$(podman info --format json)"
-          printf 'rootless=%s cgroupVersion=%s cgroupManager=%s\n' \
+          printf 'rootless=%s cgroupVersion=%s defaultCgroupManager=%s selectedCgroupManager=%s\n' \
             "$(jq -r '.host.security.rootless // "unknown"' <<<"$podman_info")" \
             "$(jq -r '.host.cgroupVersion // "unknown"' <<<"$podman_info")" \
-            "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_info")"
+            "$(jq -r '.host.cgroupManager // "unknown"' <<<"$podman_info")" \
+            "$PREFLIGHT_PODMAN_CGROUP_MANAGER"
           podman image exists localhost/starsector-preflight-build:1
 
       - name: Run disposable verification container
