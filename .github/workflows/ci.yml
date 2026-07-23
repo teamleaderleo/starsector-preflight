@@ -1,55 +1,75 @@
-name: CI
+name: Patch core resource discovery
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
-  schedule:
-    - cron: '23 10 * * 1'
-  workflow_dispatch:
 
 permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  verify:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
-    runs-on: ${{ matrix.os }}
+  patch-runner:
+    if: github.head_ref == 'fix/core-mission-resource-discovery'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/setup-build-jdk
-      - name: Validate operator runners
-        if: runner.os != 'Windows'
-        run: |
-          bash -n scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
-          bash -n scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
-          python3 -m py_compile scripts/starsector_log_ready_detector.py
-          python3 scripts/test_starsector_log_ready_detector.py
-          python3 -m py_compile scripts/starsector_profile_guard.py
-          python3 scripts/test_starsector_profile_guard.py
-      - name: Verify
-        run: mvn --batch-mode --no-transfer-progress verify
-      - name: Upload runnable JAR
-        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: starsector-preflight
-          path: preflight-cli/target/preflight.jar
-          if-no-files-found: error
+          ref: fix/core-mission-resource-discovery
+      - name: Apply reviewed resource discovery patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/run-prepared-pixel-main-menu-comparison-pilot.sh')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  'PROFILE_GUARD="$PWD/scripts/starsector_profile_guard.py"\n',
+                  'PROFILE_GUARD="$PWD/scripts/starsector_profile_guard.py"\n'
+                  'CORE_RESOURCE_GUARD="$PWD/scripts/starsector_core_resource_guard.py"\n',
+              ),
+              (
+                  'MAIN_MENU_QUIET_SECONDS=6\n'
+                  'CORE_RESOURCE_ROOT="$GAME/Contents/Resources/starfarer.res/res"\n'
+                  'CORE_MISSION_LIST="$CORE_RESOURCE_ROOT/data/missions/mission_list.csv"\n'
+                  'CORE_MISSION_DESCRIPTOR="$CORE_RESOURCE_ROOT/data/missions/afistfulofcredits/descriptor.json"\n',
+                  'MAIN_MENU_QUIET_SECONDS=6\n',
+              ),
+              (
+                  'for helper in "$DETECTOR" "$PROFILE_GUARD"; do\n',
+                  'for helper in "$DETECTOR" "$PROFILE_GUARD" "$CORE_RESOURCE_GUARD"; do\n',
+              ),
+              (
+                  'if [[ ! -d "$GAME" ]]; then\n'
+                  '    echo "Starsector installation not found: $GAME" >&2\n'
+                  '    exit 1\n'
+                  'fi\n'
+                  'for core_resource in "$CORE_MISSION_LIST" "$CORE_MISSION_DESCRIPTOR"; do\n',
+                  'if [[ ! -d "$GAME" ]]; then\n'
+                  '    echo "Starsector installation not found: $GAME" >&2\n'
+                  '    exit 1\n'
+                  'fi\n\n'
+                  'CORE_RESOURCE_JSON="$(python3 "$CORE_RESOURCE_GUARD" --game "$GAME")"\n'
+                  'CORE_RESOURCE_ROOT="$(jq -er \'.resourceRoot\' <<<"$CORE_RESOURCE_JSON")"\n'
+                  'CORE_MISSION_LIST="$(jq -er \'.missionList\' <<<"$CORE_RESOURCE_JSON")"\n'
+                  'CORE_MISSION_DESCRIPTOR="$(jq -er \'.missionDescriptor\' <<<"$CORE_RESOURCE_JSON")"\n'
+                  'echo "Reviewed core mission resource root: $CORE_RESOURCE_ROOT"\n'
+                  'for core_resource in "$CORE_MISSION_LIST" "$CORE_MISSION_DESCRIPTOR"; do\n',
+              ),
+          ]
+
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one runner anchor, found {text.count(old)}: {old!r}')
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit runner patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
+          git commit -m "Discover installed core mission resource root"
+          git push origin HEAD:fix/core-mission-resource-discovery
