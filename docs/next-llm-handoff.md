@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge the dedicated coherent-direct gameplay-smoke runner, then perform exactly one installed gameplay smoke from current `main`.
+Perform exactly one installed coherent-direct gameplay smoke from current `main` using the merged repository runner.
 
 Do not repeat the accepted launcher probe, use a valuable save, benchmark, enable direct NPOT by default, or make an acceleration claim.
 
@@ -42,6 +42,9 @@ PR #141 backing-dimension replay with incorrect axis assignment:
 
 PR #145 corrected height-first/width-second dimension axes:
 d2333deca1697214231b6392b944ea2992150cae
+
+PR #147 guarded gameplay-smoke runner and launcher-pass evidence:
+ab4d1abfacf81c0c27216894b56ccffe3314b0a1
 ```
 
 ## Established facts
@@ -84,21 +87,22 @@ NPOT textures continue through Starsector's original decode/conversion path. Com
 
 ## Gameplay-smoke runner contract
 
-The dedicated runner:
+The merged runner:
 
 - requires the corrected source mapping;
 - verifies exact archive and class identities;
-- reruns full Maven verification and the installed contract check;
+- reruns full Maven verification and the installed contract check before launch;
 - prepares exact cache, manifest, and index paths;
 - records the accepted launcher archive SHA-256 as a prerequisite;
 - enables coherent-direct only for this run;
 - requires the route `launcher-main-menu-campaign-combat-save-clean-exit`;
+- requires at least 120 seconds of attached wrapper lifetime;
 - checks lifecycle, telemetry, cleanup, and fatal evidence;
 - asks the operator explicit milestone questions;
 - writes `operator-gameplay-result.json`;
 - packages the complete run directory on the Desktop.
 
-## Authorized operator action after merge
+## Authorized operator action
 
 Use a new campaign, copied save, or disposable save:
 
