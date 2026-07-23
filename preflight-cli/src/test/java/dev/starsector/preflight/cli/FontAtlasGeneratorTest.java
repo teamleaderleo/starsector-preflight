@@ -93,6 +93,41 @@ class FontAtlasGeneratorTest {
     }
 
     @Test
+    void nonInkingGlyphsUseAOneByOneCellNotZero() {
+        // Stock Starsector fonts give space a 1x1 cell; a 0x0 cell can trip the resource loader.
+        Matcher matcher = CHAR_LINE.matcher(generateAscii(24, 256).descriptor());
+        boolean sawSpace = false;
+        while (matcher.find()) {
+            int id = Integer.parseInt(matcher.group(1));
+            int width = Integer.parseInt(matcher.group(4));
+            int height = Integer.parseInt(matcher.group(5));
+            assertTrue(width >= 1 && height >= 1, "glyph " + id + " has a zero-size cell");
+            if (id == ' ') {
+                sawSpace = true;
+                assertTrue(Integer.parseInt(matcher.group(8)) > 0, "space should still advance");
+            }
+        }
+        assertTrue(sawSpace, "space glyph should be present");
+    }
+
+    @Test
+    void faceNameNeverContainsWhitespace() {
+        // Regression: a space in the .fnt face name crashes Starsector's resource loader
+        // (ArrayIndexOutOfBoundsException in ResourceLoaderState.init).
+        assertEquals("InterRegular", FontAtlasGenerator.sanitizeFace("Inter Regular"));
+        assertEquals("OrbitronSemiBold", FontAtlasGenerator.sanitizeFace("Orbitron  SemiBold"));
+        assertEquals("Font", FontAtlasGenerator.sanitizeFace("   "));
+        assertEquals("Ab", FontAtlasGenerator.sanitizeFace("A\"b"));
+
+        String descriptor = generateAscii(20, 256).descriptor();
+        String infoLine = descriptor.lines().filter(line -> line.startsWith("info ")).findFirst().orElseThrow();
+        int faceStart = infoLine.indexOf("face=\"") + 6;
+        int faceEnd = infoLine.indexOf('"', faceStart);
+        assertTrue(faceEnd > faceStart, infoLine);
+        assertTrue(infoLine.substring(faceStart, faceEnd).chars().noneMatch(Character::isWhitespace), infoLine);
+    }
+
+    @Test
     void restrictsGlyphsToDisplayableRequestedCodepoints() {
         FontAtlasGenerator.Result result = generateAscii(24, 256);
         for (int id : BitmapFont.parse(result.descriptor()).charIds()) {

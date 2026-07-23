@@ -73,13 +73,17 @@ final class FontAtlasGenerator {
         glyph.codepoint = codepoint;
         glyph.advance = Math.max(0, advance);
         if (ink.width <= 0 || ink.height <= 0) {
-            // Whitespace and other non-inking glyphs: no atlas cell, advance only.
-            glyph.width = 0;
-            glyph.height = 0;
+            // Whitespace and other non-inking glyphs: a 1x1 transparent cell at the atlas origin
+            // (which the packer keeps clear via padding), matching stock Starsector fonts, which
+            // use 1x1 rather than 0x0 for space. Advance only.
+            glyph.inking = false;
+            glyph.width = 1;
+            glyph.height = 1;
             glyph.xOffset = 0;
             glyph.yOffset = 0;
             glyph.inkY = 0;
         } else {
+            glyph.inking = true;
             glyph.width = ink.width;
             glyph.height = ink.height;
             glyph.xOffset = ink.x;              // left bearing == BMFont xoffset
@@ -91,11 +95,14 @@ final class FontAtlasGenerator {
 
     /** Shelf-packs inking glyphs left-to-right, wrapping rows; returns the atlas height. */
     private static int pack(List<Glyph> glyphs, int atlasWidth, int padding, int lineHeight) {
-        int penX = padding;
-        int penY = padding;
+        // Keep the atlas origin (0,0) clear so non-inking glyphs can reference a 1x1 transparent
+        // cell there regardless of the requested padding.
+        int start = Math.max(padding, 1);
+        int penX = start;
+        int penY = start;
         int rowHeight = 0;
         for (Glyph glyph : glyphs) {
-            if (glyph.width == 0 || glyph.height == 0) {
+            if (!glyph.inking) {
                 continue;
             }
             if (penX + glyph.width + padding > atlasWidth) {
@@ -121,7 +128,7 @@ final class FontAtlasGenerator {
         graphics.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
         graphics.setColor(Color.WHITE);
         for (Glyph glyph : glyphs) {
-            if (glyph.width == 0 || glyph.height == 0) {
+            if (!glyph.inking) {
                 continue;
             }
             GlyphVector vector = font.createGlyphVector(frc, new String(Character.toChars(glyph.codepoint)));
@@ -143,7 +150,7 @@ final class FontAtlasGenerator {
             int lineHeight,
             int atlasHeight) {
         StringBuilder builder = new StringBuilder();
-        String face = font.getFontName().replace("\"", "");
+        String face = sanitizeFace(font.getFontName());
         builder.append("info face=\"").append(face).append("\" size=").append(font.getSize())
                 .append(" bold=0 italic=0 charset=\"\" unicode=1 stretchH=100 smooth=1 aa=4")
                 .append(" padding=0,0,0,0 spacing=").append(options.padding()).append(',').append(options.padding())
@@ -167,6 +174,18 @@ final class FontAtlasGenerator {
         return builder.toString().stripTrailing();
     }
 
+    /**
+     * Starsector's {@code .fnt} parser splits the {@code info} line on whitespace and does not
+     * honor spaces inside the quoted {@code face} value — a space there throws
+     * {@code ArrayIndexOutOfBoundsException} during resource load and crashes the game. The face
+     * name is cosmetic, so strip whitespace and quotes; every stock Starsector font is already
+     * space-free.
+     */
+    static String sanitizeFace(String name) {
+        String cleaned = name.replaceAll("[\\s\"]+", "");
+        return cleaned.isEmpty() ? "Font" : cleaned;
+    }
+
     private static Graphics2D scratchGraphics() {
         BufferedImage scratch = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         return scratch.createGraphics();
@@ -182,6 +201,7 @@ final class FontAtlasGenerator {
 
     private static final class Glyph {
         private int codepoint;
+        private boolean inking;
         private int advance;
         private int width;
         private int height;
