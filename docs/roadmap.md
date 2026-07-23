@@ -94,11 +94,12 @@ Separate from the speed-first milestone program above:
    `.stages.textures.details.memoryEstimate` and `texture manifest inspect` prints it.
    Remaining: census working-set breakdowns, Asset Lab budget verdict.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
-6. Font quality: rendering mechanism resolved (baseHeight scaling → an `N×` descriptor +
-   truly re-rasterized `N×` atlas gives same-size crispness). **Generator landed**:
-   `BitmapFont` codec + `FontAtlasGenerator` (AWT rasterizer) + `preflight font generate`.
-   Remaining: the license-clean Orbitron in-game A/B (needs a real TTF + game launch), and
-   optional kerning extraction.
+6. Font quality: **mechanism confirmed in-game** — mod override of core fonts works, and the
+   core UI renders at declared `.fnt` metrics (so an `N×` pack is *bigger* text, not
+   same-size-sharper; residual graininess is display/UI-scale). **Landed**: `BitmapFont` codec,
+   `FontAtlasGenerator` (AWT rasterizer), `preflight font generate`, and `font generate-pack`
+   (whole-UI bring-your-own-font mod generator). Remaining: polish the readable-font mod
+   (font picker / packaging), optional kerning, and a fits-in-layout larger-text option.
 7. Build the texture Asset Lab as an offline, opt-in overlay generator with a budget gate.
 8. Keep enhanced assets in a separate cache namespace and manifest.
 9. Turn community reports into regression cases.

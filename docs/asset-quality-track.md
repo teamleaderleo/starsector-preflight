@@ -157,9 +157,33 @@ The full offline `N×` font generator is implemented in `preflight-cli`:
   `--charset-from` copies an existing font's exact glyph coverage. Ships no fonts: the vector
   source is operator-supplied, keeping licensing with the user.
 
-Confirmed end-to-end producing a clean 95-glyph ASCII atlas from a logical font. The only
-remaining step is the **in-game A/B** below, which needs a real vector face (e.g. the OFL
-Orbitron TTF) rather than a logical stand-in.
+- `preflight font generate-pack` — batch mode: from one TTF and the game's `graphics/fonts`
+  directory, generates a **matched replacement for every `.fnt`** (each at its original
+  on-screen size × `--scale`, with its original coverage) and writes a complete drop-in mod
+  (`mod_info.json` + `graphics/fonts/*`). One JVM, TTF loaded once — this is the
+  bring-your-own-font mod generator.
+
+### In-game results (confirmed 2026-07-24)
+
+A real Starsector 0.98a-RC8 run with generated packs settled the open questions:
+
+- **Mod override of core fonts works.** A mod shipping `graphics/fonts/<name>.fnt` at a core
+  path replaces what the core UI renders. (First attempt changed almost nothing because it
+  replaced `victor14`; `settings.json` sets `defaultFont = graphics/fonts/insignia15LTaa.fnt`
+  — replacing that and the other insignia/orbitron sizes is what moves the UI. Hence
+  `generate-pack`, which replaces all ~51 at once.)
+- **The core UI renders each font at its declared `.fnt` metrics.** A 2× descriptor makes text
+  **bigger**, not same-size-sharper. So LazyFont's baseHeight→draw-size downscaling applies to
+  text a mod draws in code (`createText(…, size)`), **not** to the core UI. The N× same-size
+  crispness route is therefore code-API-only; for the core UI, an N× pack is a *larger-text*
+  (accessibility) option, best at native resolution.
+- **Residual graininess is display/UI-scale, not the atlas.** At 100% UI scale a bitmap font
+  renders ~1:1, so no atlas beats it; the softness the operator sees comes from running below
+  native resolution / UI upscaling (dev-confirmed). The lever there is resolution settings.
+
+Net: the shippable win is a **same-size whole-UI typeface swap** (`generate-pack --scale 1`) —
+the bring-your-own-readable-font feature. "Bigger, clearer text" is a real but separate
+accessibility option and would want fits-in-layout care (a whole-UI 2× overflows panels).
 
 ### Empirical protocol (resolves the residual unknown, license-clean)
 
