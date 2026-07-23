@@ -288,6 +288,9 @@ run_mode() {
             --trace-dir "$run_dir"
             --adapter
             --texture-mode compatibility
+            --texture-cache-dir "$CACHE_DIRECTORY"
+            --texture-manifest "$TEXTURE_MANIFEST"
+            --texture-index "$RESOURCE_INDEX"
         )
     else
         run_args=(
@@ -456,7 +459,7 @@ PY
 cat <<'NOTICE'
 
 This pilot runs the same exact profile twice:
-  compatibility/original texture path
+  compatibility decoded-image path
   accepted coherent-direct prepared path
 
 For each half you will mark launcher readiness and main-menu readiness in the terminal.
