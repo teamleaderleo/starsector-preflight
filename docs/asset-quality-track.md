@@ -72,20 +72,41 @@ There are two very different outcomes, and they must not be conflated:
    occupies the same screen space, but sample glyphs from a higher-resolution atlas so
    each glyph is supersampled/anti-aliased at its native on-screen size.
 
-Outcome 2 is the desirable one and the harder one: standard BMFont rendering maps atlas
-source pixels to destination pixels 1:1, so a higher-res atlas normally implies bigger
-text. Getting supersampling-in-place requires the renderer to know an atlas→screen scale
-factor. Open questions:
+### Rendering mechanism (resolved)
 
-- Does Starsector's (closed-source) font renderer honor `smooth`/bilinear sampling such
-  that serving a higher-res atlas + proportionally-scaled `x/y/width/height/scaleW/scaleH`
-  while halving the on-screen quad size is even expressible? Likely not without renderer
-  cooperation.
-- Alternative: does the game already render at a higher internal resolution / support UI
-  scaling (0.96+) such that a higher-res atlas is sampled above 1:1 in practice?
-- Alternative: regenerate each font from its source TTF at 2× `size` with a proper glyph
-  rasterizer (better than upscaling the baked atlas), then decide bigger-vs-sharper by
-  which metric set is kept.
+Static analysis first: the engine's own font renderer is obfuscated (`fs.common_obf.jar`);
+`com.fs.starfarer.api.ui.Fonts` is only a name-constants class, and no `LazyFont` string
+appears in any shipped jar. I did not reverse-engineer the commercial binary. Instead the
+mechanism is settled by the **public `LazyFont` javadoc** (LazyLib), which documents how
+these same `.fnt` fonts are drawn:
+
+- Fonts have a native size, `getBaseHeight()`; `createText(text, color, size, …)` scales
+  glyphs from the atlas to the requested `size`.
+- Quoted: the draw size *"should be evenly divisible by `getBaseHeight()`. Other values may
+  cause slight blurriness or jaggedness."*
+
+So the atlas resolution and the on-screen draw size are **decoupled through baseHeight
+scaling**. A font whose atlas is rendered at an integer multiple of its draw size is
+*downsampled* at draw time → supersampled → crisp. This **resolves the bigger-vs-sharper
+question**: the vehicle for same-size sharpness is an `N×` descriptor (baseHeight and all
+coordinates ×N) paired with a genuine `N×` atlas, drawn at the original size. A Starsector
+developer tweet and the [1440p UI-scale blur thread](https://fractalsoftworks.com/forum/index.php?topic=25115.0)
+confirm the complement: UI-scale (e.g. 140%) resamples the *whole rendered UI*, so even a
+crisp native font softens under global scaling — argue for generating at a scale matched to
+the user's UI-scale setting.
+
+**The one load-bearing corollary:** upscaling the *baked* atlas gains nothing — interpolate
+up, let the renderer scale down, and you are back to the original quality. A real gain
+requires **re-rasterizing glyphs from the vector (TTF) source at N×**, not resampling the
+shipped PNG. That in turn raises a licensing constraint (below).
+
+The only residual unknown is whether the **core UI** draws each font at a fixed on-screen
+size (so swapping in an `N×` descriptor+atlas at the same requested size yields crispness
+directly) or at the font's declared size (which would enlarge text). The custom-font API —
+`Global.getSettings().loadFont(path)` plus `setParaFont`/`setTitleFont`/… per the
+[wiki.gg custom-fonts guide](https://starsector.wiki.gg/wiki/Using_Other/Custom_Fonts) —
+lets a mod load fonts by path, and LazyFont-drawn text clearly honors an arbitrary size;
+the core-UI size-selection is the single fact to confirm empirically (protocol below).
 
 ### What the community font evidence says (tier-4/5)
 
@@ -103,18 +124,38 @@ conclusions follow, and they narrow the design:
 - **Selecting a larger font** improves readability through bigger glyphs but leaves the
   same-size/high-density problem unsolved.
 
-**Refined recommendation — the practical asset-only solutions are:**
+**Refined recommendation.** Produce an `N×` font: an `N×` descriptor (this is the
+`BitmapFont.scaled(N)` transform, landed — see below) paired with a **truly re-rasterized
+`N×` atlas** from the vector source, drawn at the original on-screen size so the renderer
+supersamples it down. Do **not** ship an upscaled baked atlas — it adds no detail.
 
-1. a **native-size hinted atlas**: re-rasterize each glyph from the source TTF at exactly
-   its on-screen `size` with better hinting/AA (same metrics, same on-screen size, cleaner
-   edges), and
-2. an **offline supersampled-then-downsampled native atlas**: rasterize large, downsample
-   to native size with a good filter, bake that into the atlas (same metrics/size, higher
-   effective density per glyph).
+**Licensing constraint (shapes the architecture).** The game ships baked atlases, not the
+source TTFs, and several faces (Insignia LT, Victor, Futura) are commercially licensed.
+Orbitron is OFL/free. So a *redistributable* upscaled-font pack is licensing-constrained,
+while re-rasterization needs the vector source. The clean architecture is therefore a
+**local generator tool** that ships code, not fonts: it rasterizes at the user's chosen
+scale from OFL faces (or fonts the user already has), emitting `{name.fnt, name_<page>.png}`
+pairs on their machine. A ready-made pack is only redistributable for OFL faces.
 
-Both keep on-screen size and layout identical and do **not** depend on undocumented
-renderer scaling. The **2× atlas with proportional metric changes stays an experiment**
-for probing whether the renderer ever samples above 1:1 — not the shipping approach.
+### Descriptor tooling (landed)
+
+`BitmapFont` (preflight-cli) parses AngelCode `.fnt` text, exposes `baseHeight()` and
+`pageFiles()`, and applies an exact integer `scaled(N)` that multiplies every pixel
+coordinate (`info size/padding/spacing/outline`, `common lineHeight/base/scaleW/scaleH`,
+`char x/y/width/height/xoffset/yoffset/xadvance`, `kerning amount`) while leaving ids,
+channels, flags, percentages, and page files untouched. Round-trips the real
+`graphics/fonts/*.fnt` (validated against `insignia15LTaa.fnt`, 233 glyphs, CRLF). This is
+the deterministic descriptor half of an `N×` font; the remaining half is vector
+re-rasterization of the atlas (AWT `Font` → packed atlas), license-gated as above.
+
+### Empirical protocol (resolves the residual unknown, license-clean)
+
+Orbitron is OFL, so this needs no commercial font: re-rasterize a 2× Orbitron atlas from the
+OFL TTF, pair it with `BitmapFont.scaled(2)` of the matching descriptor, drop it in as a
+core-font override, and observe same text at the same UI setting. **Crisper at the same
+size** ⇒ mechanism holds and the core UI honors a fixed draw size (ship it). **Larger text**
+⇒ the core UI uses the declared size (fall back to LazyFont-drawn contexts via the custom-font
+API, or to a UI-scale-matched native re-rasterization).
 
 ### Font test matrix
 
@@ -132,17 +173,20 @@ Capture lossless crops of identical text and measure: physical glyph height (scr
 edge-spread width, local contrast, baseline position, character advance, fractional-position
 blur, atlas bleed, clipping.
 
-### Two delivery options
+### Delivery options
 
-- **Standalone Starsector mod (preferred for the "extra mod" idea):** ship replacement
-  `{name.fnt, name_<page>.png}` pairs that override `graphics/fonts/*`. Needs no agent.
-  Verify that a mod can shadow *core* font paths by load order (the project's own
+- **Local generator tool (preferred; license-clean):** ship the generator, not the fonts.
+  It re-rasterizes an `N×` atlas from an OFL face (or one the user supplies) and pairs it
+  with `BitmapFont.scaled(N)`, writing `{name.fnt, name_<page>.png}` on the user's machine.
+  Sidesteps redistribution of commercial faces entirely.
+- **Standalone Starsector mod (only for OFL faces):** ship replacement pairs that override
+  `graphics/fonts/*` — clean for Orbitron and any OFL substitute, not for Insignia LT /
+  Victor / Futura. Verify a mod can shadow *core* font paths by load order (the project's
   winning-provider logic shows later roots win; confirm vanilla Starsector resolves core
   font resources the same way).
-- **Folded into preflight:** a font atlas is just a texture through the existing
-  `TextureLoader` hook; the `.fnt` is an indexed resource. The prepared-texture cache
-  could serve enhanced atlases with the matching `.fnt` as a paired artifact under the
-  same exact/faithfulness gate.
+- **Folded into preflight:** a font atlas is a texture through the existing `TextureLoader`
+  hook and the `.fnt` is an indexed resource, so the cache could serve enhanced pairs under
+  the same exact/faithfulness gate — subject to the same licensing boundary.
 
 ## Sub-proposal B: texture super-resolution (broader, higher risk)
 
@@ -233,6 +277,12 @@ Community load-time and profiling knowledge:
 - Fractal forum — Faster Save/Load/Boot times (settings.json): <https://fractalsoftworks.com/forum/index.php?topic=23851.0>
 - Starsector Wiki — Troubleshooting slowdown (recommends VisualVM sampler): <https://starsector.fandom.com/wiki/Troubleshooting_slowdown>
 - Fractal forum — Performance Issue / CPU bottleneck: <https://fractalsoftworks.com/forum/index.php?topic=18689.0>
+
+Font rendering mechanism (authoritative):
+
+- LazyFont javadoc — baseHeight scaling, "evenly divisible by getBaseHeight()": <https://lazywizard.github.io/lazylib/org/lazywizard/lazylib/ui/LazyFont.html>
+- Starsector Wiki (wiki.gg) — Using Other/Custom Fonts (`loadFont`, `setParaFont`): <https://starsector.wiki.gg/wiki/Using_Other/Custom_Fonts>
+- Fractal forum — Blurry fonts with UI scaling (2560×1440): <https://fractalsoftworks.com/forum/index.php?topic=25115.0>
 
 Texture super-resolution prior art / pipelines:
 
