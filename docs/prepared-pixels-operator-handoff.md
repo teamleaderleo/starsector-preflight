@@ -6,7 +6,16 @@ Status: 2026-07-23
 
 The corrected coherent-direct NPOT prepared-pixel path has passed launcher and gameplay visual/lifecycle acceptance for the exact reviewed macOS/Starsector 0.98a-RC8 installation and profile.
 
-It remains opt-in and is not enabled by default. One bounded two-run main-menu comparison pilot is the next authorized action. The pilot is not a benchmark.
+It remains opt-in and is not enabled by default. The bounded two-run main-menu comparison runner is merged and exactly one pilot is now authorized. The pilot is not a benchmark.
+
+Merged runner:
+
+```text
+PR #152
+2312bfd265c087e0ddf6ec39d6398b322e9bfc7f
+```
+
+It passed CI 591, texture tests 420, and preparation tests 124 before merge.
 
 ## Evidence chain
 
@@ -59,9 +68,9 @@ The bounded gameplay console contained nonfatal third-party diagnostics:
 - ShaderLib shader creation diagnostics;
 - music-source initialization warnings.
 
-No related visual corruption or fatal evidence was observed. The console capture was truncated, and a prepared-only run cannot establish whether these messages are profile baseline or prepared-path-related.
+No related visual corruption or fatal evidence was observed. The console capture was truncated, and a prepared-only run cannot establish whether these messages are compatibility-profile baseline or prepared-path-related.
 
-The comparison pilot captures complete appended log bytes for both compatibility and prepared modes.
+The comparison pilot captures complete appended log bytes for compatibility decoded-image and prepared-pixel modes. Both receive the same verified cache context. Compatibility retains Starsector's original converter/upload path; this is not raw uninstrumented vanilla.
 
 ## Safe default
 
@@ -89,7 +98,7 @@ preparedPixelsNextOperatorAction=single-main-menu-comparison-pilot
 launchAccelerationClaimed=false
 ```
 
-## Authorized operator action after merge
+## Authorized operator action
 
 Run exactly once from the repository root:
 
