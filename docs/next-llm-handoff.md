@@ -4,9 +4,11 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Perform exactly one installed coherent-direct gameplay smoke from current `main` using the merged repository runner.
+The corrected coherent-direct prepared-pixel path has passed the exact-profile launcher and gameplay smoke. No further operator run is currently authorized.
 
-Do not repeat the accepted launcher probe, use a valuable save, benchmark, enable direct NPOT by default, or make an acceleration claim.
+Next engineering work is to review the retained nonfatal GraphicsLib/ShaderLib log diagnostics tracked in issue #149 and decide what controlled baseline, if any, is needed before default enablement or timing work.
+
+Do not repeat the launcher/gameplay smoke, benchmark, enable coherent-direct by default, or make an acceleration claim.
 
 ## Evidence chain
 
@@ -20,7 +22,9 @@ Do not repeat the accepted launcher probe, use a valuable save, benchmark, enabl
 - [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
 - [dimension-axis visual failure](evidence/2026-07-22-prepared-pixel-dimension-axis-failure.md)
 - [corrected-axis launcher pass](evidence/2026-07-23-prepared-pixel-axis-launcher-pass.md)
-- issue #129 — NPOT upload dimensions and prepared-path visual acceptance
+- [corrected-axis gameplay smoke pass](evidence/2026-07-23-prepared-pixel-gameplay-smoke-pass.md)
+- issue #129 — original NPOT crash and prepared-path acceptance history
+- issue #149 — nonfatal GraphicsLib log baseline before default enablement
 
 ## Merged implementation milestones
 
@@ -49,87 +53,62 @@ ab4d1abfacf81c0c27216894b56ccffe3314b0a1
 
 ## Established facts
 
-The direct NPOT byte layout matches Starsector's original relevant row-padded upload layout. Coherent source-sized cached images are valid. Buffer ownership, cleanup, and failure accounting return to zero cleanly.
-
-The two texture-object backing-dimension writes are required. The reviewed installed mapping is:
+The direct NPOT byte layout matches Starsector's original row-padded upload layout. Coherent source-sized cached images are valid. The two texture-object backing-dimension writes are required, with this reviewed mapping:
 
 ```text
 first obfuscated setter  <- power-of-two upload height
 second obfuscated setter <- power-of-two upload width
 ```
 
-The corrected launcher-only run rendered normally and exited cleanly.
+The corrected direct path passed launcher, main-menu, campaign, combat, save, and clean-exit visual/lifecycle scope on the exact reviewed install and profile.
 
-Retained launcher acceptance identity:
+Retained gameplay identity:
 
 ```text
-archiveSha256: 898f99beb8940900a34634d53affc9a97705366fd42faf57a7d2b033bb8bb555
-repositoryHead: fd5b240756674ea831aa1caae8edacc425a4c05c
-jarSha256: 488f362d59aaad5408c844f9bae4821d4407dbf45b713128f325be10b673b939
-prepared hits: 20
-coherent-direct NPOT hits: 7
+archiveSha256: cbc9f5884d89f69e93f6b0ca882c911fdb0cb43397932b77b191920ded0a11bf
+repositoryHead: 73f56227d44ed351c16eda55583ac426ffa47c15
+jarSha256: 4e62577b98f28894322bb9e86f8cdeda4be4c6a3373632352c2c113078c3689a
+runtimeSeconds: 624.640
+prepared hits: 5015
+coherent-direct NPOT hits: 4450
+padded uploads: 4450
 fallbacks/internal errors: 0
+releases: 5015
 active/pending buffers at shutdown: 0
 fatal evidence: none
+operatorAccepted: true
+automatedAccepted: true
 ```
 
-This is launcher-level acceptance only. Gameplay and performance remain unproven.
+## Nonfatal log caveat
 
-## Safe default
+The bounded gameplay console contains third-party GraphicsLib/ShaderLib diagnostics, including 12 normal-map load failures with an LWJGL buffer-size message, shader compilation diagnostics, and music-source warnings. The operator saw no related corruption and Preflight found no fatal evidence.
 
-Without:
+Do not attribute these messages to Preflight or dismiss them as baseline noise without a controlled comparison. They block default enablement, not the completed gameplay smoke result.
+
+## Current readiness
 
 ```text
--Dpreflight.preparedPixels.coherentDirect=true
+preparedPixelsAdapter=pot-bypass-enabled-npot-coherent-direct-gameplay-accepted-opt-in
+preparedPixelsBehavioralAcceptance=accepted-2026-07-23-exact-profile
+preparedPixelsDefaultEnablement=blocked-pending-log-baseline-and-timing
+realInstallPilotRequired=false
+preparedPixelsNextOperatorAction=none-engineering-review-required
+launchAccelerationClaimed=false
 ```
 
-NPOT textures continue through Starsector's original decode/conversion path. Compatibility mode remains the accepted rollback. No installation or launcher files are edited.
+The safe default remains unchanged: without `-Dpreflight.preparedPixels.coherentDirect=true`, NPOT textures use Starsector's original decode/conversion path. Compatibility mode remains the accepted rollback.
 
-## Gameplay-smoke runner contract
+## Next engineering decision
 
-The merged runner:
+Review issue #149 and determine whether to:
 
-- requires the corrected source mapping;
-- verifies exact archive and class identities;
-- reruns full Maven verification and the installed contract check before launch;
-- prepares exact cache, manifest, and index paths;
-- records the accepted launcher archive SHA-256 as a prerequisite;
-- enables coherent-direct only for this run;
-- requires the route `launcher-main-menu-campaign-combat-save-clean-exit`;
-- requires at least 120 seconds of attached wrapper lifetime;
-- checks lifecycle, telemetry, cleanup, and fatal evidence;
-- asks the operator explicit milestone questions;
-- writes `operator-gameplay-result.json`;
-- packages the complete run directory on the Desktop.
+1. classify the diagnostics from existing baseline evidence;
+2. add a narrowly scoped compatibility/original-path log-baseline runner; or
+3. add bounded diagnostic telemetry before another run.
 
-## Authorized operator action
-
-Use a new campaign, copied save, or disposable save:
-
-```bash
-git switch main
-git pull --ff-only
-bash scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
-```
-
-Required route:
-
-```text
-normal launcher
-→ click Play Starsector
-→ normal main menu
-→ new campaign or disposable save
-→ inspect campaign UI, portraits, ships, backgrounds, and effects
-→ enter one combat and inspect ships, weapons, projectiles, effects, and UI
-→ finish or exit combat normally
-→ save
-→ return to main menu
-→ clean game exit
-→ close the launcher if it reappears
-```
-
-Stop and exit cleanly if any black, sliced, repeated, stretched, missing, flipped, or progressively corrupt textures appear.
+No new operator action should be requested until that decision is implemented and reviewed. Timing campaigns remain separate and blocked.
 
 ## Definition of a good handback
 
-Retain the exact repository head, JAR SHA-256, generated Desktop archive, `operator-gameplay-result.json`, automated telemetry, visual classification, save result, process-attachment result, and clean-exit result. Update issue #129 and readiness. Do not repeat the smoke or begin benchmarks.
+Preserve the exact gameplay archive identity, acceptance scope, log caveat, safe default, identity gates, cleanup behavior, compatibility rollback, and memory limits. Do not broaden the exact target or claim acceleration.
