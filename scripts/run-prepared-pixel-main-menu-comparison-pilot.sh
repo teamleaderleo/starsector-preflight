@@ -13,9 +13,12 @@ ACCEPTED_GAMEPLAY_ARCHIVE_SHA="cbc9f5884d89f69e93f6b0ca882c911fdb0cb43397932b77b
 AXIS_CONTRACT='return new DimensionSetters(setters.get(1), setters.get(0));'
 MIN_RUNTIME_SECONDS=30
 LAUNCHER_TIMEOUT_SECONDS=60
-LAUNCHER_QUIET_SECONDS=1.5
+LAUNCHER_QUIET_SECONDS=6
 MAIN_MENU_TIMEOUT_SECONDS=300
 MAIN_MENU_QUIET_SECONDS=6
+CORE_RESOURCE_ROOT="$GAME/Contents/Resources/starfarer.res/res"
+CORE_MISSION_LIST="$CORE_RESOURCE_ROOT/data/missions/mission_list.csv"
+CORE_MISSION_DESCRIPTOR="$CORE_RESOURCE_ROOT/data/missions/afistfulofcredits/descriptor.json"
 
 for command in git java mvn jq shasum unzip tar grep python3; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -36,6 +39,12 @@ if [[ ! -d "$GAME" ]]; then
     echo "Starsector installation not found: $GAME" >&2
     exit 1
 fi
+for core_resource in "$CORE_MISSION_LIST" "$CORE_MISSION_DESCRIPTOR"; do
+    if [[ ! -f "$core_resource" ]]; then
+        echo "Reviewed core mission resource is missing: $core_resource" >&2
+        exit 1
+    fi
+done
 
 PLAN_SOURCE="preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java"
 if [[ ! -f "$PLAN_SOURCE" ]] || ! grep -Fq "$AXIS_CONTRACT" "$PLAN_SOURCE"; then
@@ -142,6 +151,11 @@ LAUNCHER="$(jq -er '.launcher' "$PREP_REPORT")"
 CACHE_DIRECTORY="$(jq -er '.cacheDirectory' "$PREP_REPORT")"
 RESOURCE_INDEX="$(jq -er '.resourceIndex' "$PREP_REPORT")"
 TEXTURE_MANIFEST="$(jq -er '.stages.textures.details.manifest' "$PREP_REPORT")"
+BASE_PROFILE="$ROOT_DIR/operator-preparation-profile.json"
+jq '.stages.census.details.profile' "$PREP_REPORT" > "$BASE_PROFILE"
+EXPECTED_PROFILE_FINGERPRINT="$(jq -er '.profileFingerprint' "$BASE_PROFILE")"
+CORE_MISSION_LIST_SHA="$(shasum -a 256 "$CORE_MISSION_LIST" | awk '{print $1}')"
+CORE_MISSION_DESCRIPTOR_SHA="$(shasum -a 256 "$CORE_MISSION_DESCRIPTOR" | awk '{print $1}')"
 LOG_DIR="$INSTALL_ROOT/logs"
 if [[ ! -d "$LOG_DIR" ]]; then
     echo "Starsector log directory not found: $LOG_DIR" >&2
@@ -168,6 +182,12 @@ scope=main-menu-comparison-pilot
 order=$ORDER
 samplesPerMode=1
 timingMethod=automatic-starsector-log-phase-detection
+expectedProfileFingerprint=$EXPECTED_PROFILE_FINGERPRINT
+coreMissionList=$CORE_MISSION_LIST
+coreMissionListSha256=$CORE_MISSION_LIST_SHA
+coreMissionDescriptor=$CORE_MISSION_DESCRIPTOR
+coreMissionDescriptorSha256=$CORE_MISSION_DESCRIPTOR_SHA
+launcherQuietConfirmationSeconds=$LAUNCHER_QUIET_SECONDS
 benchmarkAccepted=false
 IDENTITY
 
@@ -188,6 +208,96 @@ extract_log_delta() {
 
 classify_log_delta() {
     python3 "$DETECTOR" classify --input "$1" --output "$2"
+}
+
+write_profile_drift() {
+    local current_report="$1"
+    local output="$2"
+    python3 - "$BASE_PROFILE" "$current_report" "$output" <<'PYPROFILE'
+import json
+import sys
+from pathlib import Path
+
+expected = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+actual = report["stages"]["census"]["details"]["profile"]
+
+expected_mods = {entry["id"]: entry for entry in expected.get("mods", [])}
+actual_mods = {entry["id"]: entry for entry in actual.get("mods", [])}
+numeric_fields = (
+    "files", "bytes", "imageFiles", "imageBytes", "soundFiles", "soundBytes",
+    "looseJavaFiles", "looseJavaBytes", "jarFiles", "jarBytes", "dataFiles", "dataBytes",
+)
+mod_deltas = []
+for mod_id in sorted(set(expected_mods) | set(actual_mods)):
+    before = expected_mods.get(mod_id)
+    after = actual_mods.get(mod_id)
+    if before is None or after is None:
+        mod_deltas.append({"id": mod_id, "before": before, "after": after})
+        continue
+    deltas = {
+        field: after.get(field, 0) - before.get(field, 0)
+        for field in numeric_fields
+        if after.get(field, 0) != before.get(field, 0)
+    }
+    if deltas:
+        mod_deltas.append({
+            "id": mod_id,
+            "directory": after.get("directory"),
+            "deltas": deltas,
+        })
+
+graphicslib_deltas = mod_deltas[0].get("deltas", {}) if len(mod_deltas) == 1 else {}
+graphicslib_only = (
+    len(mod_deltas) == 1
+    and mod_deltas[0].get("id") == "shaderLib"
+    and set(graphicslib_deltas).issubset({"files", "bytes", "imageFiles", "imageBytes"})
+    and graphicslib_deltas.get("files", 0) > 0
+    and graphicslib_deltas.get("files") == graphicslib_deltas.get("imageFiles")
+    and graphicslib_deltas.get("bytes", 0) > 0
+    and graphicslib_deltas.get("bytes") == graphicslib_deltas.get("imageBytes")
+)
+
+result = {
+    "stable": expected.get("profileFingerprint") == actual.get("profileFingerprint"),
+    "expectedProfileFingerprint": expected.get("profileFingerprint"),
+    "actualProfileFingerprint": actual.get("profileFingerprint"),
+    "fingerprintKind": actual.get("fingerprintKind"),
+    "modDeltas": mod_deltas,
+    "graphicsLibRuntimeCacheCandidate": graphicslib_only,
+}
+Path(sys.argv[3]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PYPROFILE
+}
+
+check_profile_stability() {
+    local label="$1"
+    local report="$2"
+    local drift="$3"
+
+    java -jar "$JAR" prepare \
+        --game "$GAME" \
+        --cache-dir "$CACHE" \
+        --report "$report" \
+        --deep \
+        --verify-lookups >/dev/null
+
+    local actual_fingerprint mission_list_sha mission_descriptor_sha
+    actual_fingerprint="$(jq -er '.stages.census.details.profile.profileFingerprint' "$report")"
+    mission_list_sha="$(shasum -a 256 "$CORE_MISSION_LIST" | awk '{print $1}')"
+    mission_descriptor_sha="$(shasum -a 256 "$CORE_MISSION_DESCRIPTOR" | awk '{print $1}')"
+    if [[ "$mission_list_sha" != "$CORE_MISSION_LIST_SHA" \
+            || "$mission_descriptor_sha" != "$CORE_MISSION_DESCRIPTOR_SHA" ]]; then
+        echo "Reviewed core mission resources changed during the comparison ($label)." >&2
+        return 1
+    fi
+    if [[ "$actual_fingerprint" != "$EXPECTED_PROFILE_FINGERPRINT" ]]; then
+        write_profile_drift "$report" "$drift"
+        echo "The enabled profile changed during the comparison ($label)." >&2
+        jq '{expectedProfileFingerprint, actualProfileFingerprint, modDeltas, graphicsLibRuntimeCacheCandidate}' \
+            "$drift" >&2
+        return 1
+    fi
 }
 
 terminate_wrapper() {
@@ -220,28 +330,33 @@ run_mode() {
     local log_classification="$run_dir/log-classification.json"
     local wrapper_output="$run_dir/operator-wrapper-output.txt"
     local result="$run_dir/operator-main-menu-result.json"
+    local profile_before_report="$run_dir/profile-check-before.json"
+    local profile_before_drift="$run_dir/profile-drift-before.json"
+    local profile_after_report="$run_dir/profile-check-after.json"
+    local profile_after_drift="$run_dir/profile-drift-after.json"
     local -a run_args
     local java_tool_options="${JAVA_TOOL_OPTIONS:-}"
-    local texture_mode="compatibility"
 
     mkdir -p "$run_dir"
+    if ! check_profile_stability "before-$mode" "$profile_before_report" "$profile_before_drift"; then
+        return 1
+    fi
     snapshot_logs "$before_logs"
 
-    if [[ "$mode" == prepared ]]; then
-        texture_mode="prepared-pixels"
-        java_tool_options="${java_tool_options:+$java_tool_options }$DIAGNOSTIC_PROPERTY"
-    fi
     run_args=(
         run
         --game "$INSTALL_ROOT"
         --launcher "$LAUNCHER"
         --trace-dir "$run_dir"
         --adapter
-        --texture-mode "$texture_mode"
+        --texture-mode "$([[ "$mode" == compatibility ]] && printf compatibility || printf prepared-pixels)"
         --texture-cache-dir "$CACHE_DIRECTORY"
         --texture-manifest "$TEXTURE_MANIFEST"
         --texture-index "$RESOURCE_INDEX"
     )
+    if [[ "$mode" == prepared ]]; then
+        java_tool_options="${java_tool_options:+$java_tool_options }$DIAGNOSTIC_PROPERTY"
+    fi
 
     echo
     echo "== $mode dry-run plan =="
@@ -249,7 +364,7 @@ run_mode() {
     echo
     echo "This is the $mode half of a two-run comparison pilot."
     echo "The script will detect launcher readiness and main-menu readiness from starsector.log."
-    echo "Do not load a campaign. Stop at the main menu, then exit cleanly."
+    echo "Do not load a campaign. Exit from the main menu when instructed."
     read -r -p "Press Enter to launch the $mode run."
 
     local process_start_ns
@@ -272,16 +387,18 @@ run_mode() {
         terminate_wrapper "$wrapper_pid"
         extract_log_delta "$before_logs" "$log_delta"
         classify_log_delta "$log_delta" "$log_classification"
+        check_profile_stability "after-$mode-launcher-failure" \
+            "$profile_after_report" "$profile_after_drift" || true
         return 1
     fi
 
     echo
     printf '\a'
-    echo "Launcher readiness detected automatically."
+    echo "Launcher readiness detected automatically after the fixed safety confirmation."
     jq '{launcherReadyMs, launcherReadyLogMillis, launcherMarker, quietConfirmationMillis}' "$launcher_detection"
     snapshot_logs "$game_snapshot"
     echo
-    echo "Click Play Starsector now. Do not press Enter; timing starts on the first new game log line."
+    echo "Click Play Starsector now. Do not press Enter; the log watcher starts timing on the first new game log line."
 
     if ! python3 "$DETECTOR" watch-main-menu \
             --log-dir "$LOG_DIR" \
@@ -294,6 +411,8 @@ run_mode() {
         terminate_wrapper "$wrapper_pid"
         extract_log_delta "$before_logs" "$log_delta"
         classify_log_delta "$log_delta" "$log_classification"
+        check_profile_stability "after-$mode-main-menu-failure" \
+            "$profile_after_report" "$profile_after_drift" || true
         return 1
     fi
 
@@ -312,6 +431,11 @@ run_mode() {
 
     extract_log_delta "$before_logs" "$log_delta"
     classify_log_delta "$log_delta" "$log_classification"
+
+    local profile_stable=true
+    if ! check_profile_stability "after-$mode" "$profile_after_report" "$profile_after_drift"; then
+        profile_stable=false
+    fi
 
     local launcher_ok main_menu_ok detector_ok attached_ok clean_exit_ok corruption_seen
     launcher_ok="$(ask_yes_no "Did the $mode launcher look normal?")"
@@ -385,7 +509,8 @@ run_mode() {
         operator_accepted=true
     fi
     if [[ "$preflight_exit" -eq 0 && "$lifecycle_check" -eq 0 && "$telemetry_check" -eq 0 \
-            && "$log_check" -eq 0 && "$launcher_detector_check" -eq 0 && "$menu_detector_check" -eq 0 ]]; then
+            && "$log_check" -eq 0 && "$launcher_detector_check" -eq 0 && "$menu_detector_check" -eq 0 \
+            && "$profile_stable" == true ]]; then
         automated_accepted=true
     fi
 
@@ -400,6 +525,8 @@ run_mode() {
         --argjson visualCorruptionObserved "$corruption_seen" \
         --argjson operatorAccepted "$operator_accepted" \
         --argjson automatedAccepted "$automated_accepted" \
+        --argjson profileStable "$profile_stable" \
+        --arg expectedProfileFingerprint "$EXPECTED_PROFILE_FINGERPRINT" \
         --slurpfile launcherDetection "$launcher_detection" \
         --slurpfile mainMenuDetection "$main_menu_detection" \
         --slurpfile logClassification "$log_classification" \
@@ -418,6 +545,8 @@ run_mode() {
             visualCorruptionObserved: $visualCorruptionObserved,
             operatorAccepted: $operatorAccepted,
             automatedAccepted: $automatedAccepted,
+            profileStable: $profileStable,
+            expectedProfileFingerprint: $expectedProfileFingerprint,
             launcherDetection: $launcherDetection[0],
             mainMenuDetection: $mainMenuDetection[0],
             logClassification: $logClassification[0]
@@ -436,6 +565,8 @@ This pilot runs the same exact profile twice:
   accepted coherent-direct prepared path
 
 The runner automatically detects launcher readiness and main-menu readiness from starsector.log.
+It uses a fixed six-second launcher safety confirmation without adding that wait to the measured endpoint.
+It also verifies that the enabled profile does not change between halves.
 You only need to click Play when instructed, visually confirm the result, and exit from the main menu.
 A single pair is preliminary evidence only. It cannot support an acceleration claim.
 Do not enter a campaign or combat.
@@ -491,6 +622,12 @@ result = {
         compatibility["automaticDetectionVisuallyAccurate"]
         and prepared["automaticDetectionVisuallyAccurate"]
     ),
+    "profileStableAcrossBothHalves": (
+        compatibility.get("profileStable") is True
+        and prepared.get("profileStable") is True
+        and compatibility.get("expectedProfileFingerprint")
+            == prepared.get("expectedProfileFingerprint")
+    ),
     "nextDecision": "review-log-deltas-before-repeat-timing-campaign",
 }
 Path(sys.argv[3]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -516,10 +653,11 @@ jq '{
     preparedMinusCompatibilityLogCounts,
     logPatternCountsEqual,
     automaticDetectionVisuallyAccepted,
+    profileStableAcrossBothHalves,
     nextDecision
 }' "$ROOT_DIR/comparison-result.json"
 echo
 echo "Upload this retained evidence archive:"
 echo "  $ARCHIVE_OUT"
 echo
-echo "Do not repeat the pilot or claim a benchmark result."
+echo "Do not repeat the pilot or claim a benchmark result without reviewing the retained profile-stability evidence."
