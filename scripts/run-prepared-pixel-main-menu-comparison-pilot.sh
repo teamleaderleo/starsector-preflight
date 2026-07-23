@@ -7,6 +7,7 @@ ORDER="${ORDER:-}"
 JAR="$PWD/preflight-cli/target/preflight.jar"
 DETECTOR="$PWD/scripts/starsector_log_ready_detector.py"
 PROFILE_GUARD="$PWD/scripts/starsector_profile_guard.py"
+CORE_RESOURCE_GUARD="$PWD/scripts/starsector_core_resource_guard.py"
 DIAGNOSTIC_PROPERTY="-Dpreflight.preparedPixels.coherentDirect=true"
 EXPECTED_ARCHIVE_SHA="10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708"
 EXPECTED_CLASS_SHA="d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50"
@@ -17,9 +18,6 @@ LAUNCHER_TIMEOUT_SECONDS=60
 LAUNCHER_QUIET_SECONDS=6
 MAIN_MENU_TIMEOUT_SECONDS=300
 MAIN_MENU_QUIET_SECONDS=6
-CORE_RESOURCE_ROOT="$GAME/Contents/Resources/starfarer.res/res"
-CORE_MISSION_LIST="$CORE_RESOURCE_ROOT/data/missions/mission_list.csv"
-CORE_MISSION_DESCRIPTOR="$CORE_RESOURCE_ROOT/data/missions/afistfulofcredits/descriptor.json"
 
 for command in git java mvn jq shasum unzip tar grep python3; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -32,7 +30,7 @@ if [[ ! -f pom.xml ]]; then
     echo "Run this script from the starsector-preflight repository root." >&2
     exit 1
 fi
-for helper in "$DETECTOR" "$PROFILE_GUARD"; do
+for helper in "$DETECTOR" "$PROFILE_GUARD" "$CORE_RESOURCE_GUARD"; do
     if [[ ! -f "$helper" ]]; then
         echo "Comparison helper not found: $helper" >&2
         exit 1
@@ -42,6 +40,12 @@ if [[ ! -d "$GAME" ]]; then
     echo "Starsector installation not found: $GAME" >&2
     exit 1
 fi
+
+CORE_RESOURCE_JSON="$(python3 "$CORE_RESOURCE_GUARD" --game "$GAME")"
+CORE_RESOURCE_ROOT="$(jq -er '.resourceRoot' <<<"$CORE_RESOURCE_JSON")"
+CORE_MISSION_LIST="$(jq -er '.missionList' <<<"$CORE_RESOURCE_JSON")"
+CORE_MISSION_DESCRIPTOR="$(jq -er '.missionDescriptor' <<<"$CORE_RESOURCE_JSON")"
+echo "Reviewed core mission resource root: $CORE_RESOURCE_ROOT"
 for core_resource in "$CORE_MISSION_LIST" "$CORE_MISSION_DESCRIPTOR"; do
     if [[ ! -f "$core_resource" ]]; then
         echo "Reviewed core mission resource is missing: $core_resource" >&2
