@@ -62,6 +62,7 @@ public final class PreflightCli {
             case "scan" -> ScanCommand.execute(ScanOptions.parse(args, 1));
             case "index" -> IndexCommand.execute(args, 1);
             case "texture" -> textureCommand(args);
+            case "font" -> FontCommand.execute(args, 1);
             case "audio" -> audioCommand(args);
             case "classpath" -> ClasspathCommand.execute(args, 1);
             case "benchmark" -> BenchmarkCommand.execute(args, 1);
@@ -173,6 +174,10 @@ public final class PreflightCli {
                 "preflight texture manifest inspect <manifest.spfm>",
                 "preflight texture manifest query <manifest.spfm> <logical-path> [--cache-dir <path>]",
                 "preflight texture manifest validate <manifest.spfm> [--cache-dir <path>]"));
+        usage.put("font", List.of(
+                "preflight font generate (--ttf <font.ttf> | --logical sans-serif|serif|monospaced) "
+                        + "--size <px> --name <basename> --out-dir <dir> [--atlas-width <n>] [--padding <n>] "
+                        + "[--charset-from <font.fnt> | --ascii | --latin1]"));
         usage.put("audio", List.of(
                 "preflight audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]",
                 "preflight audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--java <game-java>] [--output <report.json>]"));
