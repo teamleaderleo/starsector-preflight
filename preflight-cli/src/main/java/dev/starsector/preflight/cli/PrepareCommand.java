@@ -6,6 +6,7 @@ import dev.starsector.preflight.core.ResourceIndex;
 import dev.starsector.preflight.core.ResourceIndexIO;
 import dev.starsector.preflight.core.ResourceIndexValidator;
 import dev.starsector.preflight.core.TextureManifestValidator;
+import dev.starsector.preflight.core.TextureMemoryEstimator;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -197,6 +198,7 @@ final class PrepareCommand {
                     details.put("sourceBytes", built.sourceBytes());
                     details.put("uniquePixelBytes", built.uniquePixelBytes());
                     details.put("uniqueBlobBytes", built.uniqueBlobBytes());
+                    details.put("memoryEstimate", TextureMemoryEstimator.estimate(built.manifest()).toReportValues());
                     details.put("buildDiagnostics", built.diagnostics());
                     details.put("valid", validation.valid());
                     details.put("checkedEntries", validation.checkedEntries());
