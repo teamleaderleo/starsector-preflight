@@ -8,7 +8,7 @@ The corrected coherent-direct NPOT prepared-pixel path has passed launcher and g
 
 It remains opt-in and is not enabled by default.
 
-The first two-run main-menu comparison attempt is invalid. Do not run the comparison again until the stability repair is merged.
+The stability repair is merged. Exactly one replacement two-run main-menu comparison is now authorized. It is not a benchmark.
 
 ## Accepted implementation
 
@@ -18,7 +18,16 @@ PR #147 — gameplay-smoke runner
 PR #151 — exact-profile gameplay acceptance
 PR #152 — main-menu comparison foundation
 PR #154 — automatic Starsector-log readiness detector
+PR #156 — profile-stability and launcher-settling repair
 ```
+
+PR #156 merged as:
+
+```text
+03439b33c99b1fb3abfff9ada88aacc826c33e74
+```
+
+It passed CI 598, including shell parsing, detector tests, profile-guard compilation and four tests, and full Maven verification.
 
 The required texture backing-dimension mapping is:
 
@@ -26,8 +35,6 @@ The required texture backing-dimension mapping is:
 first obfuscated setter  <- power-of-two upload height
 second obfuscated setter <- power-of-two upload width
 ```
-
-With that mapping, coherent carriers, cached colors, and direct cached NPOT buffers rendered correctly through launcher, main menu, campaign, combat, save, and clean exit.
 
 ## Retained gameplay acceptance
 
@@ -43,87 +50,46 @@ operatorAccepted: true
 automatedAccepted: true
 ```
 
-## What happened in the first comparison
-
-Retained failed archive:
+## Invalid first comparison
 
 ```text
-sha256: 2530de69d2251319422b3224a0d8430e5537f77a667fd69a9a726996785fdd08
-repositoryHead: ff0e7081aac9df8dc18d2d2d5c72770ce233a5d8
+archiveSha256: 2530de69d2251319422b3224a0d8430e5537f77a667fd69a9a726996785fdd08
 order: prepared,compatibility
 ```
 
-The prepared half ran first and reached the main menu normally:
-
-```text
-launcherReadyMs: 9788.513
-gameLogStartToMainMenuMs: 85060.434
-operatorAccepted: true
-automatedAccepted: true
-```
-
-The compatibility half ran second and Starsector stopped while loading the core mission:
+The prepared half reached the main menu. The compatibility half stopped while loading:
 
 ```text
 data/missions/afistfulofcredits/descriptor.json
 ```
 
-The dialog printed every resource search directory. AI Tweaks, Arma Armatura, and the other early entries are not identified as causes merely because they appear first in that list. Do not disable mods based on this dialog.
+The dialog's long list contained all resource-search directories. AI Tweaks, Arma Armatura, and the first other entries are not proven causes merely because they appeared first. Do not disable mods from that list.
 
-The same `null/data/missions/mission_list.csv` source representation appeared in the successful prepared half. The archive did not show a meaningful working-directory or classpath difference between modes. The precise resource-resolution cause is not yet proven.
-
-## Why the pair is invalid regardless of the fatal
-
-The first half generated two GraphicsLib normal-map cache files:
+The pair was invalid independently because GraphicsLib generated two normal-map cache files during the first half and changed the profile fingerprint before the second half:
 
 ```text
 cache/sotf_wisp_lesser___SHIP_normal.png
 cache/tpc_weaver___TURRET0_normal.png
+
+shaderLib files/imageFiles: +2
+shaderLib bytes/imageBytes: +136
 ```
 
-That changed the enabled-profile fingerprint before the compatibility half:
+Do not use the prepared half's 85-second measurement as a performance result.
 
-```text
-before/prepared:
-ccbc7f1aebf89c7ed8f21c886ac6a869b496fa3edd36b8943d1269cacd1a8ebe
+## Replacement-run safeguards
 
-after/pre-compatibility:
-3c1fc13ee4b47a93d36122ee2804070dbacf43523a3d38df5cc531e35e4513fe
-```
+The merged runner now:
 
-The only census delta was `shaderLib` / GraphicsLib:
-
-```text
-files: +2
-imageFiles: +2
-bytes: +136
-imageBytes: +136
-```
-
-The two halves therefore did not use an identical profile. The prepared timing is not a benchmark result.
-
-Full evidence is recorded in:
-
-- [invalid first main-menu comparison](evidence/2026-07-23-prepared-pixel-main-menu-comparison-failure.md)
-- issue #149
-
-## Repair in progress
-
-Branch:
-
-```text
-repair/main-menu-comparison-profile-stability
-```
-
-The repaired runner will:
-
-- wait for six seconds of launcher log quiet before telling you to click Play;
-- keep the final launcher log activity as the measured endpoint, so the safety wait is not added to the timing;
-- capture the exact initial profile fingerprint;
-- rerun deep preparation before and after each half;
-- stop and package exact mod deltas if the profile changes;
-- verify the core mission list and descriptor remain present and byte-identical;
-- preserve automatic main-menu detection and the single-pair/preliminary boundary.
+- waits for six seconds of launcher log quiet before instructing the Play click;
+- keeps the final launcher log activity as the measured endpoint, so the safety wait is excluded;
+- records the initial exact profile fingerprint;
+- performs deep preparation before and after each half;
+- stops and packages exact per-mod deltas on any profile drift;
+- uses a tested guard to identify, but still reject, the observed GraphicsLib image-cache drift shape;
+- hashes the core mission list and `afistfulofcredits` descriptor;
+- verifies both core resources remain present and byte-identical;
+- preserves automatic main-menu detection and `benchmarkAccepted=false`.
 
 ## Safe default
 
@@ -149,11 +115,54 @@ preparedPixelsNextOperatorAction=single-main-menu-comparison-pilot
 launchAccelerationClaimed=false
 ```
 
-## Operator action
+## Authorized operator action
 
-None until the repair PR is reviewed and merged.
+Run exactly once from the repository root:
 
-Do not rerun the current comparison script, enter a campaign for timing, average the failed pair, enable coherent-direct by default, or claim acceleration.
+```bash
+git switch main
+git pull --ff-only
+bash scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
+```
+
+Type:
+
+```text
+COMPARE
+```
+
+For each randomized half:
+
+1. Press Enter once to launch.
+2. Wait for the automatic launcher-ready notification after the six-second safety confirmation.
+3. Click **Play Starsector** when instructed; do not press Enter for timing.
+4. Wait for the automatic main-menu-ready notification.
+5. Confirm the menu is fully visible and responsive.
+6. Exit Starsector from the main menu.
+7. Close the launcher if it reappears.
+8. Answer the visual, detector, attachment, and clean-exit questions accurately.
+
+Do not load a campaign or enter combat. The runner may deliberately stop after one half if the profile changes. Upload the Desktop `.tar.gz` whether it completes both halves or stops with retained drift/failure evidence. Do not run it again.
+
+## Interpretation boundary
+
+```text
+samplesPerMode=1
+preliminaryOnly=true
+benchmarkAccepted=false
+timingMethod=automatic-starsector-log-phase-detection
+```
+
+A valid pair additionally requires:
+
+```text
+profileStableAcrossBothHalves=true
+unchanged core mission resources
+accurate automatic readiness detection
+clean lifecycle and visuals in both modes
+```
+
+Do not average the invalid first attempt, enable coherent-direct by default, or claim acceleration.
 
 ## Preserved boundaries
 
