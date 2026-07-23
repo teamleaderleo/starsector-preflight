@@ -94,7 +94,10 @@ Separate from the speed-first milestone program above:
    `.stages.textures.details.memoryEstimate` and `texture manifest inspect` prints it.
    Remaining: census working-set breakdowns, Asset Lab budget verdict.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
-6. Build the native-size font rasterization experiment (hinted / offline-downsampled).
+6. Font quality: rendering mechanism resolved (baseHeight scaling → an `N×` descriptor +
+   truly re-rasterized `N×` atlas gives same-size crispness); `BitmapFont` descriptor codec
+   + integer scale landed. Remaining: vector atlas re-rasterization (AWT), the license-clean
+   Orbitron empirical test, and a generator subcommand.
 7. Build the texture Asset Lab as an offline, opt-in overlay generator with a budget gate.
 8. Keep enhanced assets in a separate cache namespace and manifest.
 9. Turn community reports into regression cases.
