@@ -429,7 +429,7 @@ final class TexturePreparedPixelPlan {
                     || !(branch instanceof JumpInsnNode jump)
                     || branch.getOpcode() != Opcodes.IFNULL
                     || !(loadForReturn instanceof VarInsnNode returnLoad)
-                    || returnLoad.getOpcode() != Opcodes.ALOAD
+                    || loadForReturn.getOpcode() != Opcodes.ALOAD
                     || returnLoad.var != stored.var
                     || returnImage == null
                     || returnImage.getOpcode() != Opcodes.ARETURN) {
