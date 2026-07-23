@@ -28,8 +28,9 @@ class DetectorTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def append(self, *lines):
-        with self.log.open("a", encoding="utf-8") as stream:
+    def append(self, *lines, path=None):
+        target = self.log if path is None else path
+        with target.open("a", encoding="utf-8") as stream:
             for line in lines:
                 stream.write(line + "\n")
                 stream.flush()
@@ -102,6 +103,46 @@ class DetectorTest(unittest.TestCase):
         self.assertEqual(9700, result["mainMenuReadyLogMillis"])
         self.assertEqual(2700, result["gameLogMillisDelta"])
         self.assertGreater(result["gameLogStartToMainMenuMs"], 0)
+
+    def test_main_menu_uses_stream_containing_both_markers(self):
+        output = self.root / "main-menu-stream.json"
+        old_log = self.root / "starsector.log.1"
+        self.log.rename(old_log)
+        self.log.write_text("", encoding="utf-8")
+        module.write_snapshot(self.root, self.snapshot)
+
+        def writer():
+            time.sleep(0.02)
+            self.append("50000 [launcher] INFO launcher - click noise", path=old_log)
+            self.append("100 [game] INFO game - first game line")
+            time.sleep(0.02)
+            self.append(
+                "200 [game] INFO com.fs.starfarer.campaign.save.CampaignGameManager  - "
+                "Reading save data from [save/descriptor.xml]"
+            )
+            self.append(
+                "300 [game] INFO org.dark.shaders.util.TextureData  - "
+                "VRAM after unload/preload: 450555 bytes"
+            )
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        accepted = module.watch_main_menu(
+            self.root,
+            self.snapshot,
+            output,
+            os.getpid(),
+            timeout_seconds=1.0,
+            quiet_seconds=0.08,
+            sleep_seconds=0.01,
+        )
+        thread.join()
+        self.assertTrue(accepted)
+        result = json.loads(output.read_text())
+        self.assertEqual("starsector.log", result["gameLogFile"])
+        self.assertEqual(100, result["gameStartLogMillis"])
+        self.assertEqual(300, result["mainMenuReadyLogMillis"])
+        self.assertEqual(200, result["gameLogMillisDelta"])
 
     def test_rotated_file_is_matched_by_inode(self):
         before = self.root / "before.json"
