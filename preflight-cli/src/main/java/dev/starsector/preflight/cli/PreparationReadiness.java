@@ -20,10 +20,11 @@ final class PreparationReadiness {
         readiness.put("repeatTimingCampaignRequired", true);
         readiness.put("preparedPixelsAdapter", "pot-bypass-enabled-npot-coherent-direct-gameplay-accepted-opt-in");
         readiness.put("preparedPixelsBehavioralAcceptance", "accepted-2026-07-23-exact-profile");
-        readiness.put("preparedPixelsDefaultEnablement", "blocked-pending-log-baseline-and-timing");
+        readiness.put("preparedPixelsDefaultEnablement", "blocked-pending-main-menu-comparison-and-repeat-timing");
+        readiness.put("preparedPixelsComparisonPilotRequired", true);
         readiness.put("textureAdapterModes", List.of("compatibility", "prepared-pixels"));
         readiness.put("realInstallPilotRequired", false);
-        readiness.put("preparedPixelsNextOperatorAction", "none-engineering-review-required");
+        readiness.put("preparedPixelsNextOperatorAction", "single-main-menu-comparison-pilot");
         readiness.put("fastRenderingAdapter", "requires-exact-compatible-method-evidence");
         readiness.put("launchAccelerationClaimed", false);
         return Collections.unmodifiableMap(readiness);
