@@ -11,10 +11,10 @@ public final class Object {
     public int uploadHeight;
 
     public void Ô00000(int value) {
-        uploadWidth = value;
+        uploadHeight = value;
     }
 
     public void Ó00000(int value) {
-        uploadHeight = value;
+        uploadWidth = value;
     }
 }
