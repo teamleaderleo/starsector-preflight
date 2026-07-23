@@ -95,9 +95,10 @@ Separate from the speed-first milestone program above:
    Remaining: census working-set breakdowns, Asset Lab budget verdict.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
 6. Font quality: rendering mechanism resolved (baseHeight scaling → an `N×` descriptor +
-   truly re-rasterized `N×` atlas gives same-size crispness); `BitmapFont` descriptor codec
-   + integer scale landed. Remaining: vector atlas re-rasterization (AWT), the license-clean
-   Orbitron empirical test, and a generator subcommand.
+   truly re-rasterized `N×` atlas gives same-size crispness). **Generator landed**:
+   `BitmapFont` codec + `FontAtlasGenerator` (AWT rasterizer) + `preflight font generate`.
+   Remaining: the license-clean Orbitron in-game A/B (needs a real TTF + game launch), and
+   optional kerning extraction.
 7. Build the texture Asset Lab as an offline, opt-in overlay generator with a budget gate.
 8. Keep enhanced assets in a separate cache namespace and manifest.
 9. Turn community reports into regression cases.

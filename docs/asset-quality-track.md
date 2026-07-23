@@ -137,25 +137,45 @@ while re-rasterization needs the vector source. The clean architecture is theref
 scale from OFL faces (or fonts the user already has), emitting `{name.fnt, name_<page>.png}`
 pairs on their machine. A ready-made pack is only redistributable for OFL faces.
 
-### Descriptor tooling (landed)
+### Font tooling (landed — both halves + CLI)
 
-`BitmapFont` (preflight-cli) parses AngelCode `.fnt` text, exposes `baseHeight()` and
-`pageFiles()`, and applies an exact integer `scaled(N)` that multiplies every pixel
-coordinate (`info size/padding/spacing/outline`, `common lineHeight/base/scaleW/scaleH`,
-`char x/y/width/height/xoffset/yoffset/xadvance`, `kerning amount`) while leaving ids,
-channels, flags, percentages, and page files untouched. Round-trips the real
-`graphics/fonts/*.fnt` (validated against `insignia15LTaa.fnt`, 233 glyphs, CRLF). This is
-the deterministic descriptor half of an `N×` font; the remaining half is vector
-re-rasterization of the atlas (AWT `Font` → packed atlas), license-gated as above.
+The full offline `N×` font generator is implemented in `preflight-cli`:
+
+- `BitmapFont` — parses AngelCode `.fnt` text; exposes `baseHeight()`, `charIds()`,
+  `pageFiles()`; applies an exact integer `scaled(N)` over every pixel coordinate (`info
+  size/padding/spacing/outline`, `common lineHeight/base/scaleW/scaleH`, `char
+  x/y/width/height/xoffset/yoffset/xadvance`, `kerning amount`) while leaving ids, channels,
+  flags, percentages, and page files untouched. Round-trips the real `insignia15LTaa.fnt`
+  (233 glyphs, CRLF).
+- `FontAtlasGenerator` — the atlas half: rasterizes a vector `java.awt.Font` into a shelf-
+  packed atlas of white glyphs with anti-aliased alpha coverage (the layout Starsector's
+  tinting renderer expects), computing exact BMFont metrics (`xoffset`/`yoffset` from the ink
+  box relative to the baseline). Verified to pack every glyph inside atlas bounds.
+- `preflight font generate` — `--ttf <font.ttf> | --logical sans-serif|serif|monospaced`,
+  `--size <px>`, `--name`, `--out-dir`, `[--atlas-width] [--padding] [--charset-from
+  <font.fnt> | --ascii | --latin1]`. Writes `<name>.fnt` + `<name>_0.png` and a JSON report.
+  `--charset-from` copies an existing font's exact glyph coverage. Ships no fonts: the vector
+  source is operator-supplied, keeping licensing with the user.
+
+Confirmed end-to-end producing a clean 95-glyph ASCII atlas from a logical font. The only
+remaining step is the **in-game A/B** below, which needs a real vector face (e.g. the OFL
+Orbitron TTF) rather than a logical stand-in.
 
 ### Empirical protocol (resolves the residual unknown, license-clean)
 
-Orbitron is OFL, so this needs no commercial font: re-rasterize a 2× Orbitron atlas from the
-OFL TTF, pair it with `BitmapFont.scaled(2)` of the matching descriptor, drop it in as a
-core-font override, and observe same text at the same UI setting. **Crisper at the same
-size** ⇒ mechanism holds and the core UI honors a fixed draw size (ship it). **Larger text**
-⇒ the core UI uses the declared size (fall back to LazyFont-drawn contexts via the custom-font
-API, or to a UI-scale-matched native re-rasterization).
+Orbitron is OFL, so this needs no commercial font. Generate a 2×-size Orbitron pack matching a
+core font's coverage — for example:
+
+```bash
+preflight font generate --ttf Orbitron-Regular.ttf --size 40 \
+  --name orbitron20 --out-dir override/graphics/fonts \
+  --charset-from /path/to/starsector-core/graphics/fonts/orbitron20.fnt
+```
+
+Drop it in as a core-font override and compare the same text at the same UI setting.
+**Crisper at the same size** ⇒ the mechanism holds and the core UI honors a fixed draw size
+(ship it). **Larger text** ⇒ the core UI uses the declared size (fall back to LazyFont-drawn
+contexts via the custom-font API, or to a UI-scale-matched native re-rasterization).
 
 ### Font test matrix
 

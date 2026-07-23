@@ -72,6 +72,17 @@ final class BitmapFont {
         throw new IllegalStateException("No common/base line in font descriptor");
     }
 
+    /** The character codepoints (`char id=`) defined by this descriptor, in file order. */
+    List<Integer> charIds() {
+        List<Integer> ids = new ArrayList<>();
+        for (Line line : lines) {
+            if (line.tag.equals("char") && line.attributes.containsKey("id")) {
+                ids.add(Integer.parseInt(line.attributes.get("id")));
+            }
+        }
+        return List.copyOf(ids);
+    }
+
     /** The atlas page file names referenced by the descriptor, in order. */
     List<String> pageFiles() {
         List<String> files = new ArrayList<>();
