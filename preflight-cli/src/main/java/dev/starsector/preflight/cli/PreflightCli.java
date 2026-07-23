@@ -177,7 +177,10 @@ public final class PreflightCli {
         usage.put("font", List.of(
                 "preflight font generate (--ttf <font.ttf> | --logical sans-serif|serif|monospaced) "
                         + "--size <px> --name <basename> --out-dir <dir> [--atlas-width <n>] [--padding <n>] "
-                        + "[--charset-from <font.fnt> | --ascii | --latin1]"));
+                        + "[--charset-from <font.fnt> | --ascii | --latin1]",
+                "preflight font generate-pack --ttf <font.ttf> --fonts-dir <graphics/fonts> --out-dir <mod-dir> "
+                        + "[--scale <n>] [--atlas-width <n>] [--padding <n>] [--mod-id <id>] [--mod-name <name>] "
+                        + "[--game-version <version>]"));
         usage.put("audio", List.of(
                 "preflight audio jorbis-equivalence --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--output <report.json>]",
                 "preflight audio sound-wrapper-observe --game <Starsector directory> --jogg <jogg-0.0.7.jar> --jorbis <jorbis-0.0.15.jar> [--java <game-java>] [--output <report.json>]"));
