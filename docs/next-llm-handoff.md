@@ -4,7 +4,7 @@ This is the single living implementation handoff. Archive dated evidence under `
 
 ## Mission
 
-After the mutable-cache repair is reviewed and merged, perform exactly one replacement two-run main-menu comparison from current `main`.
+Perform exactly one replacement two-run main-menu comparison from current `main`.
 
 The two halves are:
 
@@ -31,9 +31,10 @@ PR #158 installed core-resource discovery
 e37ad314413335f5565f8dadee37525c98b089e4
 
 PR #160 bounded GraphicsLib mutable-cache control
+a4364366244af67183992bd420c46c5ef5d6ef72
 ```
 
-PR #160 replaces the count-only profile classifier with the exact split-state and restore contract described below. Its merge/CI identity must be checked on GitHub before the operator command is used.
+PR #160 passed exact-head PR CI on `4d6d449197c47a156315c556ee97d25d5fd64c0b`. The merge commit then passed main CI run 30007526191, including runner validation, the nine profile/cache tests, and full Maven verification.
 
 ## Accepted prepared path
 

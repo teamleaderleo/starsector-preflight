@@ -6,7 +6,7 @@ Status: 2026-07-23
 
 The corrected coherent-direct NPOT prepared-pixel path passed launcher and gameplay visual/lifecycle acceptance for the exact reviewed macOS/Starsector 0.98a-RC8 installation and profile.
 
-It remains opt-in and is not enabled by default. Do not rerun the comparison until the bounded mutable-cache repair is reviewed and merged. After merge, exactly one replacement pair is authorized. It is not a benchmark.
+It remains opt-in and is not enabled by default. The bounded mutable-cache repair is reviewed, merged, and green. Exactly one replacement pair is authorized. It is not a benchmark.
 
 ## Merged comparison work
 
@@ -18,7 +18,13 @@ PR #158 — installed core mission resource discovery
 PR #160 — bounded GraphicsLib mutable-cache control
 ```
 
-Verify that PR #160 is merged and green before using the operator command below.
+PR #160 merged as:
+
+```text
+a4364366244af67183992bd420c46c5ef5d6ef72
+```
+
+Its final PR head passed CI, and the merge commit passed main CI run 30007526191. Validation included shell parsing, nine focused profile/cache tests, the existing detector/core-resource tests, and full Maven verification.
 
 ## Accepted implementation
 
