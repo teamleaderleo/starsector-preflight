@@ -4,6 +4,7 @@ import dev.starsector.preflight.core.Json;
 import dev.starsector.preflight.core.TextureManifest;
 import dev.starsector.preflight.core.TextureManifestIO;
 import dev.starsector.preflight.core.TextureManifestValidator;
+import dev.starsector.preflight.core.TextureMemoryEstimator;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +36,7 @@ final class TextureManifestCommand {
         report.put("formatVersion", TextureManifest.FORMAT_VERSION);
         report.put("profileFingerprint", manifest.profileFingerprint());
         report.put("entryCount", manifest.entryCount());
+        report.put("memoryEstimate", TextureMemoryEstimator.estimate(manifest).toReportValues());
         System.out.println(Json.object(report));
         return 0;
     }
