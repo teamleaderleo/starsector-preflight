@@ -29,9 +29,11 @@ PR #156 profile-stability and launcher-settling repair
 
 PR #158 installed core-resource discovery
 e37ad314413335f5565f8dadee37525c98b089e4
+
+PR #160 bounded GraphicsLib mutable-cache control
 ```
 
-PR #158 passed CI 604. Validation included shell parsing, five core-resource discovery tests, the existing log-detector/profile-guard tests, and full Maven verification.
+PR #160 replaces the count-only profile classifier with the exact split-state and restore contract described below. Its merge/CI identity must be checked on GitHub before the operator command is used.
 
 ## Accepted prepared path
 

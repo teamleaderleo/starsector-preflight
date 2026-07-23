@@ -15,15 +15,10 @@ PR #152 — comparison runner and contract
 PR #154 — automatic Starsector-log readiness detection
 PR #156 — profile stability and launcher-settling repair
 PR #158 — installed core mission resource discovery
+PR #160 — bounded GraphicsLib mutable-cache control
 ```
 
-PR #158 merged as:
-
-```text
-e37ad314413335f5565f8dadee37525c98b089e4
-```
-
-It passed CI 604, including runner parsing, five core-resource discovery tests, the existing detector/profile tests, and full Maven verification.
+Verify that PR #160 is merged and green before using the operator command below.
 
 ## Accepted implementation
 
