@@ -169,7 +169,7 @@ java -cp preflight-cli/target/preflight.jar \
   "/path/to/Starsector.app/Contents/Resources/Java/fs.common_obf.jar"
 ```
 
-Review [Prepared-pixel acceptance: operator and LLM handoff](prepared-pixels-operator-handoff.md) before constructing any live command.
+Review the newest dated report under [docs/evidence/](evidence/) for the current prepared-pixel acceptance status and boundaries before constructing any live command.
 
 Every lookup verifies the current winning source SHA-256, manifest/index fingerprint, blob checksum, source identity, transformation, dimensions, channels, and pixel length. SPFT version 1 accepts identity textures whose stored dimensions match their source dimensions. `ALPHA_ADDER`, unexpected pre-padded blobs, oversized payloads, stale indexes, absent entries, changed sources, corrupt blobs, direct-memory pressure, and bridge failures execute the retained original direct-decode and conversion paths once.
 

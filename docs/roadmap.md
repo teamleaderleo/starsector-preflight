@@ -9,8 +9,7 @@ The July 2026 unified real-install runs completed the broad discovery gate for t
 - [Optimization North Star](optimization-north-star.md) records the real-install evidence, exact reviewed targets, ordered implementation program, benchmark protocol, and release gates.
 - [Real texture preparation and compatibility pilot](evidence/2026-07-18-real-texture-preparation-and-compatibility-pilot.md) records the passing full-profile preparation, the title-screen renderer failure, and the bounded launcher-lifecycle reporting fix.
 - [Compatibility-v2 acceptance evidence](evidence/2026-07-19-real-texture-compatibility-v2-acceptance.md) records one bounded accepted real-install texture run.
-- [Prepared-pixel operator and LLM handoff](prepared-pixels-operator-handoff.md) defines the exact current sequence and stop points.
-- [Next LLM Implementation Handoff](next-llm-handoff.md) provides current identities, responsibilities, prohibited shortcuts, and the next implementation decision tree.
+- The dated reports under [docs/evidence/](evidence/) track the current prepared-pixel acceptance state; the newest file is the live status.
 
 The adapter-OFF control reached the main screen and exited normally. Compatibility-v2 preserves Starsector's asynchronous image-preloader handoff, matches the exact installed bytes, and passed bounded real-install behavioral acceptance on 2026-07-19. PR #117 repaired the installed-style prepared-pixel color flow, and PR #119 added an offline exact installed-class contract checker. The immediate sequence is now: run that checker against the reviewed installation, review the report, complete one prepared-pixel lifecycle through campaign/combat/save/clean exit, and only then run repeated OFF-versus-compatibility-versus-prepared-pixel measurements. Audio and Janino remain exact-evidence gated until the texture decision is made.
 

@@ -1,7 +1,16 @@
-# Starsector Preflight — LLM handoff
+# Starsector Preflight — contributor entry point
 
-The single living handoff document is [docs/next-llm-handoff.md](docs/next-llm-handoff.md). Read that, the open issues, and the latest reports under [docs/evidence/](docs/evidence/) before changing code.
+There is no living handoff document. Do not create one, and do not add per-session
+"handoff", "postmerge", or "next operator" notes — those drifted and contradicted each
+other, which is why they were removed.
 
-For the current prepared-pixel operator gate, use the copy-paste-safe [contract-check command](docs/prepared-pixel-contract-check-now.md). It forces a clean rebuild, verifies the checker is packaged, validates the real Starsector path, and preserves the checker exit status through `tee`.
+Durable project state lives in exactly these places:
 
-Do not maintain project state in this file. Dated point-in-time snapshots belong under `docs/evidence/` (for example [the 2026-07-16 snapshot](docs/evidence/2026-07-16-llm-handoff-snapshot.md)); keeping a second live copy here caused the two documents to drift apart and disagree about the merged baseline.
+- [docs/roadmap.md](docs/roadmap.md) — the measurement-first program and milestones.
+- [docs/optimization-north-star.md](docs/optimization-north-star.md) — real-install evidence, reviewed targets, benchmark protocol, and release gates.
+- [docs/evidence/](docs/evidence/) — dated, point-in-time reports. Every probe, pilot, and failure is archived here; the newest dated file is the current status.
+- The open GitHub issues.
+- The per-feature technical docs under [docs/](docs/) (for example [prepared-textures.md](docs/prepared-textures.md), [vanilla-adapter.md](docs/vanilla-adapter.md)).
+
+Read those before changing code. When you finish a working session, add a dated report
+under `docs/evidence/` rather than a new top-level handoff.
