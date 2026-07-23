@@ -42,6 +42,8 @@ jobs:
           bash -n scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
           python3 -m py_compile scripts/starsector_log_ready_detector.py
           python3 scripts/test_starsector_log_ready_detector.py
+          python3 -m py_compile scripts/starsector_profile_guard.py
+          python3 scripts/test_starsector_profile_guard.py
       - name: Verify
         run: mvn --batch-mode --no-transfer-progress verify
       - name: Upload runnable JAR
