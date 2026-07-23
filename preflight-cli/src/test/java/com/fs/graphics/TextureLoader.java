@@ -26,8 +26,8 @@ public final class TextureLoader {
 
     private ByteBuffer o00000(BufferedImage image, Object texture) {
         originalConversionCalls++;
-        texture.Ô00000(nextPowerOfTwo(image.getWidth()));
-        texture.Ó00000(nextPowerOfTwo(image.getHeight()));
+        texture.Ô00000(nextPowerOfTwo(image.getHeight()));
+        texture.Ó00000(nextPowerOfTwo(image.getWidth()));
         Raster raster = image.getData();
         int[] pixel = raster.getPixel(0, 0, (int[]) null);
         int red = pixel.length > 0 ? pixel[0] : 0;

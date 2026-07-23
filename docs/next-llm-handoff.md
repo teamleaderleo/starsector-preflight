@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Perform and review exactly one installed **launcher-only coherent-direct backing-dimension probe** from current `main` using the repository runner.
+Review and merge the final dimension-axis repair, then perform exactly one installed **launcher-only coherent-direct axis probe** using the repository runner.
 
 Do not click Play, enter gameplay, repeat the probe, benchmark, or make an acceleration claim.
 
@@ -17,8 +17,8 @@ Do not click Play, enter gameplay, repeat the probe, benchmark, or make an accel
 - [NPOT visual failure](evidence/2026-07-22-prepared-pixel-visual-failure.md)
 - [successful original-layout probe](evidence/2026-07-22-prepared-pixel-original-layout-probe.md)
 - [successful coherent-image/original-converter probe](evidence/2026-07-22-prepared-pixel-coherent-converter-probe.md)
-- [coherent-direct diagnostic contract](evidence/2026-07-22-prepared-pixel-coherent-direct-diagnostic.md)
 - [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
+- [dimension-axis visual failure](evidence/2026-07-22-prepared-pixel-dimension-axis-failure.md)
 - issue #129 — NPOT upload dimensions and prepared-path visual acceptance
 
 ## Merged milestones
@@ -33,92 +33,67 @@ PR #133 guessed direct NPOT padding:
 PR #135 NPOT fail-open and original-layout observation:
 1fd63567e5834546ab5d617234f84371df9909ea
 
-PR #136 original-layout runner:
-60071e12cfc29d691142f272857b37b06233b32c
-
 PR #137 coherent cached image with retained original converter:
 fd390ff797e554101cc78ab52516273c1c06fc24
 
-PR #139 coherent source-sized carrier plus direct cached NPOT diagnostic:
+PR #139 coherent carrier plus direct cached NPOT diagnostic:
 23a8ec653d9f07e5df50ff3deab04efdf4104e49
 
-PR #141 reviewed backing-dimension side-effect replay:
+PR #141 backing-dimension replay using the incorrect call-order axis assumption:
 1b4194977c0fac9a5717d05bec6e858cb2fec419
 ```
 
 ## Established facts
 
-The direct NPOT upload no longer crashes and its observed bytes match Starsector's original converter layout. The safe original-converter probes render normally.
+The direct NPOT buffer no longer crashes. Its bytes match Starsector's original row-padded upload layout, and buffer ownership returns to zero cleanly.
 
-The coherent-direct probe supplied the expected coherent carrier, cached colors, padded bytes, cleanup, and lifecycle accounting, but still rendered the launcher black. Retained identity:
+A coherent cached image works when Starsector's original converter is retained. A coherent image plus the direct cached buffer still rendered black when dimension writes were omitted.
 
-```text
-repositoryHead: f252e6eff207e2ed7d2b3682396c3450bbccccf8
-jarSha256: 69a8a99a64b86049de6181eb2359f94ed510a5d94dd0dc286b69fa897721eab5
-archiveSha256: 10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708
-classSha256: d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50
-```
-
-Telemetry included 20 hits, 7 coherent-direct NPOT hits, 7 padded uploads, zero fallbacks/errors, 20 releases, and zero active/pending buffers at shutdown. The synthetic `1x1` carrier was therefore not the sole cause.
-
-## Merged backing-dimension diagnostic
-
-The exact installed converter performs two texture-object `(I)V` calls before deriving colors and returning its buffer:
-
-1. first setter receives the computed power-of-two upload width;
-2. second setter receives the computed power-of-two upload height.
-
-Merged PR #141 extracts exactly two distinct `(I)V` calls on `com/fs/graphics/Object` from the reviewed converter shape and declines transformation if that shape is missing or ambiguous.
-
-For a successful prepared result, and only while:
+Replaying both dimension setters made textures visible, proving those writes are required, but the launcher became tiled, cropped, and stretched. The run remained technically clean:
 
 ```text
--Dpreflight.preparedPixels.coherentDirect=true
+20 prepared hits
+7 coherent-direct NPOT hits
+7 padded uploads
+0 fallbacks
+0 internal errors
+20 releases
+0 active or pending buffers
+clean launcher exit
 ```
 
-is enabled, the wrapper replays the setters in reviewed width-then-height order using `PreparedPixel.width()` and `PreparedPixel.height()`, then writes the cached colors and returns the prepared buffer.
+## Corrected axis conclusion
 
-Without the property, safe NPOT behavior is unchanged. Identity gates, compatibility rollback, SPFT v1, cleanup, exceptions, circuit breaker, and direct-memory limits remain unchanged.
+The installed converter computes width and height, then invokes two obfuscated texture-object `(I)V` setters. PR #141 assigned axis meaning from setter call order and produced distorted UV/backing behavior.
 
-## Final validation
-
-Validated PR head:
+The reviewed installed flow and live visual result establish the mapping used by the final repair:
 
 ```text
-50907f3d52dc1c22b9a1ab83c66369448ac548ce
+first obfuscated setter  <- power-of-two upload height
+second obfuscated setter <- power-of-two upload width
 ```
 
-Successful workflows:
+The transformer maps the second reviewed setter to `PreparedPixel.width()` and the first to `PreparedPixel.height()`. The executable installed-style fixture models the same obfuscated semantics.
 
-```text
-CI run 557 — full Maven verification
-Vanilla adapter gate tests run 407
-Texture cache tests run 398
-Prepare command tests run 111
-```
+The safe default remains unchanged: without the explicit diagnostic property, NPOT textures use Starsector's original decode/conversion path.
 
-PR #141 squash-merged as `1b4194977c0fac9a5717d05bec6e858cb2fec419`.
+## Validation state
 
-## Interpretation
+The core axis change has passed full Maven verification, vanilla adapter gates, and texture cache tests on its earlier clean code head. The final branch must pass all four required suites after readiness, runner, and documentation alignment.
 
-```text
-normal launcher
-→ missing backing-dimension writes caused the black rendering;
-→ coherent carrier + cached data are viable at the launcher seam with those writes restored.
-
-broken launcher
-→ another converter side effect or cached-color difference remains;
-→ direct NPOT bypass stays unaccepted.
-```
-
-A normal launcher is not gameplay acceptance.
-
-## Authorized operator action
+## Authorized operator action after merge
 
 ```bash
 git switch main
 git pull --ff-only
-bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-axis-probe.sh
+```
+
+The runner refuses to launch unless the source contains the corrected axis mapping and preparation reports:
+
+```text
+preparedPixelsNextOperatorAction=launcher-only-coherent-direct-axis-probe
+dimensionReplay=reviewed-converter-height-first-width-second
 ```
 
 When the launcher appears:
@@ -131,22 +106,8 @@ inspect all launcher visuals
 → upload the generated Desktop archive
 ```
 
-A duplicate screenshot is optional when the classification is unambiguous.
-
-## Expected automated evidence
-
-- exact transformation applied once;
-- coherent-direct property enabled;
-- coherent-direct carriers and hits above zero;
-- padded uploads equal coherent-direct hits;
-- padding bytes above zero;
-- original NPOT fallback counters zero;
-- internal errors zero;
-- active direct bytes, active buffers, and pending buffers zero at shutdown;
-- no fatal console or log evidence;
-- clean launcher exit;
-- operator identity records `dimensionReplay=reviewed-converter-two-setter-order`.
+A normal launcher is not gameplay acceptance. Do not repeat the launcher probe or begin benchmarks.
 
 ## Definition of a good handback
 
-Leave the exact merged repository head and JAR SHA-256, complete retained archive, visual classification, dated evidence, and issue #129/readiness alignment. Do not run gameplay, repeat the probe, benchmark, or claim acceleration.
+Leave the exact merged repository head and JAR SHA-256, retained archive, visual classification, dated evidence, and issue #129/readiness alignment. Preserve identity gates, cleanup behavior, compatibility rollback, and direct-memory limits.

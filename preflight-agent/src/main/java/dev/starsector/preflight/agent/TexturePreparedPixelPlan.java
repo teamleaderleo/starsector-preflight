@@ -290,7 +290,8 @@ final class TexturePreparedPixelPlan {
         if (setters.size() != 2 || setters.get(0).equals(setters.get(1))) {
             return null;
         }
-        return new DimensionSetters(setters.get(0), setters.get(1));
+        // The exact installed converter invokes its height setter first and width setter second.
+        return new DimensionSetters(setters.get(1), setters.get(0));
     }
 
     private static List<MethodNode> directConvertCallers(ClassNode owner, MethodNode convert) {

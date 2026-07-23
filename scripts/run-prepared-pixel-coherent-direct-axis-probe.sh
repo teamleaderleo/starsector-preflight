@@ -7,6 +7,7 @@ JAR="$PWD/preflight-cli/target/preflight.jar"
 DIAGNOSTIC_PROPERTY="-Dpreflight.preparedPixels.coherentDirect=true"
 EXPECTED_ARCHIVE_SHA="10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708"
 EXPECTED_CLASS_SHA="d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50"
+AXIS_CONTRACT='return new DimensionSetters(setters.get(1), setters.get(0));'
 
 for command in git java mvn jq shasum unzip tar grep; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -25,30 +26,22 @@ if [[ ! -d "$GAME" ]]; then
     exit 1
 fi
 
-RUNTIME_SOURCE="preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelRuntime.java"
 PLAN_SOURCE="preflight-agent/src/main/java/dev/starsector/preflight/agent/TexturePreparedPixelPlan.java"
-if [[ ! -f "$RUNTIME_SOURCE" ]] || ! grep -q 'preflight.preparedPixels.coherentDirect' "$RUNTIME_SOURCE"; then
-    echo "This checkout does not contain the coherent-direct diagnostic." >&2
-    echo "Run: git switch main && git pull --ff-only" >&2
-    exit 1
-fi
-if [[ ! -f "$PLAN_SOURCE" ]] \
-        || ! grep -q 'DimensionSetters dimensionSetters' "$PLAN_SOURCE" \
-        || ! grep -q 'addDimensionSetter(wrapper, dimensions.widthMethod(), "width")' "$PLAN_SOURCE" \
-        || ! grep -q 'addDimensionSetter(wrapper, dimensions.heightMethod(), "height")' "$PLAN_SOURCE"; then
-    echo "This checkout does not contain the reviewed backing-dimension replay." >&2
+if [[ ! -f "$PLAN_SOURCE" ]] || ! grep -Fq "$AXIS_CONTRACT" "$PLAN_SOURCE"; then
+    echo "This checkout does not contain the reviewed height-first/width-second axis mapping." >&2
     echo "Run: git switch main && git pull --ff-only" >&2
     exit 1
 fi
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 REPORT_DIR="$CACHE/reports"
-CONTRACT_REPORT="$REPORT_DIR/prepared-pixel-coherent-direct-dimension-contract-$STAMP.json"
-PREP_REPORT="$REPORT_DIR/prepared-pixel-coherent-direct-dimension-preparation-$STAMP.json"
-RUN_DIR="$HOME/.starsector-preflight/runs/prepared-pixel-coherent-direct-dimension-probe-$STAMP"
+CONTRACT_REPORT="$REPORT_DIR/prepared-pixel-coherent-direct-axis-contract-$STAMP.json"
+PREP_REPORT="$REPORT_DIR/prepared-pixel-coherent-direct-axis-preparation-$STAMP.json"
+RUN_DIR="$HOME/.starsector-preflight/runs/prepared-pixel-coherent-direct-axis-probe-$STAMP"
 mkdir -p "$REPORT_DIR"
 
-echo "Repository HEAD: $(git rev-parse HEAD)"
+REPOSITORY_HEAD="$(git rev-parse HEAD)"
+echo "Repository HEAD: $REPOSITORY_HEAD"
 
 echo
 echo "== Building and verifying the checkout =="
@@ -114,8 +107,8 @@ java -jar "$JAR" prepare \
 
 jq -e '
     .successful == true
-    and .readiness.preparedPixelsNextOperatorAction == "launcher-only-coherent-direct-dimension-probe"
-    and .readiness.preparedPixelsBehavioralAcceptance == "failed-2026-07-22-coherent-direct-without-dimensions"
+    and .readiness.preparedPixelsAdapter == "pot-bypass-enabled-npot-coherent-direct-axis-diagnostic"
+    and .readiness.preparedPixelsNextOperatorAction == "launcher-only-coherent-direct-axis-probe"
     and .readiness.launchAccelerationClaimed == false
 ' "$PREP_REPORT" >/dev/null
 
@@ -147,31 +140,31 @@ RUN_ARGS=(
 DIAGNOSTIC_JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }$DIAGNOSTIC_PROPERTY"
 
 echo
-echo "== Exact launcher-only dimension side-effect plan =="
+echo "== Exact launcher-only axis diagnostic plan =="
 JAVA_TOOL_OPTIONS="$DIAGNOSTIC_JAVA_TOOL_OPTIONS" \
     java -jar "$JAR" "${RUN_ARGS[@]}" --dry-run
 
 echo
-echo "This run keeps the coherent source-sized image, cached padded bytes,"
-echo "and cached colors from the previous direct probe. It additionally replays"
-echo "the two exact reviewed texture-object backing-dimension setters that"
-echo "Starsector's original converter performs before returning its buffer."
+echo "This run uses coherent source-sized cached images, direct cached upload"
+echo "buffers, cached colors, and the reviewed texture-object dimension mapping:"
+echo "  first obfuscated setter  <- power-of-two upload height"
+echo "  second obfuscated setter <- power-of-two upload width"
 echo
 echo "When the launcher appears:"
 echo "  1. Decide whether every launcher visual looks normal or broken."
 echo "  2. DO NOT click Play or start Starsector."
 echo "  3. Close the launcher with its X button."
 echo
-read -r -p "Press Enter to start the single dimension side-effect probe, or Ctrl-C to stop: " _
+read -r -p "Press Enter to start the single coherent-direct axis probe, or Ctrl-C to stop: " _
 
 mkdir -p "$RUN_DIR"
 {
-    printf 'repositoryHead=%s\n' "$(git rev-parse HEAD)"
+    printf 'repositoryHead=%s\n' "$REPOSITORY_HEAD"
     printf 'jarSha256=%s\n' "$JAR_SHA"
     printf 'archiveSha256=%s\n' "$ARCHIVE_SHA"
     printf 'classSha256=%s\n' "$CLASS_SHA"
     printf 'diagnosticProperty=%s\n' "$DIAGNOSTIC_PROPERTY"
-    printf 'dimensionReplay=reviewed-converter-two-setter-order\n'
+    printf 'dimensionReplay=%s\n' 'reviewed-converter-height-first-width-second'
     printf 'command=JAVA_TOOL_OPTIONS=%q ' "$DIAGNOSTIC_JAVA_TOOL_OPTIONS"
     printf '%q ' java -jar "$JAR" "${RUN_ARGS[@]}"
     printf '\n'
@@ -180,7 +173,7 @@ cp "$CONTRACT_REPORT" "$RUN_DIR/operator-contract.json"
 cp "$PREP_REPORT" "$RUN_DIR/operator-preparation.json"
 
 echo
-echo "== Starting launcher-only dimension side-effect probe =="
+echo "== Starting launcher-only coherent-direct axis probe =="
 set +e
 JAVA_TOOL_OPTIONS="$DIAGNOSTIC_JAVA_TOOL_OPTIONS" \
     java -jar "$JAR" "${RUN_ARGS[@]}"
@@ -212,7 +205,7 @@ jq '{
 }' "$RUN_DIR/run.json"
 
 echo
-echo "== Coherent-direct telemetry =="
+echo "== Coherent-direct axis telemetry =="
 jq '.textureCompatibility.preparedPixels' "$RUN_DIR/adapter.json"
 
 jq -e '
@@ -242,6 +235,9 @@ jq -e '
     and .textureCompatibility.preparedPixels.pendingBuffers == 0
 ' "$RUN_DIR/adapter.json" >/dev/null
 
+grep -Fq 'dimensionReplay=reviewed-converter-height-first-width-second' \
+    "$RUN_DIR/operator-probe-identity.txt"
+
 ARCHIVE_OUT="$HOME/Desktop/$(basename "$RUN_DIR").tar.gz"
 tar -czf "$ARCHIVE_OUT" -C "$(dirname "$RUN_DIR")" "$(basename "$RUN_DIR")"
 
@@ -252,7 +248,7 @@ if [[ "$probe_exit" -ne 0 ]]; then
 fi
 
 echo
-echo "Automated lifecycle, coherent-direct, dimension-build, and cleanup checks passed."
+echo "Automated lifecycle, axis-mapping, direct-buffer, and cleanup checks passed."
 echo "Report whether the launcher looked normal or broken, and upload:"
 echo "  $ARCHIVE_OUT"
 echo
