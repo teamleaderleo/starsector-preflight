@@ -308,6 +308,26 @@ check_profile_stability() {
     mission_descriptor_sha="$(shasum -a 256 "$CORE_MISSION_DESCRIPTOR" | awk '{print $1}')"
     if [[ "$mission_list_sha" != "$CORE_MISSION_LIST_SHA" \
             || "$mission_descriptor_sha" != "$CORE_MISSION_DESCRIPTOR_SHA" ]]; then
+        jq -n \
+            --arg label "$label" \
+            --arg expectedMissionListSha256 "$CORE_MISSION_LIST_SHA" \
+            --arg actualMissionListSha256 "$mission_list_sha" \
+            --arg expectedMissionDescriptorSha256 "$CORE_MISSION_DESCRIPTOR_SHA" \
+            --arg actualMissionDescriptorSha256 "$mission_descriptor_sha" \
+            '{
+                stable: false,
+                immutableProfileStable: false,
+                error: "reviewed-core-mission-resources-changed",
+                label: $label,
+                coreMissionList: {
+                    expectedSha256: $expectedMissionListSha256,
+                    actualSha256: $actualMissionListSha256
+                },
+                coreMissionDescriptor: {
+                    expectedSha256: $expectedMissionDescriptorSha256,
+                    actualSha256: $actualMissionDescriptorSha256
+                }
+            }' > "$drift"
         echo "Reviewed core mission resources changed during the comparison ($label)." >&2
         return 1
     fi
