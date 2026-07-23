@@ -4,9 +4,9 @@ Status: 2026-07-23
 
 ## Current decision
 
-Direct NPOT prepared-pixel bypass is **not yet behaviorally accepted**.
+Direct NPOT prepared-pixel bypass has passed corrected-axis **launcher-level** visual acceptance. It is not yet behaviorally accepted for gameplay and is not enabled by default.
 
-The backing-dimension probe made textures visible, but the launcher was tiled, cropped, and stretched because width and height were assigned from obfuscated setter call order. Merged PR #145 corrects that axis mapping. Exactly one launcher-only axis validation is now authorized. Gameplay and benchmarks remain blocked.
+Exactly one controlled gameplay smoke is the next authorized action. Use a new campaign, copied save, or other disposable save. Benchmarks remain blocked.
 
 ## Evidence chain
 
@@ -19,27 +19,39 @@ The backing-dimension probe made textures visible, but the launcher was tiled, c
 - [successful coherent-image/original-converter probe](evidence/2026-07-22-prepared-pixel-coherent-converter-probe.md)
 - [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
 - [dimension-axis visual failure](evidence/2026-07-22-prepared-pixel-dimension-axis-failure.md)
+- [corrected-axis launcher pass](evidence/2026-07-23-prepared-pixel-axis-launcher-pass.md)
 
-## Technical conclusion
+## Corrected technical conclusion
 
-The prepared NPOT upload bytes match Starsector's original relevant row-padded layout. Cached pixels can form a coherent source-sized image accepted by Starsector's original converter. Direct-buffer cleanup and lifecycle accounting are clean.
+The prepared NPOT upload bytes match Starsector's original relevant row-padded layout. Cached pixels form coherent source-sized images accepted by the original converter. The two backing-dimension writes are required.
 
-The direct path remained black until the converter's two texture backing-dimension writes were replayed. Restoring both writes made the pixels visible, proving those side effects are required.
-
-The restored build was still visually invalid: background textures repeated at the sides, the center was black, and UI textures were sliced and stretched. The run had 20 hits, 7 coherent-direct NPOT hits, zero fallbacks/errors, complete release accounting, and a clean exit. This isolates the problem to dimension-axis metadata rather than pixels or ownership.
-
-## Corrected dimension mapping
-
-Merged PR #145 uses:
+The validated mapping is:
 
 ```text
 first obfuscated setter  <- power-of-two upload height
 second obfuscated setter <- power-of-two upload width
 ```
 
-The transformer maps `PreparedPixel.height()` to the first setter and `PreparedPixel.width()` to the second while preserving the existing invocation, color, upload, cleanup, and exception paths.
+With that mapping, coherent source-sized carriers, cached colors, and direct cached NPOT buffers rendered the launcher normally.
 
-The transformation still declines if the exact two-setter reviewed shape is missing or ambiguous. No setter names are guessed or broadly allowlisted.
+Retained launcher evidence:
+
+```text
+archiveSha256: 898f99beb8940900a34634d53affc9a97705366fd42faf57a7d2b033bb8bb555
+repositoryHead: fd5b240756674ea831aa1caae8edacc425a4c05c
+jarSha256: 488f362d59aaad5408c844f9bae4821d4407dbf45b713128f325be10b673b939
+outcome: COMPLETED
+launcherExitCode: 0
+fatalDetected: false
+prepared hits: 20
+coherent-direct NPOT hits: 7
+padded uploads: 7
+fallbacks/internal errors: 0
+releases: 20
+active/pending buffers at shutdown: 0
+```
+
+This evidence does not cover the main menu, campaign, combat, saving, or longer-lived texture use.
 
 ## Safe default
 
@@ -52,34 +64,37 @@ Without:
 - power-of-two prepared hits may use the direct lower seam;
 - NPOT textures use Starsector's original decode/conversion path;
 - compatibility mode remains the accepted rollback;
-- no installation, launcher, mod, or save files are edited.
+- no installation or launcher files are edited.
 
-## Validation
+## Gameplay-smoke runner
 
-PR #145 merged as:
+The dedicated runner checks the corrected source contract and exact installed identities, rebuilds and verifies the repository, prepares exact cache artifacts, and records the accepted launcher archive as a prerequisite.
 
-```text
-d2333deca1697214231b6392b944ea2992150cae
-```
-
-Validated head and workflows:
+It writes:
 
 ```text
-03829ef2950201ff91182e0b1aa9879fc0d618b8
-CI run 579 — full Maven verification
-Vanilla adapter gate tests run 422
-Texture cache tests run 411
-Prepare command tests run 118
+operator-smoke-identity.txt
+operator-contract.json
+operator-preparation.json
+operator-gameplay-result.json
+run.json
+adapter.json
+console.txt
+startup.jfr
+summary.json
+adapter-analysis.json
 ```
 
-## Authorized operator action
+It packages the full run directory on the Desktop even when the operator checklist or automated acceptance fails after a completed run.
+
+## Authorized operator action after merge
 
 Run exactly once from the repository root:
 
 ```bash
 git switch main
 git pull --ff-only
-bash scripts/run-prepared-pixel-coherent-direct-axis-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
 ```
 
 Environment overrides:
@@ -87,41 +102,46 @@ Environment overrides:
 ```bash
 GAME="/path/to/Starsector.app" \
 CACHE="$HOME/.starsector-preflight/cache" \
-bash scripts/run-prepared-pixel-coherent-direct-axis-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
 ```
 
-The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, verifies the axis-specific readiness marker and source mapping, enables coherent-direct, checks lifecycle and buffer telemetry, records:
+The runner requires typing `SMOKE` before launch.
+
+Use a new campaign, copied save, or other disposable save. Do not overwrite a valuable save.
+
+Required route:
 
 ```text
-dimensionReplay=reviewed-converter-height-first-width-second
+1. Confirm the launcher looks normal and click Play Starsector.
+2. Reach and inspect the main menu.
+3. Start a new campaign or load a disposable save.
+4. Inspect campaign UI, portraits, ships, backgrounds, and effects.
+5. Enter one combat and inspect ships, weapons, projectiles, effects, and UI.
+6. Finish or exit combat normally and save.
+7. Return to the main menu and exit Starsector cleanly.
+8. If the launcher reappears, close it with its X.
 ```
 
-and packages the complete run directory on the Desktop.
+After the process exits, answer the runner's yes/no questions accurately. In particular, report whether the terminal command remained attached until Starsector exited.
 
-When the launcher appears:
+Stop and exit cleanly if you see black, sliced, repeated, stretched, missing, flipped, or progressively corrupt textures.
 
-```text
-inspect background, logo, resolution selector, toggles, Play button,
-Options, Mods, borders, and vendor logos
-→ do not click Play
-→ close with the launcher X
-```
-
-Report only `normal` or `broken` and upload the generated archive. A duplicate screenshot is optional when the classification is unambiguous.
-
-## Required automated evidence
+## Automated acceptance requirements
 
 - exact transformation applied once;
-- coherent-direct property enabled;
-- coherent-direct carriers and hits above zero;
+- coherent-direct enabled with carriers and hits above zero;
 - padded uploads equal coherent-direct hits;
-- padding bytes above zero;
-- original NPOT fallback and coherent-original-converter counters zero;
+- original-converter and NPOT-probe fallback counters zero;
 - internal errors zero;
 - active direct bytes, active buffers, and pending buffers zero at shutdown;
-- no fatal console/log evidence;
-- clean launcher exit;
-- operator identity records the reviewed height-first/width-second replay.
+- no fatal console or log evidence;
+- clean process exit;
+- operator identity records `reviewed-converter-height-first-width-second`;
+- operator result records normal launcher, main-menu, campaign, and combat visuals;
+- save completed;
+- command remained attached until game exit;
+- clean exit observed;
+- no visual corruption observed.
 
 ## Preserved boundaries
 
@@ -139,4 +159,4 @@ Report only `normal` or `broken` and upload the generated archive. A duplicate s
 
 ## Standing safety rules
 
-Do not run more than the single authorized launcher probe, click Play, enter gameplay, treat a normal launcher as final behavioral acceptance, begin benchmarks, weaken identity gates, patch Starsector, swallow original exceptions, or claim acceleration.
+Do not repeat the gameplay smoke, use a valuable save, treat launcher acceptance as gameplay acceptance, begin benchmarks, weaken identity gates, patch Starsector, swallow original exceptions, or claim acceleration.
