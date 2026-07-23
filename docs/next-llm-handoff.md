@@ -4,11 +4,30 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-The corrected coherent-direct prepared-pixel path has passed the exact-profile launcher and gameplay smoke. No further operator run is currently authorized.
+Review and merge the prepared-pixel main-menu comparison pilot, then perform exactly one two-run comparison from current `main`.
 
-Next engineering work is to review the retained nonfatal GraphicsLib/ShaderLib log diagnostics tracked in issue #149 and decide what controlled baseline, if any, is needed before default enablement or timing work.
+The two halves are:
 
-Do not repeat the launcher/gameplay smoke, benchmark, enable coherent-direct by default, or make an acceleration claim.
+```text
+compatibility decoded-image path
+accepted coherent-direct prepared path
+```
+
+Compatibility uses the same verified texture cache context while retaining Starsector's original converter/upload path. This isolates the prepared-pixel seam; it is not raw uninstrumented vanilla.
+
+The pilot captures full appended Starsector log deltas and one operator-marked launcher/main-menu timing sample per mode. It is preliminary evidence, not a benchmark.
+
+Do not repeat the accepted launcher/gameplay smokes, enter campaign/combat during this pilot, enable coherent-direct by default, or claim acceleration.
+
+## Repository cleanup already merged
+
+PR #101 is already merged as:
+
+```text
+dc5bcdc024027ccf1f19f5cc3a53ae4f98a3722c
+```
+
+It SHA-pinned CI actions, added the opt-in `-Panalysis` Error Prone profile, and fixed default-locale lowercase calls with `Locale.ROOT`. No further action on PR #101 is required.
 
 ## Evidence chain
 
@@ -23,33 +42,8 @@ Do not repeat the launcher/gameplay smoke, benchmark, enable coherent-direct by 
 - [dimension-axis visual failure](evidence/2026-07-22-prepared-pixel-dimension-axis-failure.md)
 - [corrected-axis launcher pass](evidence/2026-07-23-prepared-pixel-axis-launcher-pass.md)
 - [corrected-axis gameplay smoke pass](evidence/2026-07-23-prepared-pixel-gameplay-smoke-pass.md)
-- issue #129 — original NPOT crash and prepared-path acceptance history
+- [main-menu comparison pilot contract](evidence/2026-07-23-prepared-pixel-main-menu-comparison-contract.md)
 - issue #149 — nonfatal GraphicsLib log baseline before default enablement
-
-## Merged implementation milestones
-
-```text
-PR #132 lifecycle, release, and fatal-evidence repair:
-4f3b79c6d7683242d16cb7b34081cd7800f20017
-
-PR #135 NPOT fail-open and original-layout observation:
-1fd63567e5834546ab5d617234f84371df9909ea
-
-PR #137 coherent cached image with retained original converter:
-fd390ff797e554101cc78ab52516273c1c06fc24
-
-PR #139 coherent carrier plus direct cached NPOT diagnostic:
-23a8ec653d9f07e5df50ff3deab04efdf4104e49
-
-PR #141 backing-dimension replay with incorrect axis assignment:
-1b4194977c0fac9a5717d05bec6e858cb2fec419
-
-PR #145 corrected height-first/width-second dimension axes:
-d2333deca1697214231b6392b944ea2992150cae
-
-PR #147 guarded gameplay-smoke runner and launcher-pass evidence:
-ab4d1abfacf81c0c27216894b56ccffe3314b0a1
-```
 
 ## Established facts
 
@@ -60,9 +54,9 @@ first obfuscated setter  <- power-of-two upload height
 second obfuscated setter <- power-of-two upload width
 ```
 
-The corrected direct path passed launcher, main-menu, campaign, combat, save, and clean-exit visual/lifecycle scope on the exact reviewed install and profile.
+The corrected direct path passed launcher, main-menu, campaign, combat, save, and clean-exit scope on the exact reviewed installation/profile.
 
-Retained gameplay identity:
+Retained gameplay evidence:
 
 ```text
 archiveSha256: cbc9f5884d89f69e93f6b0ca882c911fdb0cb43397932b77b191920ded0a11bf
@@ -71,44 +65,83 @@ jarSha256: 4e62577b98f28894322bb9e86f8cdeda4be4c6a3373632352c2c113078c3689a
 runtimeSeconds: 624.640
 prepared hits: 5015
 coherent-direct NPOT hits: 4450
-padded uploads: 4450
 fallbacks/internal errors: 0
-releases: 5015
 active/pending buffers at shutdown: 0
-fatal evidence: none
 operatorAccepted: true
 automatedAccepted: true
 ```
 
-## Nonfatal log caveat
+## Why the comparison is required
 
-The bounded gameplay console contains third-party GraphicsLib/ShaderLib diagnostics, including 12 normal-map load failures with an LWJGL buffer-size message, shader compilation diagnostics, and music-source warnings. The operator saw no related corruption and Preflight found no fatal evidence.
+The bounded gameplay console contained nonfatal GraphicsLib/ShaderLib diagnostics, including 12 normal-map buffer failures, shader creation errors, and music-source warnings. No related corruption or fatal evidence was observed.
 
-Do not attribute these messages to Preflight or dismiss them as baseline noise without a controlled comparison. They block default enablement, not the completed gameplay smoke result.
+The retained console was truncated to 1 MiB, so attribution requires full per-run log deltas. A single prepared-path run cannot establish whether the diagnostics are ordinary compatibility-profile baseline or prepared-path-related.
 
 ## Current readiness
 
 ```text
 preparedPixelsAdapter=pot-bypass-enabled-npot-coherent-direct-gameplay-accepted-opt-in
 preparedPixelsBehavioralAcceptance=accepted-2026-07-23-exact-profile
-preparedPixelsDefaultEnablement=blocked-pending-log-baseline-and-timing
+preparedPixelsDefaultEnablement=blocked-pending-main-menu-comparison-and-repeat-timing
+preparedPixelsComparisonPilotRequired=true
+repeatTimingCampaignRequired=true
 realInstallPilotRequired=false
-preparedPixelsNextOperatorAction=none-engineering-review-required
+preparedPixelsNextOperatorAction=single-main-menu-comparison-pilot
 launchAccelerationClaimed=false
 ```
 
 The safe default remains unchanged: without `-Dpreflight.preparedPixels.coherentDirect=true`, NPOT textures use Starsector's original decode/conversion path. Compatibility mode remains the accepted rollback.
 
-## Next engineering decision
+## Comparison runner contract
 
-Review issue #149 and determine whether to:
+The runner:
 
-1. classify the diagnostics from existing baseline evidence;
-2. add a narrowly scoped compatibility/original-path log-baseline runner; or
-3. add bounded diagnostic telemetry before another run.
+- rebuilds and runs full Maven verification once;
+- verifies exact archive and TextureLoader identities;
+- runs the installed prepared-pixel contract check;
+- prepares the exact current profile;
+- supplies the same complete texture cache context to both modes;
+- randomizes the two-mode order unless `ORDER` is explicitly supplied;
+- stops at the main menu for each half;
+- uses a monotonic clock and operator Enter markers for launcher readiness and Play-to-main-menu readiness;
+- snapshots log inode/size before each run and matches file identity across rotation/renaming;
+- retains only appended or newly created log bytes;
+- classifies known GraphicsLib/ShaderLib and music diagnostics;
+- verifies the intended texture mode in each `run.json`;
+- checks clean lifecycle, nonempty log capture, and prepared-buffer cleanup;
+- writes `comparison-result.json` with `samplesPerMode=1`, `preliminaryOnly=true`, and `benchmarkAccepted=false`;
+- packages both complete run directories on the Desktop.
 
-No new operator action should be requested until that decision is implemented and reviewed. Timing campaigns remain separate and blocked.
+## Authorized operator action after merge
+
+Run exactly once from the repository root:
+
+```bash
+git switch main
+git pull --ff-only
+bash scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
+```
+
+Type `COMPARE` when prompted. For each half:
+
+```text
+mark launcher ready
+→ mark immediately before clicking Play
+→ mark main menu ready
+→ exit from main menu
+→ close launcher if it reappears
+```
+
+Do not load a campaign or enter combat. Upload the generated Desktop archive after both halves complete.
+
+## Decision after the pilot
+
+- Equivalent log diagnostics: classify the messages as exact-profile compatibility baseline and build a repeated alternating timing campaign.
+- Prepared-only or increased diagnostics: investigate the prepared carrier path before timing or default enablement.
+- Visual or lifecycle failure: stop and retain compatibility mode as rollback.
+
+Do not repeat the pilot or treat one timing pair as a benchmark.
 
 ## Definition of a good handback
 
-Preserve the exact gameplay archive identity, acceptance scope, log caveat, safe default, identity gates, cleanup behavior, compatibility rollback, and memory limits. Do not broaden the exact target or claim acceleration.
+Retain exact repository/JAR/install identities, randomized order, both run directories, full log deltas, classifications, operator timing markers, comparison result, and visual/lifecycle status. Update issue #149 and readiness. Preserve identity gates, cleanup behavior, compatibility rollback, and memory limits.
