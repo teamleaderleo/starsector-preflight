@@ -6,16 +6,16 @@ Status: 2026-07-23
 
 The corrected coherent-direct NPOT prepared-pixel path has passed launcher and gameplay visual/lifecycle acceptance for the exact reviewed macOS/Starsector 0.98a-RC8 installation and profile.
 
-It remains opt-in and is not enabled by default. The bounded two-run main-menu comparison runner is merged and exactly one pilot is now authorized. The pilot is not a benchmark.
+It remains opt-in and is not enabled by default. Exactly one bounded two-run main-menu comparison pilot is authorized after the automatic log detector follow-up merges. The pilot is not a benchmark.
 
-Merged runner:
+Merged comparison foundation:
 
 ```text
 PR #152
 2312bfd265c087e0ddf6ec39d6398b322e9bfc7f
 ```
 
-It passed CI 591, texture tests 420, and preparation tests 124 before merge.
+PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge. Its manual readiness markers are being replaced before the pilot is run.
 
 ## Evidence chain
 
@@ -98,7 +98,33 @@ preparedPixelsNextOperatorAction=single-main-menu-comparison-pilot
 launchAccelerationClaimed=false
 ```
 
-## Authorized operator action
+## Automatic readiness detection
+
+The runner watches `starsector.log*` instead of asking you to press Enter at visual timing boundaries.
+
+It detects launcher readiness after the final reviewed launcher font texture and a 1.5-second quiet confirmation.
+
+After it tells you to click **Play Starsector**, the first new timestamped log line becomes the game-start boundary. Main-menu readiness requires:
+
+```text
+save-descriptor scan
+GraphicsLib VRAM after unload/preload
+6 seconds without another appended line
+```
+
+The recorded timestamp is the last log activity before the quiet confirmation, so the wait itself is not added to the result.
+
+The archive retains:
+
+```text
+launcher-ready-detection.json
+main-menu-ready-detection.json
+gameLogStartToMainMenuMs
+```
+
+You still answer whether the detector notification occurred only after the main menu was fully visible and responsive. Answering no rejects that half.
+
+## Authorized operator action after merge
 
 Run exactly once from the repository root:
 
@@ -116,26 +142,28 @@ COMPARE
 
 The runner randomizes which mode runs first. For each half:
 
-1. Press Enter to launch it.
-2. Press Enter when the launcher is fully visible and stable.
-3. Return to the terminal and press Enter immediately before clicking **Play Starsector**.
-4. Press Enter when the main menu is fully visible and responsive.
-5. Exit Starsector from the main menu.
-6. Close the launcher if it reappears.
-7. Answer the visual and clean-exit questions accurately.
+1. Press Enter once to launch it.
+2. Wait for the automatic launcher-ready notification.
+3. Click **Play Starsector** when instructed; do not press Enter for timing.
+4. Wait for the automatic main-menu-ready notification.
+5. Verify the menu is actually fully visible and responsive.
+6. Exit Starsector from the main menu.
+7. Close the launcher if it reappears.
+8. Answer the visual, detector-accuracy, attachment, and clean-exit questions accurately.
 
-Do not load a campaign or enter combat. Stop if either mode has visible corruption or a crash.
+Do not load a campaign or enter combat. Stop if either mode has visible corruption, a crash, or an early detector notification.
 
 The runner packages both run directories and `comparison-result.json` on the Desktop. Upload that one archive.
 
 ## Interpretation boundary
 
-The timing output is one sample per mode and includes operator reaction/focus-switch noise. It is preliminary only:
+The timing output is one sample per mode. It removes the previous Enter/focus-switch timing noise, but it remains preliminary:
 
 ```text
 samplesPerMode=1
 preliminaryOnly=true
 benchmarkAccepted=false
+timingMethod=automatic-starsector-log-phase-detection
 ```
 
 Do not repeat the pilot, average the two numbers as a benchmark, enable coherent-direct by default, or make an acceleration claim.
