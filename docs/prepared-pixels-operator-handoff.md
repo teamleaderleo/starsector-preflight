@@ -6,7 +6,7 @@ Status: 2026-07-23
 
 Direct NPOT prepared-pixel bypass has passed corrected-axis **launcher-level** visual acceptance. It is not yet behaviorally accepted for gameplay and is not enabled by default.
 
-Exactly one controlled gameplay smoke is the next authorized action. Use a new campaign, copied save, or other disposable save. Benchmarks remain blocked.
+Merged PR #147 provides exactly one controlled gameplay smoke. Use a new campaign, copied save, or other disposable save. Benchmarks remain blocked.
 
 ## Evidence chain
 
@@ -66,9 +66,17 @@ Without:
 - compatibility mode remains the accepted rollback;
 - no installation or launcher files are edited.
 
-## Gameplay-smoke runner
+## Merged gameplay-smoke runner
 
-The dedicated runner checks the corrected source contract and exact installed identities, rebuilds and verifies the repository, prepares exact cache artifacts, and records the accepted launcher archive as a prerequisite.
+PR #147 merged as:
+
+```text
+ab4d1abfacf81c0c27216894b56ccffe3314b0a1
+```
+
+The runner checks the corrected source contract and exact installed identities, rebuilds and verifies the repository before launch, prepares exact cache artifacts, and records the accepted launcher archive as a prerequisite.
+
+It requires at least 120 seconds of observed attached wrapper lifetime and asks the operator whether the terminal command remained running until Starsector exited. This rejects a launcher which spawns an untracked game process and returns early.
 
 It writes:
 
@@ -87,7 +95,7 @@ adapter-analysis.json
 
 It packages the full run directory on the Desktop even when the operator checklist or automated acceptance fails after a completed run.
 
-## Authorized operator action after merge
+## Authorized operator action
 
 Run exactly once from the repository root:
 
@@ -136,6 +144,7 @@ Stop and exit cleanly if you see black, sliced, repeated, stretched, missing, fl
 - active direct bytes, active buffers, and pending buffers zero at shutdown;
 - no fatal console or log evidence;
 - clean process exit;
+- at least 120 seconds of observed wrapper lifetime;
 - operator identity records `reviewed-converter-height-first-width-second`;
 - operator result records normal launcher, main-menu, campaign, and combat visuals;
 - save completed;
