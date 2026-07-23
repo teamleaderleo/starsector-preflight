@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge the prepared-pixel main-menu comparison pilot, then perform exactly one two-run comparison from current `main`.
+Perform exactly one two-run prepared-pixel main-menu comparison from current `main` using the merged repository runner.
 
 The two halves are:
 
@@ -19,15 +19,19 @@ The pilot captures full appended Starsector log deltas and one operator-marked l
 
 Do not repeat the accepted launcher/gameplay smokes, enter campaign/combat during this pilot, enable coherent-direct by default, or claim acceleration.
 
-## Repository cleanup already merged
-
-PR #101 is already merged as:
+## Merged maintenance and comparison work
 
 ```text
+PR #101 repository hygiene and Locale.ROOT fixes:
 dc5bcdc024027ccf1f19f5cc3a53ae4f98a3722c
+
+PR #152 main-menu comparison contract and runner:
+2312bfd265c087e0ddf6ec39d6398b322e9bfc7f
 ```
 
-It SHA-pinned CI actions, added the opt-in `-Panalysis` Error Prone profile, and fixed default-locale lowercase calls with `Locale.ROOT`. No further action on PR #101 is required.
+PR #101 SHA-pinned CI actions, added the opt-in `-Panalysis` Error Prone profile, and fixed default-locale lowercase calls with `Locale.ROOT`. No further action on PR #101 is required.
+
+PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge.
 
 ## Evidence chain
 
@@ -94,7 +98,7 @@ The safe default remains unchanged: without `-Dpreflight.preparedPixels.coherent
 
 ## Comparison runner contract
 
-The runner:
+The merged runner:
 
 - rebuilds and runs full Maven verification once;
 - verifies exact archive and TextureLoader identities;
@@ -112,7 +116,7 @@ The runner:
 - writes `comparison-result.json` with `samplesPerMode=1`, `preliminaryOnly=true`, and `benchmarkAccepted=false`;
 - packages both complete run directories on the Desktop.
 
-## Authorized operator action after merge
+## Authorized operator action
 
 Run exactly once from the repository root:
 
