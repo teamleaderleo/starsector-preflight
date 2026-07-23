@@ -1,15 +1,15 @@
-name: PR 143 axis patch
+name: Axis mapping patch
 
 on:
   pull_request:
-    types: [synchronize, ready_for_review, reopened]
+    types: [opened, synchronize, ready_for_review, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.pull_request.head.ref == 'repair/prepared-pixel-dimension-axis-dataflow'
+    if: github.event.pull_request.head.ref == 'repair/prepared-pixel-dimension-axis-flow-v2'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
