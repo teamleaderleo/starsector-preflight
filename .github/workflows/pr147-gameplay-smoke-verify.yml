@@ -1,0 +1,41 @@
+name: PR 147 gameplay smoke verification
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  verify:
+    if: >-
+      github.event.issue.pull_request
+      && github.event.issue.number == 147
+      && github.event.comment.body == '/verify-gameplay-smoke'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: feature/prepared-pixel-gameplay-smoke-runner
+      - uses: ./.github/actions/setup-build-jdk
+      - name: Validate gameplay smoke runner
+        run: bash -n scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
+      - name: Verify
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Report success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh pr comment 147 --body
+          "Gameplay-smoke verification passed on $(git rev-parse HEAD): bash syntax and full Maven verification succeeded."
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh pr comment 147 --body
+          "Gameplay-smoke verification failed on $(git rev-parse HEAD). Review this workflow run before merging."
