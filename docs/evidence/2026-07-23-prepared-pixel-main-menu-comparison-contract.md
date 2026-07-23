@@ -9,10 +9,12 @@ The accepted coherent-direct prepared-pixel path completed launcher and gameplay
 This contract authorizes one bounded two-run comparison pilot:
 
 ```text
-compatibility/original texture path
+compatibility decoded-image path
 versus
 accepted coherent-direct prepared path
 ```
+
+Compatibility mode uses the same verified texture cache context while retaining Starsector's original converter and upload path. This isolates the lower prepared-pixel seam; it is not a raw uninstrumented vanilla run.
 
 The pilot has two goals:
 
@@ -65,7 +67,7 @@ A later repeat-timing campaign must use multiple alternating or randomized sampl
 
 ## Log capture
 
-Before each half, the runner records inode and byte size for every `logs/starsector.log*` file. After clean exit it copies only bytes appended during that half, while safely treating rotated or replaced files as new.
+Before each half, the runner records inode and byte size for every `logs/starsector.log*` file. After clean exit it copies only bytes appended during that half. File identity is matched by inode so log rotation or renaming does not reinclude pre-run bytes; replaced files are treated as new.
 
 The archive retains:
 
@@ -95,9 +97,11 @@ cbc9f5884d89f69e93f6b0ca882c911fdb0cb43397932b77b191920ded0a11bf
 
 Both halves must record:
 
+- the intended texture mode in `run.json`;
 - clean wrapper and launcher exit;
 - no fatal lifecycle evidence;
 - at least 30 seconds of attached runtime;
+- a nonempty captured Starsector log delta;
 - normal launcher and main-menu operator classification;
 - attached wrapper lifetime through exit;
 - no visible corruption.
@@ -135,7 +139,7 @@ logPatternCountsEqual
 
 Review the retained logs before authorizing more runs.
 
-- If the nonfatal diagnostics are equivalent, classify them as profile baseline for this scope and design the repeated timing campaign.
+- If the nonfatal diagnostics are equivalent, classify them as compatibility-profile baseline for this scope and design the repeated timing campaign.
 - If they appear only or more often in prepared mode, investigate the prepared carrier path before timing or default enablement.
 - If either half fails visually or technically, stop and retain compatibility mode as rollback.
 
