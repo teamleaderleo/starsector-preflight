@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.starsector.preflight.core.ResourceIndex;
+import dev.starsector.preflight.core.ResourceIndexValidator;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.List;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -109,6 +111,54 @@ class ResourceIndexBuilderTest {
         assertTrue(result.index().winner("graphics/alias.png").isPresent());
         assertFalse(result.index().winner("graphics/escaped.png").isPresent());
         assertTrue(result.diagnostics().stream().anyMatch(value -> value.contains("escapes its root")));
+    }
+
+    @Test
+    void excludesRuntimeLogsSoLogMutationCannotStaleTheIndex() throws Exception {
+        Path core = temporaryDirectory.resolve("starsector-core");
+        Path mods = temporaryDirectory.resolve("mods");
+        Files.createDirectories(core.resolve("graphics"));
+        Files.createDirectories(mods);
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[]}");
+        Files.writeString(core.resolve("graphics/core.png"), "core");
+        // A mod writes its log into the core directory at runtime.
+        Path runtimeLog = core.resolve("stelnet.log");
+        Files.writeString(runtimeLog, "startup line\n");
+        Files.writeString(core.resolve("starsector.log.1"), "rotated\n");
+
+        ResourceIndexBuilder.BuildResult result = ResourceIndexBuilder.build(temporaryDirectory);
+        ResourceIndex index = result.index();
+
+        // Runtime logs are never providers and the game texture stays indexed.
+        assertTrue(index.winner("graphics/core.png").isPresent());
+        assertFalse(index.winner("stelnet.log").isPresent());
+        assertFalse(index.winner("starsector.log.1").isPresent());
+        assertTrue(result.diagnostics().stream()
+                .anyMatch(value -> value.contains("Excluded runtime-generated file")
+                        && value.contains("stelnet.log")));
+        assertTrue(ResourceIndexValidator.validate(index).valid());
+
+        // Simulate the mod appending to its log with a later mtime, as it does during startup.
+        Files.writeString(runtimeLog, "startup line\nmenu reached\n");
+        Files.setLastModifiedTime(runtimeLog, FileTime.fromMillis(System.currentTimeMillis() + 60_000));
+
+        // The pinned index must remain valid, and a rebuild must produce the same fingerprint.
+        assertTrue(ResourceIndexValidator.validate(index).valid(),
+                "runtime log mutation must not stale the resource index");
+        ResourceIndexBuilder.BuildResult rebuilt = ResourceIndexBuilder.build(temporaryDirectory);
+        assertEquals(index.profileFingerprint(), rebuilt.index().profileFingerprint());
+    }
+
+    @Test
+    void recognizesRuntimeGeneratedResourceNames() {
+        assertTrue(ResourceIndexBuilder.isRuntimeGeneratedResource("stelnet.log"));
+        assertTrue(ResourceIndexBuilder.isRuntimeGeneratedResource("starsector.LOG"));
+        assertTrue(ResourceIndexBuilder.isRuntimeGeneratedResource("starsector.log.1"));
+        assertTrue(ResourceIndexBuilder.isRuntimeGeneratedResource("app.log.lck"));
+        assertFalse(ResourceIndexBuilder.isRuntimeGeneratedResource("ship.png"));
+        assertFalse(ResourceIndexBuilder.isRuntimeGeneratedResource("catalog.json"));
+        assertFalse(ResourceIndexBuilder.isRuntimeGeneratedResource("changelog.txt"));
+        assertFalse(ResourceIndexBuilder.isRuntimeGeneratedResource("data.log.backup"));
     }
 
     private static void createSymbolicLinkOrSkip(Path link, Path target) throws IOException {
