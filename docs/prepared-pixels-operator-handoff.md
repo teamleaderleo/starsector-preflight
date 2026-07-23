@@ -6,7 +6,7 @@ Status: 2026-07-23
 
 Direct NPOT prepared-pixel bypass is **not yet behaviorally accepted**.
 
-The backing-dimension probe made textures visible, but the launcher was tiled, cropped, and stretched because width and height were assigned from obfuscated setter call order. The final repair corrects that axis mapping. Exactly one launcher-only axis validation will be authorized after merge. Gameplay and benchmarks remain blocked.
+The backing-dimension probe made textures visible, but the launcher was tiled, cropped, and stretched because width and height were assigned from obfuscated setter call order. Merged PR #145 corrects that axis mapping. Exactly one launcher-only axis validation is now authorized. Gameplay and benchmarks remain blocked.
 
 ## Evidence chain
 
@@ -30,14 +30,14 @@ The restored build was still visually invalid: background textures repeated at t
 
 ## Corrected dimension mapping
 
-The reviewed installed converter invokes two obfuscated texture-object `(I)V` setters. The final repair uses:
+Merged PR #145 uses:
 
 ```text
 first obfuscated setter  <- power-of-two upload height
 second obfuscated setter <- power-of-two upload width
 ```
 
-The prior build used the reverse mapping. The transformer now maps `PreparedPixel.height()` to the first setter and `PreparedPixel.width()` to the second while preserving the existing invocation, color, upload, cleanup, and exception paths.
+The transformer maps `PreparedPixel.height()` to the first setter and `PreparedPixel.width()` to the second while preserving the existing invocation, color, upload, cleanup, and exception paths.
 
 The transformation still declines if the exact two-setter reviewed shape is missing or ambiguous. No setter names are guessed or broadly allowlisted.
 
@@ -54,11 +54,25 @@ Without:
 - compatibility mode remains the accepted rollback;
 - no installation, launcher, mod, or save files are edited.
 
-## Validation state
+## Validation
 
-The final branch must pass full Maven verification, vanilla adapter gates, texture cache tests, and preparation tests. Do not run the installed probe before the repair is merged.
+PR #145 merged as:
 
-## Authorized operator action after merge
+```text
+d2333deca1697214231b6392b944ea2992150cae
+```
+
+Validated head and workflows:
+
+```text
+03829ef2950201ff91182e0b1aa9879fc0d618b8
+CI run 579 — full Maven verification
+Vanilla adapter gate tests run 422
+Texture cache tests run 411
+Prepare command tests run 118
+```
+
+## Authorized operator action
 
 Run exactly once from the repository root:
 
