@@ -57,13 +57,13 @@ class PrepareCommandTest {
         assertTrue(first.contains("\"realInstallPilotRequired\":true"), first);
         assertTrue(first.contains("\"repeatTimingCampaignRequired\":true"), first);
         assertTrue(first.contains(
-                "\"preparedPixelsAdapter\":\"pot-bypass-enabled-npot-coherent-direct-axis-diagnostic\""),
+                "\"preparedPixelsAdapter\":\"pot-bypass-enabled-npot-coherent-direct-gameplay-smoke-diagnostic\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsBehavioralAcceptance\":\"axis-diagnostic-under-review-2026-07-23\""),
+                "\"preparedPixelsBehavioralAcceptance\":\"launcher-accepted-2026-07-23-gameplay-smoke-required\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsNextOperatorAction\":\"launcher-only-coherent-direct-axis-probe\""),
+                "\"preparedPixelsNextOperatorAction\":\"single-coherent-direct-gameplay-smoke\""),
                 first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 
