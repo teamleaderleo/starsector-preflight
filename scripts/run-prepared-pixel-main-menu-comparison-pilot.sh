@@ -6,6 +6,7 @@ CACHE="${CACHE:-$HOME/.starsector-preflight/cache}"
 ORDER="${ORDER:-}"
 JAR="$PWD/preflight-cli/target/preflight.jar"
 DETECTOR="$PWD/scripts/starsector_log_ready_detector.py"
+PROFILE_GUARD="$PWD/scripts/starsector_profile_guard.py"
 DIAGNOSTIC_PROPERTY="-Dpreflight.preparedPixels.coherentDirect=true"
 EXPECTED_ARCHIVE_SHA="10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708"
 EXPECTED_CLASS_SHA="d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50"
@@ -31,10 +32,12 @@ if [[ ! -f pom.xml ]]; then
     echo "Run this script from the starsector-preflight repository root." >&2
     exit 1
 fi
-if [[ ! -f "$DETECTOR" ]]; then
-    echo "Automatic log detector not found: $DETECTOR" >&2
-    exit 1
-fi
+for helper in "$DETECTOR" "$PROFILE_GUARD"; do
+    if [[ ! -f "$helper" ]]; then
+        echo "Comparison helper not found: $helper" >&2
+        exit 1
+    fi
+done
 if [[ ! -d "$GAME" ]]; then
     echo "Starsector installation not found: $GAME" >&2
     exit 1
@@ -210,66 +213,6 @@ classify_log_delta() {
     python3 "$DETECTOR" classify --input "$1" --output "$2"
 }
 
-write_profile_drift() {
-    local current_report="$1"
-    local output="$2"
-    python3 - "$BASE_PROFILE" "$current_report" "$output" <<'PYPROFILE'
-import json
-import sys
-from pathlib import Path
-
-expected = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-report = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-actual = report["stages"]["census"]["details"]["profile"]
-
-expected_mods = {entry["id"]: entry for entry in expected.get("mods", [])}
-actual_mods = {entry["id"]: entry for entry in actual.get("mods", [])}
-numeric_fields = (
-    "files", "bytes", "imageFiles", "imageBytes", "soundFiles", "soundBytes",
-    "looseJavaFiles", "looseJavaBytes", "jarFiles", "jarBytes", "dataFiles", "dataBytes",
-)
-mod_deltas = []
-for mod_id in sorted(set(expected_mods) | set(actual_mods)):
-    before = expected_mods.get(mod_id)
-    after = actual_mods.get(mod_id)
-    if before is None or after is None:
-        mod_deltas.append({"id": mod_id, "before": before, "after": after})
-        continue
-    deltas = {
-        field: after.get(field, 0) - before.get(field, 0)
-        for field in numeric_fields
-        if after.get(field, 0) != before.get(field, 0)
-    }
-    if deltas:
-        mod_deltas.append({
-            "id": mod_id,
-            "directory": after.get("directory"),
-            "deltas": deltas,
-        })
-
-graphicslib_deltas = mod_deltas[0].get("deltas", {}) if len(mod_deltas) == 1 else {}
-graphicslib_only = (
-    len(mod_deltas) == 1
-    and mod_deltas[0].get("id") == "shaderLib"
-    and set(graphicslib_deltas).issubset({"files", "bytes", "imageFiles", "imageBytes"})
-    and graphicslib_deltas.get("files", 0) > 0
-    and graphicslib_deltas.get("files") == graphicslib_deltas.get("imageFiles")
-    and graphicslib_deltas.get("bytes", 0) > 0
-    and graphicslib_deltas.get("bytes") == graphicslib_deltas.get("imageBytes")
-)
-
-result = {
-    "stable": expected.get("profileFingerprint") == actual.get("profileFingerprint"),
-    "expectedProfileFingerprint": expected.get("profileFingerprint"),
-    "actualProfileFingerprint": actual.get("profileFingerprint"),
-    "fingerprintKind": actual.get("fingerprintKind"),
-    "modDeltas": mod_deltas,
-    "graphicsLibRuntimeCacheCandidate": graphicslib_only,
-}
-Path(sys.argv[3]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PYPROFILE
-}
-
 check_profile_stability() {
     local label="$1"
     local report="$2"
@@ -292,7 +235,17 @@ check_profile_stability() {
         return 1
     fi
     if [[ "$actual_fingerprint" != "$EXPECTED_PROFILE_FINGERPRINT" ]]; then
-        write_profile_drift "$report" "$drift"
+        set +e
+        python3 "$PROFILE_GUARD" \
+            --expected-profile "$BASE_PROFILE" \
+            --current-report "$report" \
+            --output "$drift"
+        local guard_status=$?
+        set -e
+        if [[ "$guard_status" -ne 1 ]]; then
+            echo "Profile guard failed while classifying comparison drift ($label)." >&2
+            return 1
+        fi
         echo "The enabled profile changed during the comparison ($label)." >&2
         jq '{expectedProfileFingerprint, actualProfileFingerprint, modDeltas, graphicsLibRuntimeCacheCandidate}' \
             "$drift" >&2
