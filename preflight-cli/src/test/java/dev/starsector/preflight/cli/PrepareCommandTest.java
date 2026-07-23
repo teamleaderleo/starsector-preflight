@@ -54,16 +54,19 @@ class PrepareCommandTest {
         assertTrue(first.contains("\"liveAdapterEnabledByPreparation\":false"), first);
         assertTrue(first.contains("\"vanillaAdapter\":\"compatibility-v2-behaviorally-accepted\""), first);
         assertTrue(first.contains("\"compatibilityBehavioralAcceptance\":\"accepted-2026-07-19-starsector-0.98a-rc8\""), first);
-        assertTrue(first.contains("\"realInstallPilotRequired\":true"), first);
+        assertTrue(first.contains("\"realInstallPilotRequired\":false"), first);
         assertTrue(first.contains("\"repeatTimingCampaignRequired\":true"), first);
         assertTrue(first.contains(
-                "\"preparedPixelsAdapter\":\"pot-bypass-enabled-npot-coherent-direct-gameplay-smoke-diagnostic\""),
+                "\"preparedPixelsAdapter\":\"pot-bypass-enabled-npot-coherent-direct-gameplay-accepted-opt-in\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsBehavioralAcceptance\":\"launcher-accepted-2026-07-23-gameplay-smoke-required\""),
+                "\"preparedPixelsBehavioralAcceptance\":\"accepted-2026-07-23-exact-profile\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsNextOperatorAction\":\"single-coherent-direct-gameplay-smoke\""),
+                "\"preparedPixelsDefaultEnablement\":\"blocked-pending-log-baseline-and-timing\""),
+                first);
+        assertTrue(first.contains(
+                "\"preparedPixelsNextOperatorAction\":\"none-engineering-review-required\""),
                 first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 
