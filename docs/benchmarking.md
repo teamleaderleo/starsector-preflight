@@ -1,5 +1,10 @@
 # Benchmarking
 
+For the runtime/launcher campaign matrix (vanilla+bundled-Java, vanilla+alternate-Java, FR
+— each OFF and warm), the per-combination outcome list, the community launch-time envelope,
+and why identities must never be merged, see
+[community-evidence.md](community-evidence.md).
+
 ## Report these separately
 
 - Baseline without Preflight

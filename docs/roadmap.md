@@ -69,6 +69,37 @@ Exit condition: representative source-heavy profiles compile once and safely reu
 
 Exit condition: prepared audio is byte-for-byte and metadata-equivalent, bounded, fail-open, and measurably reduces repeat-launch decoding work.
 
+## Exploratory tracks (not yet evidence-gated)
+
+Separate from the speed-first milestone program above:
+
+- [Asset Quality Track](asset-quality-track.md) — proposed opt-in visual-fidelity track
+  (crisper BMFont atlases as a candidate standalone mod; offline texture super-resolution
+  behind a faithfulness gate). Records concrete font-asset facts, the bigger-vs-sharper
+  design question, the gameplay-coordinate gotcha for hull sprites, the VRAM estimator /
+  Asset Lab budget, why in-game FPS is out of scope, and external references. Must not
+  regress speed-track measurements.
+- [Community Evidence and Benchmark Additions](community-evidence.md) — Reddit/forum sweep
+  (tier-4/5) that justifies keeping the identity-heavy benchmark design and adds two
+  concrete items: a VRAM/decoded-texture estimator and separate runtime/launcher campaign
+  orchestration (vanilla+bundled-Java, vanilla+alternate-Java, FR — each OFF and warm).
+
+### Revised near-term priorities (speed track first, quality track opt-in)
+
+1. Complete the prepared-texture lifecycle and controlled timing campaign.
+2. Benchmark Starsector's built-in script cache against Preflight Scripts.
+3. Run separate bundled-Java, alternate-Java, and FR campaigns (identities never merged).
+4. Add VRAM and decoded-texture estimates to `doctor` and profile reports.
+   *(In progress: `TextureMemoryEstimator` core + tests landed; `prepare` emits
+   `.stages.textures.details.memoryEstimate`. Remaining: `doctor` surface, census
+   working-set breakdowns, Asset Lab budget verdict.)*
+5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
+6. Build the native-size font rasterization experiment (hinted / offline-downsampled).
+7. Build the texture Asset Lab as an offline, opt-in overlay generator with a budget gate.
+8. Keep enhanced assets in a separate cache namespace and manifest.
+9. Turn community reports into regression cases.
+10. Reserve performance claims for repeatable runs with exact identities.
+
 ## Milestone numbering in the issue tracker
 
 M0–M5 above are the original document milestones. Later work continued the numbering in the issue tracker rather than here:
