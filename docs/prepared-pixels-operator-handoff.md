@@ -1,14 +1,12 @@
 # Prepared-pixel acceptance: operator and LLM handoff
 
-Status: 2026-07-22
+Status: 2026-07-23
 
 ## Current decision
 
 Direct NPOT prepared-pixel bypass is **not yet behaviorally accepted**.
 
-The coherent-direct launcher probe rendered black even though its bytes, colors, lifecycle, and buffer accounting followed the diagnostic contract. Merged PR #141 restores one concrete omitted original-converter side effect: power-of-two backing width and height writes on the texture object.
-
-Exactly one launcher-only validation is authorized. Gameplay and benchmarks remain blocked.
+The backing-dimension probe made textures visible, but the launcher was tiled, cropped, and stretched because width and height were assigned from obfuscated setter call order. PR #144 corrects that axis mapping. Exactly one launcher-only axis validation will be authorized after merge. Gameplay and benchmarks remain blocked.
 
 ## Evidence chain
 
@@ -19,103 +17,63 @@ Exactly one launcher-only validation is authorized. Gameplay and benchmarks rema
 - [NPOT visual failure](evidence/2026-07-22-prepared-pixel-visual-failure.md)
 - [successful original-layout probe](evidence/2026-07-22-prepared-pixel-original-layout-probe.md)
 - [successful coherent-image/original-converter probe](evidence/2026-07-22-prepared-pixel-coherent-converter-probe.md)
-- [coherent-direct diagnostic contract](evidence/2026-07-22-prepared-pixel-coherent-direct-diagnostic.md)
 - [coherent-direct visual failure](evidence/2026-07-22-prepared-pixel-coherent-direct-visual-failure.md)
+- [dimension-axis visual failure](evidence/2026-07-22-prepared-pixel-dimension-axis-failure.md)
 
-## Corrected technical conclusion
+## Technical conclusion
 
-The original and prepared NPOT upload buffers use the same relevant row-padded byte arrangement. The cached pixels also form a real source-sized image that Starsector accepts when its original converter is retained.
+The prepared NPOT upload bytes match Starsector's original relevant row-padded layout. Cached pixels can form a coherent source-sized image accepted by Starsector's original converter. Direct-buffer cleanup and lifecycle accounting are clean.
 
-The coherent-direct run used that coherent image, direct cached bytes, and cached colors, with 7 NPOT hits, zero fallbacks/errors, and zero buffer ownership at shutdown. The launcher still rendered black. The historical synthetic `1x1` carrier was therefore not the sole material cause.
+The direct path remained black until the converter's two texture backing-dimension writes were replayed. Restoring both writes made the pixels visible, proving those side effects are required.
 
-The exact installed converter also writes the computed power-of-two upload width and height to the texture object before returning the buffer. The direct wrapper previously skipped those writes, potentially leaving UV or backing-size state inconsistent with the OpenGL upload.
+The restored build was still visually invalid: background textures repeated at the sides, the center was black, and UI textures were sliced and stretched. The run had 20 hits, 7 coherent-direct NPOT hits, zero fallbacks/errors, complete release accounting, and a clean exit. This isolates the problem to dimension-axis metadata rather than pixels or ownership.
+
+## Corrected dimension mapping
+
+The reviewed installed converter invokes two obfuscated texture-object `(I)V` setters. The axis mapping used by PR #144 is:
+
+```text
+first obfuscated setter  <- power-of-two upload height
+second obfuscated setter <- power-of-two upload width
+```
+
+The prior build used the reverse mapping. PR #144 maps `PreparedPixel.height()` to the first setter and `PreparedPixel.width()` to the second while preserving the existing invocation, color, upload, cleanup, and exception paths.
+
+The transformation still declines if the exact two-setter reviewed shape is missing or ambiguous. No setter names are guessed or broadly allowlisted.
 
 ## Safe default
 
-Without an explicit diagnostic property:
-
-- power-of-two prepared hits may use the direct lower seam;
-- NPOT textures use Starsector's original decode and conversion path;
-- compatibility mode remains the accepted rollback;
-- no installation, launcher, mod, or save files are edited.
-
-## Merged dimension-replay diagnostic
-
-PR #141 squash-merged as:
-
-```text
-1b4194977c0fac9a5717d05bec6e858cb2fec419
-```
-
-It keeps the existing opt-in property:
+Without:
 
 ```text
 -Dpreflight.preparedPixels.coherentDirect=true
 ```
 
-For a successful prepared NPOT result under that property only, the transformed wrapper now:
+- power-of-two prepared hits may use the direct lower seam;
+- NPOT textures use Starsector's original decode/conversion path;
+- compatibility mode remains the accepted rollback;
+- no installation, launcher, mod, or save files are edited.
 
-1. obtains the coherent source-sized carrier and direct padded buffer;
-2. calls the first exact reviewed texture-object `(I)V` setter with `PreparedPixel.width()`;
-3. calls the second exact reviewed setter with `PreparedPixel.height()`;
-4. writes the three cached derived colors;
-5. returns the prepared buffer through the existing upload and cleanup path.
+## Validation state
 
-The transformation declines if the converter does not contain exactly two distinct texture-object `(I)V` calls in the reviewed shape. No setter names are guessed or broadly allowlisted.
-
-## Validation
-
-Validated PR head:
+The core axis correction has passed:
 
 ```text
-50907f3d52dc1c22b9a1ab83c66369448ac548ce
+CI run 568 — full Maven verification
+Vanilla adapter gate tests run 412
+Texture cache tests run 401
 ```
 
-Successful workflows:
+The final PR head must also pass preparation tests after readiness and runner alignment. Do not run the installed probe before PR #144 is merged.
 
-```text
-CI run 557 — full Maven verification
-Vanilla adapter gate tests run 407
-Texture cache tests run 398
-Prepare command tests run 111
-```
-
-## Result meanings
-
-```text
-normal launcher visuals
-→ missing backing-dimension writes caused the black rendering;
-→ coherent image + cached bytes + cached colors are viable at the launcher seam with those writes restored.
-
-broken launcher visuals
-→ another required converter side effect or cached-color mismatch remains;
-→ direct NPOT bypass stays disabled.
-```
-
-A normal launcher is not gameplay acceptance.
-
-## Preserved boundaries
-
-- exact archive, class, method, source, and classloader identity gates;
-- SPFT version 1;
-- original asynchronous preloader handoff;
-- original upload caller, cleanup wrapper, and exception behavior;
-- current circuit breaker;
-- 32 MiB maximum direct bytes per texture;
-- 64 MiB maximum active prepared direct memory;
-- 1,024 maximum active and pending buffers;
-- compatibility mode as rollback;
-- no automatic allowlist generation;
-- no acceleration claim.
-
-## Authorized operator action
+## Authorized operator action after merge
 
 Run exactly once from the repository root:
 
 ```bash
 git switch main
 git pull --ff-only
-bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-axis-probe.sh
 ```
 
 Environment overrides:
@@ -123,10 +81,16 @@ Environment overrides:
 ```bash
 GAME="/path/to/Starsector.app" \
 CACHE="$HOME/.starsector-preflight/cache" \
-bash scripts/run-prepared-pixel-coherent-direct-dimension-probe.sh
+bash scripts/run-prepared-pixel-coherent-direct-axis-probe.sh
 ```
 
-The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, verifies the preparation-readiness marker and dimension-replay source contract, enables only coherent-direct, checks lifecycle/buffer telemetry, records `dimensionReplay=reviewed-converter-two-setter-order`, and packages the run directory on the Desktop.
+The runner builds and verifies the checkout, checks exact installed identities, reruns the offline contract, verifies the axis-specific readiness marker and source mapping, enables coherent-direct, checks lifecycle and buffer telemetry, records:
+
+```text
+dimensionReplay=reviewed-converter-height-first-width-second
+```
+
+and packages the complete run directory on the Desktop.
 
 When the launcher appears:
 
@@ -151,7 +115,21 @@ Report only `normal` or `broken` and upload the generated archive. A duplicate s
 - active direct bytes, active buffers, and pending buffers zero at shutdown;
 - no fatal console/log evidence;
 - clean launcher exit;
-- operator identity records the reviewed two-setter dimension replay.
+- operator identity records the reviewed height-first/width-second replay.
+
+## Preserved boundaries
+
+- exact archive, class, method, source, and classloader identity gates;
+- SPFT version 1;
+- original asynchronous preloader handoff;
+- original upload caller, cleanup wrapper, and exception behavior;
+- current circuit breaker;
+- 32 MiB maximum direct bytes per texture;
+- 64 MiB maximum active prepared direct memory;
+- 1,024 maximum active and pending buffers;
+- compatibility mode as rollback;
+- no automatic allowlist generation;
+- no acceleration claim.
 
 ## Standing safety rules
 
