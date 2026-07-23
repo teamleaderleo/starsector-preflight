@@ -6,16 +6,19 @@ Status: 2026-07-23
 
 The corrected coherent-direct NPOT prepared-pixel path has passed launcher and gameplay visual/lifecycle acceptance for the exact reviewed macOS/Starsector 0.98a-RC8 installation and profile.
 
-It remains opt-in and is not enabled by default. Exactly one bounded two-run main-menu comparison pilot is authorized after the automatic log detector follow-up merges. The pilot is not a benchmark.
+It remains opt-in and is not enabled by default. Exactly one bounded two-run main-menu comparison pilot is now authorized using automatic Starsector-log readiness detection. The pilot is not a benchmark.
 
-Merged comparison foundation:
+Merged comparison work:
 
 ```text
-PR #152
+PR #152 — comparison contract and runner
 2312bfd265c087e0ddf6ec39d6398b322e9bfc7f
+
+PR #154 — automatic log readiness detector
+434d4f7283e144879c16b735e8004c98d5209787
 ```
 
-PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge. Its manual readiness markers are being replaced before the pilot is run.
+PR #152 passed CI 591, texture tests 420, and preparation tests 124. PR #154 passed CI 596, including detector tests, shell parsing, Python compilation, and full Maven verification.
 
 ## Evidence chain
 
@@ -100,16 +103,16 @@ launchAccelerationClaimed=false
 
 ## Automatic readiness detection
 
-The runner watches `starsector.log*` instead of asking you to press Enter at visual timing boundaries.
+The runner watches `starsector.log*` instead of asking you to press Enter at visual timing boundaries. It tracks log identity by inode and binds game-start, save-scan, and preload markers to the same stream.
 
 It detects launcher readiness after the final reviewed launcher font texture and a 1.5-second quiet confirmation.
 
-After it tells you to click **Play Starsector**, the first new timestamped log line becomes the game-start boundary. Main-menu readiness requires:
+After it tells you to click **Play Starsector**, the first new timestamped line on the game stream becomes the game-start boundary. Main-menu readiness requires:
 
 ```text
 save-descriptor scan
 GraphicsLib VRAM after unload/preload
-6 seconds without another appended line
+6 seconds without another appended line on that stream
 ```
 
 The recorded timestamp is the last log activity before the quiet confirmation, so the wait itself is not added to the result.
@@ -124,7 +127,7 @@ gameLogStartToMainMenuMs
 
 You still answer whether the detector notification occurred only after the main menu was fully visible and responsive. Answering no rejects that half.
 
-## Authorized operator action after merge
+## Authorized operator action
 
 Run exactly once from the repository root:
 
