@@ -9,9 +9,11 @@ Review and merge the prepared-pixel main-menu comparison pilot, then perform exa
 The two halves are:
 
 ```text
-compatibility/original texture path
+compatibility decoded-image path
 accepted coherent-direct prepared path
 ```
+
+Compatibility uses the same verified texture cache context while retaining Starsector's original converter/upload path. This isolates the prepared-pixel seam; it is not raw uninstrumented vanilla.
 
 The pilot captures full appended Starsector log deltas and one operator-marked launcher/main-menu timing sample per mode. It is preliminary evidence, not a benchmark.
 
@@ -73,7 +75,7 @@ automatedAccepted: true
 
 The bounded gameplay console contained nonfatal GraphicsLib/ShaderLib diagnostics, including 12 normal-map buffer failures, shader creation errors, and music-source warnings. No related corruption or fatal evidence was observed.
 
-The retained console was truncated to 1 MiB, so attribution requires full per-run log deltas. A single prepared-path run cannot establish whether the diagnostics are ordinary profile baseline or prepared-path-related.
+The retained console was truncated to 1 MiB, so attribution requires full per-run log deltas. A single prepared-path run cannot establish whether the diagnostics are ordinary compatibility-profile baseline or prepared-path-related.
 
 ## Current readiness
 
@@ -98,12 +100,15 @@ The runner:
 - verifies exact archive and TextureLoader identities;
 - runs the installed prepared-pixel contract check;
 - prepares the exact current profile;
+- supplies the same complete texture cache context to both modes;
 - randomizes the two-mode order unless `ORDER` is explicitly supplied;
 - stops at the main menu for each half;
 - uses a monotonic clock and operator Enter markers for launcher readiness and Play-to-main-menu readiness;
-- snapshots log inode/size before each run and retains only appended or rotated log bytes;
+- snapshots log inode/size before each run and matches file identity across rotation/renaming;
+- retains only appended or newly created log bytes;
 - classifies known GraphicsLib/ShaderLib and music diagnostics;
-- checks clean lifecycle and prepared-buffer cleanup;
+- verifies the intended texture mode in each `run.json`;
+- checks clean lifecycle, nonempty log capture, and prepared-buffer cleanup;
 - writes `comparison-result.json` with `samplesPerMode=1`, `preliminaryOnly=true`, and `benchmarkAccepted=false`;
 - packages both complete run directories on the Desktop.
 
@@ -131,7 +136,7 @@ Do not load a campaign or enter combat. Upload the generated Desktop archive aft
 
 ## Decision after the pilot
 
-- Equivalent log diagnostics: classify the messages as exact-profile baseline and build a repeated alternating timing campaign.
+- Equivalent log diagnostics: classify the messages as exact-profile compatibility baseline and build a repeated alternating timing campaign.
 - Prepared-only or increased diagnostics: investigate the prepared carrier path before timing or default enablement.
 - Visual or lifecycle failure: stop and retain compatibility mode as rollback.
 
