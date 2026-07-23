@@ -35,9 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-build-jdk
-      - name: Validate gameplay smoke runner
+      - name: Validate operator runners
         if: runner.os != 'Windows'
-        run: bash -n scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
+        run: |
+          bash -n scripts/run-prepared-pixel-coherent-direct-gameplay-smoke.sh
+          bash -n scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
       - name: Verify
         run: mvn --batch-mode --no-transfer-progress verify
       - name: Upload runnable JAR
