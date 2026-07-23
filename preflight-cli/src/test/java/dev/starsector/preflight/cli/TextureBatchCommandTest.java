@@ -7,6 +7,9 @@ import dev.starsector.preflight.core.TextureManifest;
 import dev.starsector.preflight.core.TextureManifestIO;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.imageio.ImageIO;
@@ -45,9 +48,11 @@ class TextureBatchCommandTest {
         TextureManifest manifest = TextureManifestIO.read(manifestFile);
         assertEquals(2, manifest.entryCount());
 
-        assertEquals(0, PreflightCli.run(new String[] {
+        String inspectOutput = captureStdout(() -> assertEquals(0, PreflightCli.run(new String[] {
                 "texture", "manifest", "inspect", manifestFile.toString()
-        }));
+        })));
+        assertTrue(inspectOutput.contains("\"memoryEstimate\""), inspectOutput);
+        assertTrue(inspectOutput.contains("\"decodedBytes\""), inspectOutput);
         assertEquals(0, PreflightCli.run(new String[] {
                 "texture", "manifest", "query", manifestFile.toString(), "graphics/mod.png"
         }));
@@ -83,5 +88,22 @@ class TextureBatchCommandTest {
             }
         }
         assertTrue(ImageIO.write(image, "png", path.toFile()));
+    }
+
+    @FunctionalInterface
+    private interface ThrowingAction {
+        void run() throws Exception;
+    }
+
+    private static String captureStdout(ThrowingAction action) throws Exception {
+        PrintStream original = System.out;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        try {
+            action.run();
+        } finally {
+            System.setOut(original);
+        }
+        return buffer.toString(StandardCharsets.UTF_8);
     }
 }

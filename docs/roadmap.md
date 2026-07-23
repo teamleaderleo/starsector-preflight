@@ -91,8 +91,8 @@ Separate from the speed-first milestone program above:
 3. Run separate bundled-Java, alternate-Java, and FR campaigns (identities never merged).
 4. Add VRAM and decoded-texture estimates to `doctor` and profile reports.
    *(In progress: `TextureMemoryEstimator` core + tests landed; `prepare` emits
-   `.stages.textures.details.memoryEstimate`. Remaining: `doctor` surface, census
-   working-set breakdowns, Asset Lab budget verdict.)*
+   `.stages.textures.details.memoryEstimate` and `texture manifest inspect` prints it.
+   Remaining: census working-set breakdowns, Asset Lab budget verdict.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
 6. Build the native-size font rasterization experiment (hinted / offline-downsampled).
 7. Build the texture Asset Lab as an offline, opt-in overlay generator with a budget gate.

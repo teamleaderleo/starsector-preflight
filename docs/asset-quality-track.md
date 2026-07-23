@@ -193,9 +193,10 @@ individual texture allocations.
 `TextureMemoryEstimate` (in `preflight-core`) compute the exact base decoded bytes, RGB/RGBA
 counts, largest allocations, the full-mip-chain upper bound, the 2×/4× enhancement
 projections (overlay-only and combined-if-both-resident), and a `exceedsBudget(long)` check —
-pure arithmetic over the texture manifest, no game launch. `prepare` now emits this under
-`.stages.textures.details.memoryEstimate`. Still to do: surface it in `doctor` output, feed
-the census image/working-set breakdowns (UI/campaign/combat/GraphicsLib maps), and wire the
+pure arithmetic over the texture manifest, no game launch. `prepare` emits this under
+`.stages.textures.details.memoryEstimate`, and `texture manifest inspect <manifest.spfm>`
+prints it for any existing manifest without re-running preparation. Still to do: feed the
+census image/working-set breakdowns (UI/campaign/combat/GraphicsLib maps) and wire the
 budget verdict into the future Asset Lab.
 
 ## Explicitly out of scope: in-game FPS
