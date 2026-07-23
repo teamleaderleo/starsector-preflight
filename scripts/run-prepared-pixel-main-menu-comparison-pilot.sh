@@ -406,6 +406,21 @@ run_mode() {
         echo "The $mode half did not start from the exact restored GraphicsLib state." >&2
         return 1
     fi
+
+    # Launch with the resource index and texture manifest that check_profile_stability just
+    # validated for THIS half, not the artifacts captured from the initial preparation. The
+    # deep prepare above regenerates an internally matched index/manifest pair; the initial
+    # global pair can be stale by now (an earlier half's startup can mutate an indexed file).
+    # The index and manifest must remain a matched pair, so both come from the same report.
+    local half_resource_index half_texture_manifest artifact
+    half_resource_index="$(jq -er '.resourceIndex' "$profile_before_report")"
+    half_texture_manifest="$(jq -er '.stages.textures.details.manifest' "$profile_before_report")"
+    for artifact in "$half_resource_index" "$half_texture_manifest"; do
+        if [[ ! -f "$artifact" ]]; then
+            echo "Validated per-half preparation artifact does not exist ($mode): $artifact" >&2
+            return 1
+        fi
+    done
     snapshot_logs "$before_logs"
 
     run_args=(
@@ -416,8 +431,8 @@ run_mode() {
         --adapter
         --texture-mode "$([[ "$mode" == compatibility ]] && printf compatibility || printf prepared-pixels)"
         --texture-cache-dir "$CACHE_DIRECTORY"
-        --texture-manifest "$TEXTURE_MANIFEST"
-        --texture-index "$RESOURCE_INDEX"
+        --texture-manifest "$half_texture_manifest"
+        --texture-index "$half_resource_index"
     )
     if [[ "$mode" == prepared ]]; then
         java_tool_options="${java_tool_options:+$java_tool_options }$DIAGNOSTIC_PROPERTY"
@@ -502,13 +517,21 @@ run_mode() {
         profile_stable=false
     fi
 
+    # Three consolidated operator questions cover the six independent acceptance signals.
+    # The visual question folds together launcher-normal, main-menu-normal, and texture
+    # corruption (which were near-duplicates); the lifecycle question folds together
+    # attached-until-exit and clean-exit. Each derived flag below still feeds the result
+    # JSON and acceptance logic unchanged.
     local launcher_ok main_menu_ok detector_ok attached_ok clean_exit_ok corruption_seen
-    launcher_ok="$(ask_yes_no "Did the $mode launcher look normal?")"
-    main_menu_ok="$(ask_yes_no "Did the $mode main menu look normal?")"
-    detector_ok="$(ask_yes_no "Did the automatic main-menu notification occur only after the menu was fully visible and responsive?")"
-    attached_ok="$(ask_yes_no "Did the terminal command remain running until Starsector exited?")"
-    clean_exit_ok="$(ask_yes_no "Did Starsector exit cleanly without a crash dialog?")"
-    corruption_seen="$(ask_yes_no "Did you see black, sliced, repeated, stretched, missing, flipped, or worsening textures?")"
+    local visuals_ok lifecycle_ok
+    visuals_ok="$(ask_yes_no "Did the $mode launcher and main menu both look normal, with no black, sliced, repeated, stretched, missing, flipped, or worsening textures?")"
+    detector_ok="$(ask_yes_no "Did the automatic main-menu notification fire only after the menu was fully visible and responsive?")"
+    lifecycle_ok="$(ask_yes_no "Did the terminal command stay attached until Starsector exited cleanly, with no crash dialog?")"
+    launcher_ok="$visuals_ok"
+    main_menu_ok="$visuals_ok"
+    corruption_seen="$([[ "$visuals_ok" == true ]] && printf false || printf true)"
+    attached_ok="$lifecycle_ok"
+    clean_exit_ok="$lifecycle_ok"
 
     local lifecycle_check=1 telemetry_check=0 log_check=1 launcher_detector_check=1 menu_detector_check=1
     local expected_texture_mode
@@ -623,7 +646,49 @@ run_mode() {
         }' > "$result"
 
     if [[ "$operator_accepted" != true || "$automated_accepted" != true ]]; then
-        echo "$mode comparison half failed its acceptance checks." >&2
+        # Distinguish the failure classes so "executed" is never conflated with "passed":
+        #   1. the half never executed (handled earlier: detection failures return before here);
+        #   2. operator rejection of a visual/lifecycle question;
+        #   3. lifecycle/detector/log/profile rejection of an executed run;
+        #   4. prepared telemetry unavailable or rejected (prepared path was not exercised).
+        echo "The $mode comparison half executed but did not pass all acceptance checks." >&2
+        local -a failure_reasons=()
+        if [[ "$operator_accepted" != true ]]; then
+            failure_reasons+=("operator rejected one or more visual/lifecycle questions")
+        fi
+        if [[ "$preflight_exit" -ne 0 ]]; then
+            failure_reasons+=("preflight wrapper exited with status $preflight_exit")
+        fi
+        if [[ "$lifecycle_check" -ne 0 ]]; then
+            failure_reasons+=("lifecycle/exit-code/texture-mode acceptance failed")
+        fi
+        if [[ "$launcher_detector_check" -ne 0 ]]; then
+            failure_reasons+=("launcher-readiness detector rejected the run")
+        fi
+        if [[ "$menu_detector_check" -ne 0 ]]; then
+            failure_reasons+=("main-menu readiness detector rejected the run")
+        fi
+        if [[ "$log_check" -ne 0 ]]; then
+            failure_reasons+=("starsector.log classification was unavailable")
+        fi
+        if [[ "$profile_stable" != true ]]; then
+            failure_reasons+=("immutable-profile / mutable-cache stability check failed")
+        fi
+        if [[ "$mode" == prepared && "$telemetry_check" -ne 0 ]]; then
+            local applied="unknown" disable_reasons=""
+            if [[ -f "$run_dir/adapter.json" ]]; then
+                applied="$(jq -r '.transformationsApplied // "unknown"' "$run_dir/adapter.json" 2>/dev/null || printf unknown)"
+                disable_reasons="$(jq -r '(.textureCompatibility.disableReasons // []) | join(",")' "$run_dir/adapter.json" 2>/dev/null || printf '')"
+            fi
+            if [[ -n "$disable_reasons" ]]; then
+                failure_reasons+=("prepared telemetry rejected: adapter failed open (disableReasons=$disable_reasons, transformationsApplied=$applied); the prepared-pixel path was NOT exercised, so this half's timing is not a valid prepared measurement")
+            else
+                failure_reasons+=("prepared telemetry rejected: transformationsApplied=$applied with no prepared-pixel hits; the prepared-pixel path was NOT exercised, so this half's timing is not a valid prepared measurement")
+            fi
+        fi
+        for artifact in "${failure_reasons[@]}"; do
+            echo "  - $artifact" >&2
+        done
         return 1
     fi
 }

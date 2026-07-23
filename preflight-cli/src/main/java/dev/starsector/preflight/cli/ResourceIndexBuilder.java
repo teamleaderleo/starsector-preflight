@@ -195,6 +195,14 @@ final class ResourceIndexBuilder {
                 if (attributes.isDirectory()) {
                     scanDirectory(root, rootIndex, child, entries, fingerprint, diagnostics, visited);
                 } else if (attributes.isRegularFile()) {
+                    String childName = child.getFileName().toString();
+                    if (isRuntimeGeneratedResource(childName)) {
+                        diagnostics.add("Excluded runtime-generated file from the resource index: "
+                                + root.directory().relativize(child.toAbsolutePath().normalize())
+                                        .toString()
+                                        .replace('\\', '/'));
+                        continue;
+                    }
                     String relative = root.directory().relativize(child.toAbsolutePath().normalize())
                             .toString()
                             .replace('\\', '/');
@@ -219,6 +227,28 @@ final class ResourceIndexBuilder {
                 diagnostics.add("Could not index " + child + ": " + error.getMessage());
             }
         }
+    }
+
+    /**
+     * Identifies files Starsector, its launcher, or mods write into an indexed resource root at
+     * runtime. These are never resources loaded by logical path, but their bytes and mtimes change
+     * every launch. Indexing them would let ordinary runtime logging invalidate an otherwise valid
+     * texture resource index (for example, a mod writing {@code stelnet.log} into the core
+     * directory during startup), so they are excluded from both the provider set and the
+     * fingerprint. The exclusion is intentionally narrow: only log files and their rotation/lock
+     * companions, matched case-insensitively.
+     */
+    static boolean isRuntimeGeneratedResource(String fileName) {
+        String lower = fileName.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".log") || lower.endsWith(".log.lck")) {
+            return true;
+        }
+        int marker = lower.indexOf(".log.");
+        if (marker >= 0) {
+            String suffix = lower.substring(marker + ".log.".length());
+            return !suffix.isEmpty() && suffix.chars().allMatch(character -> character >= '0' && character <= '9');
+        }
+        return false;
     }
 
     private static void update(MessageDigest digest, String value) {
