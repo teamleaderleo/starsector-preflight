@@ -18,6 +18,8 @@ LAUNCHER_TIMEOUT_SECONDS=60
 LAUNCHER_QUIET_SECONDS=6
 MAIN_MENU_TIMEOUT_SECONDS=300
 MAIN_MENU_QUIET_SECONDS=6
+MUTABLE_RESTORE_AUTHORIZED=false
+FINAL_MUTABLE_RESTORE_DONE=false
 
 for command in git java mvn jq shasum unzip tar grep python3; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -161,6 +163,15 @@ TEXTURE_MANIFEST="$(jq -er '.stages.textures.details.manifest' "$PREP_REPORT")"
 BASE_PROFILE="$ROOT_DIR/operator-preparation-profile.json"
 jq '.stages.census.details.profile' "$PREP_REPORT" > "$BASE_PROFILE"
 EXPECTED_PROFILE_FINGERPRINT="$(jq -er '.profileFingerprint' "$BASE_PROFILE")"
+BASE_PROFILE_STATE="$ROOT_DIR/operator-profile-state.json"
+MUTABLE_STATE_SNAPSHOT="$CACHE/comparison-state-snapshots/$STAMP"
+python3 "$PROFILE_GUARD" capture \
+    --profile-report "$PREP_REPORT" \
+    --output "$BASE_PROFILE_STATE" \
+    --snapshot-dir "$MUTABLE_STATE_SNAPSHOT"
+EXPECTED_IMMUTABLE_FINGERPRINT="$(jq -er '.immutableProfile.fingerprint' "$BASE_PROFILE_STATE")"
+GRAPHICSLIB_CACHE_DIRECTORY="$(jq -er '.mutableCaches[0].cacheDirectory' "$BASE_PROFILE_STATE")"
+GRAPHICSLIB_HASH_CONTROL="$(jq -er '.mutableCaches[0].hashControlFile' "$BASE_PROFILE_STATE")"
 CORE_MISSION_LIST_SHA="$(shasum -a 256 "$CORE_MISSION_LIST" | awk '{print $1}')"
 CORE_MISSION_DESCRIPTOR_SHA="$(shasum -a 256 "$CORE_MISSION_DESCRIPTOR" | awk '{print $1}')"
 LOG_DIR="$INSTALL_ROOT/logs"
@@ -176,6 +187,36 @@ for file in "$RESOURCE_INDEX" "$TEXTURE_MANIFEST"; do
     fi
 done
 
+cat <<CACHE_RESET_NOTICE
+
+The comparison must reset one proven mutable GraphicsLib runtime state so both
+randomized halves start from identical pre-warmed bytes and timestamps.
+
+Exact installation paths that may be mutated:
+  cache directory: $GRAPHICSLIB_CACHE_DIRECTORY
+  hash control:    $GRAPHICSLIB_HASH_CONTROL
+
+Read-only recovery snapshot:
+  $MUTABLE_STATE_SNAPSHOT
+
+Before each half and once at the end, the guard may:
+  - delete only newly generated files in the exact GraphicsLib cache directory
+    whose names match GraphicsLib's reviewed *_normal.png grammar;
+  - atomically replace changed or missing reviewed cache files from the snapshot;
+  - restore their recorded modes and nanosecond mtimes; and
+  - atomically restore shaderlib_cache_hash.data from the snapshot.
+
+It refuses to mutate if the cache contains a symlink, subdirectory, or
+unrecognized file. It never mutates any other mod, core resource, save, or game
+file. Exact before/after names, sizes, hashes, and timestamps remain in evidence.
+CACHE_RESET_NOTICE
+read -r -p "Type RESTORE GRAPHICSLIB CACHE to permit those exact reversible mutations: " cache_confirmation
+if [[ "$cache_confirmation" != "RESTORE GRAPHICSLIB CACHE" ]]; then
+    echo "Mutable-cache restore permission was not granted; no installation files were changed." >&2
+    exit 1
+fi
+MUTABLE_RESTORE_AUTHORIZED=true
+
 cp "$CONTRACT_REPORT" "$ROOT_DIR/operator-contract.json"
 cp "$PREP_REPORT" "$ROOT_DIR/operator-preparation.json"
 cat > "$ROOT_DIR/operator-comparison-identity.txt" <<IDENTITY
@@ -190,6 +231,11 @@ order=$ORDER
 samplesPerMode=1
 timingMethod=automatic-starsector-log-phase-detection
 expectedProfileFingerprint=$EXPECTED_PROFILE_FINGERPRINT
+expectedImmutableProfileFingerprint=$EXPECTED_IMMUTABLE_FINGERPRINT
+graphicsLibCacheDirectory=$GRAPHICSLIB_CACHE_DIRECTORY
+graphicsLibHashControl=$GRAPHICSLIB_HASH_CONTROL
+mutableStateSnapshot=$MUTABLE_STATE_SNAPSHOT
+mutableStateRestoreAuthorized=true
 coreMissionList=$CORE_MISSION_LIST
 coreMissionListSha256=$CORE_MISSION_LIST_SHA
 coreMissionDescriptor=$CORE_MISSION_DESCRIPTOR
@@ -217,6 +263,34 @@ classify_log_delta() {
     python3 "$DETECTOR" classify --input "$1" --output "$2"
 }
 
+restore_mutable_state() {
+    local label="$1"
+    local output="$2"
+    if [[ "$MUTABLE_RESTORE_AUTHORIZED" != true ]]; then
+        echo "Mutable-cache restore was not explicitly authorized ($label)." >&2
+        return 1
+    fi
+    if ! python3 "$PROFILE_GUARD" restore \
+            --baseline "$BASE_PROFILE_STATE" \
+            --snapshot-dir "$MUTABLE_STATE_SNAPSHOT" \
+            --output "$output"; then
+        echo "The bounded GraphicsLib state could not be restored exactly ($label)." >&2
+        [[ -f "$output" ]] && jq . "$output" >&2
+        return 1
+    fi
+}
+
+emergency_restore_mutable_state() {
+    if [[ "$MUTABLE_RESTORE_AUTHORIZED" == true \
+            && "$FINAL_MUTABLE_RESTORE_DONE" != true \
+            && -f "$BASE_PROFILE_STATE" \
+            && -d "$MUTABLE_STATE_SNAPSHOT" ]]; then
+        echo "Restoring the authorized GraphicsLib state before exit..." >&2
+        restore_mutable_state "exit-trap" "$ROOT_DIR/final-mutable-cache-restore.json" || true
+    fi
+}
+trap emergency_restore_mutable_state EXIT
+
 check_profile_stability() {
     local label="$1"
     local report="$2"
@@ -229,8 +303,7 @@ check_profile_stability() {
         --deep \
         --verify-lookups >/dev/null
 
-    local actual_fingerprint mission_list_sha mission_descriptor_sha
-    actual_fingerprint="$(jq -er '.stages.census.details.profile.profileFingerprint' "$report")"
+    local mission_list_sha mission_descriptor_sha
     mission_list_sha="$(shasum -a 256 "$CORE_MISSION_LIST" | awk '{print $1}')"
     mission_descriptor_sha="$(shasum -a 256 "$CORE_MISSION_DESCRIPTOR" | awk '{print $1}')"
     if [[ "$mission_list_sha" != "$CORE_MISSION_LIST_SHA" \
@@ -238,22 +311,29 @@ check_profile_stability() {
         echo "Reviewed core mission resources changed during the comparison ($label)." >&2
         return 1
     fi
-    if [[ "$actual_fingerprint" != "$EXPECTED_PROFILE_FINGERPRINT" ]]; then
-        set +e
-        python3 "$PROFILE_GUARD" \
-            --expected-profile "$BASE_PROFILE" \
-            --current-report "$report" \
-            --output "$drift"
-        local guard_status=$?
-        set -e
-        if [[ "$guard_status" -ne 1 ]]; then
-            echo "Profile guard failed while classifying comparison drift ($label)." >&2
-            return 1
-        fi
-        echo "The enabled profile changed during the comparison ($label)." >&2
-        jq '{expectedProfileFingerprint, actualProfileFingerprint, modDeltas, graphicsLibRuntimeCacheCandidate}' \
-            "$drift" >&2
+    set +e
+    python3 "$PROFILE_GUARD" check \
+        --baseline "$BASE_PROFILE_STATE" \
+        --current-report "$report" \
+        --output "$drift"
+    local guard_status=$?
+    set -e
+    if [[ "$guard_status" -ne 0 ]]; then
+        echo "The immutable profile changed or the mutable-cache shape was unsafe ($label)." >&2
+        [[ -f "$drift" ]] && jq . "$drift" >&2
         return 1
+    fi
+    if [[ "$(jq -r '.mutableCache.changedDuringRun' "$drift")" == true ]]; then
+        echo "Recorded bounded GraphicsLib runtime-cache changes ($label):"
+        jq '{
+            sourceCensusFingerprintChanged,
+            immutableProfileStable,
+            mutableCache: {
+                exactEquivalentToBaseline,
+                contentEquivalentToBaseline,
+                drift
+            }
+        }' "$drift"
     fi
 }
 
@@ -287,6 +367,7 @@ run_mode() {
     local log_classification="$run_dir/log-classification.json"
     local wrapper_output="$run_dir/operator-wrapper-output.txt"
     local result="$run_dir/operator-main-menu-result.json"
+    local mutable_restore_before="$run_dir/mutable-cache-restore-before.json"
     local profile_before_report="$run_dir/profile-check-before.json"
     local profile_before_drift="$run_dir/profile-drift-before.json"
     local profile_after_report="$run_dir/profile-check-after.json"
@@ -295,7 +376,14 @@ run_mode() {
     local java_tool_options="${JAVA_TOOL_OPTIONS:-}"
 
     mkdir -p "$run_dir"
+    if ! restore_mutable_state "before-$mode" "$mutable_restore_before"; then
+        return 1
+    fi
     if ! check_profile_stability "before-$mode" "$profile_before_report" "$profile_before_drift"; then
+        return 1
+    fi
+    if [[ "$(jq -r '.mutableCache.exactEquivalentToBaseline' "$profile_before_drift")" != true ]]; then
+        echo "The $mode half did not start from the exact restored GraphicsLib state." >&2
         return 1
     fi
     snapshot_logs "$before_logs"
@@ -487,6 +575,7 @@ run_mode() {
         --slurpfile launcherDetection "$launcher_detection" \
         --slurpfile mainMenuDetection "$main_menu_detection" \
         --slurpfile logClassification "$log_classification" \
+        --slurpfile profileStateCheck "$profile_after_drift" \
         '{
             mode: $mode,
             launcherReadyMs: $launcherDetection[0].launcherReadyMs,
@@ -504,6 +593,10 @@ run_mode() {
             automatedAccepted: $automatedAccepted,
             profileStable: $profileStable,
             expectedProfileFingerprint: $expectedProfileFingerprint,
+            immutableProfileStable: $profileStateCheck[0].immutableProfileStable,
+            mutableCacheChangedDuringRun: $profileStateCheck[0].mutableCache.changedDuringRun,
+            mutableCacheContentEquivalentToBaseline: $profileStateCheck[0].mutableCache.contentEquivalentToBaseline,
+            profileStateCheck: $profileStateCheck[0],
             launcherDetection: $launcherDetection[0],
             mainMenuDetection: $mainMenuDetection[0],
             logClassification: $logClassification[0]
@@ -523,7 +616,8 @@ This pilot runs the same exact profile twice:
 
 The runner automatically detects launcher readiness and main-menu readiness from starsector.log.
 It uses a fixed six-second launcher safety confirmation without adding that wait to the measured endpoint.
-It also verifies that the enabled profile does not change between halves.
+It strictly rejects immutable profile drift, records bounded GraphicsLib cache changes,
+and restores the exact pre-warmed cache state before each randomized half.
 You only need to click Play when instructed, visually confirm the result, and exit from the main menu.
 A single pair is preliminary evidence only. It cannot support an acceleration claim.
 Do not enter a campaign or combat.
@@ -542,17 +636,25 @@ for mode in "$first_mode" "$second_mode"; do
     fi
 done
 
+if restore_mutable_state "after-comparison" "$ROOT_DIR/final-mutable-cache-restore.json"; then
+    FINAL_MUTABLE_RESTORE_DONE=true
+else
+    comparison_failed=1
+fi
+
 if [[ -f "$ROOT_DIR/compatibility/operator-main-menu-result.json" \
         && -f "$ROOT_DIR/prepared/operator-main-menu-result.json" ]]; then
     python3 - "$ROOT_DIR/compatibility/operator-main-menu-result.json" \
         "$ROOT_DIR/prepared/operator-main-menu-result.json" \
-        "$ROOT_DIR/comparison-result.json" "$ORDER" <<'PY'
+        "$ROOT_DIR/comparison-result.json" "$ORDER" \
+        "$ROOT_DIR/final-mutable-cache-restore.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 compatibility = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 prepared = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+final_restore = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8"))
 counts_a = compatibility["logClassification"]["counts"]
 counts_b = prepared["logClassification"]["counts"]
 keys = sorted(set(counts_a) | set(counts_b))
@@ -585,6 +687,11 @@ result = {
         and compatibility.get("expectedProfileFingerprint")
             == prepared.get("expectedProfileFingerprint")
     ),
+    "mutableCacheBehavior": {
+        "compatibility": compatibility["profileStateCheck"]["mutableCache"],
+        "prepared": prepared["profileStateCheck"]["mutableCache"],
+    },
+    "boundedMutableStateRestoredAfterComparison": final_restore.get("restored") is True,
     "nextDecision": "review-log-deltas-before-repeat-timing-campaign",
 }
 Path(sys.argv[3]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -611,6 +718,17 @@ jq '{
     logPatternCountsEqual,
     automaticDetectionVisuallyAccepted,
     profileStableAcrossBothHalves,
+    boundedMutableStateRestoredAfterComparison,
+    mutableCacheBehavior: {
+        compatibility: {
+            changedDuringRun: .mutableCacheBehavior.compatibility.changedDuringRun,
+            contentEquivalentToBaseline: .mutableCacheBehavior.compatibility.contentEquivalentToBaseline
+        },
+        prepared: {
+            changedDuringRun: .mutableCacheBehavior.prepared.changedDuringRun,
+            contentEquivalentToBaseline: .mutableCacheBehavior.prepared.contentEquivalentToBaseline
+        }
+    },
     nextDecision
 }' "$ROOT_DIR/comparison-result.json"
 echo

@@ -6,7 +6,7 @@ Status: 2026-07-23
 
 The corrected coherent-direct NPOT prepared-pixel path passed launcher and gameplay visual/lifecycle acceptance for the exact reviewed macOS/Starsector 0.98a-RC8 installation and profile.
 
-It remains opt-in and is not enabled by default. Exactly one replacement two-run main-menu comparison is authorized. It is not a benchmark.
+It remains opt-in and is not enabled by default. Do not rerun the comparison until the bounded mutable-cache repair is reviewed and merged. After merge, exactly one replacement pair is authorized. It is not a benchmark.
 
 ## Merged comparison work
 
@@ -63,6 +63,20 @@ The dialog printed every resource-search directory. AI Tweaks, Arma Armatura, an
 
 The pair was already invalid because GraphicsLib generated two normal-map cache files and changed the enabled-profile fingerprint before the second half. Do not use the prepared half's 85-second result as performance evidence.
 
+## Invalid mutable-cache attempt
+
+The next replacement archive also stopped after prepared ran first:
+
+```text
+archiveSha256: 6c3c4f2d1220ce5e11f73649b5c9e1f11b30f3bf115c48fffdccc10733ed4729
+before fingerprint: 3c1fc13ee4b47a93d36122ee2804070dbacf43523a3d38df5cc531e35e4513fe
+after fingerprint: 5bf805bc6c8898c0f3c9eefb8808783cc405938286e00d44a349953046d9b1a1
+```
+
+Your visual answers all passed. The old guard reported two added GraphicsLib images, but the real cache inspection found 27 files written during the prepared half as identical 68-byte, 1×1 PNGs after the 27 normal-map buffer failures. Most replaced existing cache files. GraphicsLib loads this cache during later starts, so it cannot simply be ignored or broadly whitelisted.
+
+Do not use this attempt's 90-second value.
+
 ## Core-resource guard correction
 
 A later attempt stopped before launching Starsector because the runner checked the wrong bundle path:
@@ -85,20 +99,27 @@ That path-guard stop occurred before the launcher or game ran. It is not mod, te
 
 ## Replacement-run safeguards
 
-The runner now:
+The repaired runner:
 
 - waits for six seconds of launcher log quiet before telling you to click Play;
 - excludes the safety wait from the measured launcher endpoint;
-- records the initial profile fingerprint;
+- treats enabled-mod configuration, jars, scripts, data, and source assets as immutable;
+- treats only the exact GraphicsLib generated-normal cache and its hash-control file as bounded mutable runtime state;
+- records exact cache filenames, sizes, hashes, modes, and timestamps;
+- makes a read-only pre-warmed snapshot outside the installation;
+- shows the exact cache paths and mutations before asking for permission;
+- restores and verifies the identical pre-warmed state before both randomized halves and once at the end;
+- refuses to touch the cache if it finds symlinks, subdirectories, unexpected files, multiple mutable mods, or immutable drift;
 - performs deep preparation before and after each half;
-- stops and packages exact per-mod deltas on any profile change;
 - discovers and hashes the installed core mission files;
 - verifies those files remain present and byte-identical;
 - preserves automatic main-menu detection and `benchmarkAccepted=false`.
 
+The restore is narrowly scoped and reversible. It may remove newly generated reviewed `*_normal.png` cache entries, replace changed/missing reviewed cache entries from the snapshot, restore their modes/timestamps, and restore `shaderlib_cache_hash.data`. It does not modify any other mod, save, core resource, or game file. If the cache shape is unexpected, it stops and retains the recovery snapshot instead of mutating it.
+
 ## Safe default
 
-Without:
+Outside this explicitly authorized comparison restore, Preflight does not edit the installation. Without:
 
 ```text
 -Dpreflight.preparedPixels.coherentDirect=true
@@ -116,7 +137,13 @@ git pull --ff-only
 bash scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
 ```
 
-Type:
+After the build and preparation complete, read the exact cache mutation notice and type:
+
+```text
+RESTORE GRAPHICSLIB CACHE
+```
+
+Then type:
 
 ```text
 COMPARE
@@ -144,6 +171,6 @@ benchmarkAccepted=false
 timingMethod=automatic-starsector-log-phase-detection
 ```
 
-A valid pair also requires stable profiles, unchanged core mission resources, accurate readiness detection, and clean lifecycle/visuals in both modes.
+A valid pair also requires stable immutable inputs, exact equivalent cache state at the start of both halves, successful final cache restoration, unchanged core mission resources, accurate readiness detection, and clean lifecycle/visuals in both modes.
 
 Do not enable coherent-direct by default or claim acceleration from one pair.
