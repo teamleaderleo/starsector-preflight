@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge the automatic Starsector-log readiness detector, then perform exactly one two-run prepared-pixel main-menu comparison from current `main`.
+Perform exactly one two-run prepared-pixel main-menu comparison from current `main` using the merged automatic Starsector-log readiness detector.
 
 The two halves are:
 
@@ -27,11 +27,14 @@ dc5bcdc024027ccf1f19f5cc3a53ae4f98a3722c
 
 PR #152 original main-menu comparison contract and runner:
 2312bfd265c087e0ddf6ec39d6398b322e9bfc7f
+
+PR #154 automatic Starsector-log readiness detection:
+434d4f7283e144879c16b735e8004c98d5209787
 ```
 
 PR #101 SHA-pinned CI actions, added the opt-in `-Panalysis` Error Prone profile, and fixed default-locale lowercase calls with `Locale.ROOT`. No further action on PR #101 is required.
 
-PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge. Its operator-enter timing markers are being replaced before the authorized pilot runs.
+PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge. PR #154 replaced its operator-enter timing markers and passed CI 596, including detector tests, shell parsing, Python compilation, and full Maven verification.
 
 ## Evidence chain
 
@@ -98,7 +101,7 @@ The safe default remains unchanged: without `-Dpreflight.preparedPixels.coherent
 
 ## Automatic detector contract
 
-The follow-up replaces all readiness Enter markers with an inode-aware `starsector.log*` watcher.
+Merged PR #154 uses an inode-aware `starsector.log*` watcher and binds game-start, save-scan, and preload markers to the same log stream.
 
 Launcher readiness:
 
@@ -126,9 +129,9 @@ gameLogStartToMainMenuMs
 
 The operator only clicks Play, visually confirms that the automatic notification did not fire early, exits from the main menu, and answers the pass/fail questions.
 
-The helper unit tests cover launcher readiness, deferred-line quiet reset, and inode-based log rotation/rename handling. CI must run those tests plus shell parsing and full Maven verification.
+The four helper tests cover launcher readiness, deferred-line quiet reset, same-stream marker binding despite rotated launcher noise, and inode-based log rotation/rename extraction.
 
-## Authorized operator action after merge
+## Authorized operator action
 
 Run exactly once from the repository root:
 
