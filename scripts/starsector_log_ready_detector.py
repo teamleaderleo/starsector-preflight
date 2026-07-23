@@ -20,13 +20,22 @@ SAVE_DESCRIPTOR_PARTS = ("CampaignGameManager", "Reading save data from [")
 PRELOAD_PARTS = ("TextureData", "VRAM after unload/preload:")
 
 
+@dataclass(frozen=True)
+class LogLine:
+    inode: int
+    file_name: str
+    text: str
+    observed_ns: int
+    log_ms: int | None
+
+
 @dataclass
 class TailState:
     offsets: dict[int, int]
     partial: dict[int, bytes] = field(default_factory=dict)
     observed_lines: int = 0
-    last_activity_ns: int | None = None
-    last_log_ms: int | None = None
+    last_activity_ns: dict[int, int] = field(default_factory=dict)
+    last_log_ms: dict[int, int] = field(default_factory=dict)
 
 
 def _files(log_dir: Path) -> list[Path]:
@@ -53,8 +62,8 @@ def load_offsets(snapshot_file: Path) -> dict[int, int]:
     return {int(value["inode"]): int(value["size"]) for value in raw.values()}
 
 
-def _read_new_lines(log_dir: Path, state: TailState) -> list[str]:
-    lines: list[str] = []
+def _read_new_lines(log_dir: Path, state: TailState) -> list[LogLine]:
+    lines: list[LogLine] = []
     for path in _files(log_dir):
         stat = path.stat()
         inode = int(stat.st_ino)
@@ -75,15 +84,16 @@ def _read_new_lines(log_dir: Path, state: TailState) -> list[str]:
         state.partial[inode] = b""
         if chunks and not chunks[-1].endswith((b"\n", b"\r")):
             state.partial[inode] = chunks.pop()
-        now = time.monotonic_ns()
+        observed_ns = time.monotonic_ns()
         for chunk in chunks:
-            line = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
-            lines.append(line)
+            text = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
+            match = TIMESTAMP.match(text)
+            log_ms = int(match.group(1)) if match else None
+            lines.append(LogLine(inode, path.name, text, observed_ns, log_ms))
             state.observed_lines += 1
-            state.last_activity_ns = now
-            match = TIMESTAMP.match(line)
-            if match:
-                state.last_log_ms = int(match.group(1))
+            state.last_activity_ns[inode] = observed_ns
+            if log_ms is not None:
+                state.last_log_ms[inode] = log_ms
     return lines
 
 
@@ -114,28 +124,30 @@ def watch_launcher(
 ) -> bool:
     state = TailState(load_offsets(snapshot_file))
     deadline = time.monotonic() + timeout_seconds
-    marker_seen = False
-    marker_line: str | None = None
+    marker_line: LogLine | None = None
     while time.monotonic() < deadline:
         for line in _read_new_lines(log_dir, state):
-            if LAUNCHER_MARKER in line:
-                marker_seen = True
-                marker_line = line[:1000]
+            if LAUNCHER_MARKER in line.text:
+                marker_line = line
         now_ns = time.monotonic_ns()
         quiet_ns = int(quiet_seconds * 1_000_000_000)
-        if marker_seen and state.last_activity_ns is not None and now_ns - state.last_activity_ns >= quiet_ns:
-            result = {
-                "phase": "launcher",
-                "detected": True,
-                "launcherMarker": LAUNCHER_MARKER,
-                "launcherMarkerLine": marker_line,
-                "launcherReadyMs": round((state.last_activity_ns - process_start_ns) / 1_000_000, 3),
-                "launcherReadyLogMillis": state.last_log_ms,
-                "quietConfirmationMillis": round(quiet_seconds * 1000, 3),
-                "observedLines": state.observed_lines,
-            }
-            _write_result(output, result)
-            return True
+        if marker_line is not None:
+            last_activity_ns = state.last_activity_ns.get(marker_line.inode)
+            if last_activity_ns is not None and now_ns - last_activity_ns >= quiet_ns:
+                result = {
+                    "phase": "launcher",
+                    "detected": True,
+                    "launcherMarker": LAUNCHER_MARKER,
+                    "launcherMarkerLine": marker_line.text[:1000],
+                    "launcherLogFile": marker_line.file_name,
+                    "launcherLogInode": marker_line.inode,
+                    "launcherReadyMs": round((last_activity_ns - process_start_ns) / 1_000_000, 3),
+                    "launcherReadyLogMillis": state.last_log_ms.get(marker_line.inode),
+                    "quietConfirmationMillis": round(quiet_seconds * 1000, 3),
+                    "observedLines": state.observed_lines,
+                }
+                _write_result(output, result)
+                return True
         if not _pid_alive(pid):
             break
         time.sleep(sleep_seconds)
@@ -143,7 +155,7 @@ def watch_launcher(
         "phase": "launcher",
         "detected": False,
         "launcherMarker": LAUNCHER_MARKER,
-        "markerSeen": marker_seen,
+        "markerSeen": marker_line is not None,
         "observedLines": state.observed_lines,
         "timeoutSeconds": timeout_seconds,
         "processAlive": _pid_alive(pid),
@@ -166,60 +178,59 @@ def watch_main_menu(
 ) -> bool:
     state = TailState(load_offsets(snapshot_file))
     deadline = time.monotonic() + timeout_seconds
-    game_start_ns: int | None = None
-    game_start_log_ms: int | None = None
-    game_start_line: str | None = None
-    descriptor_seen = False
-    preload_seen = False
-    descriptor_line: str | None = None
-    preload_line: str | None = None
+    starts: dict[int, LogLine] = {}
+    descriptor_lines: dict[int, LogLine] = {}
+    preload_lines: dict[int, LogLine] = {}
+    candidate_inode: int | None = None
 
     while time.monotonic() < deadline:
-        lines = _read_new_lines(log_dir, state)
-        for line in lines:
-            match = TIMESTAMP.match(line)
-            if game_start_ns is None and match:
-                game_start_ns = state.last_activity_ns
-                game_start_log_ms = int(match.group(1))
-                game_start_line = line[:1000]
-            if _contains_all(line, SAVE_DESCRIPTOR_PARTS):
-                descriptor_seen = True
-                descriptor_line = line[:1000]
-            if _contains_all(line, PRELOAD_PARTS):
-                preload_seen = True
-                preload_line = line[:1000]
+        for line in _read_new_lines(log_dir, state):
+            if line.log_ms is not None:
+                starts.setdefault(line.inode, line)
+            if _contains_all(line.text, SAVE_DESCRIPTOR_PARTS):
+                descriptor_lines[line.inode] = line
+            if _contains_all(line.text, PRELOAD_PARTS):
+                preload_lines[line.inode] = line
+            if candidate_inode is None:
+                matching = set(descriptor_lines) & set(preload_lines) & set(starts)
+                if matching:
+                    candidate_inode = min(
+                        matching,
+                        key=lambda inode: preload_lines[inode].observed_ns,
+                    )
 
         now_ns = time.monotonic_ns()
         quiet_ns = int(quiet_seconds * 1_000_000_000)
-        ready = (
-            game_start_ns is not None
-            and descriptor_seen
-            and preload_seen
-            and state.last_activity_ns is not None
-            and now_ns - state.last_activity_ns >= quiet_ns
-        )
-        if ready:
-            monotonic_delta_ms = round((state.last_activity_ns - game_start_ns) / 1_000_000, 3)
-            log_delta_ms = None
-            if game_start_log_ms is not None and state.last_log_ms is not None:
-                log_delta_ms = state.last_log_ms - game_start_log_ms
-            _write_result(output, {
-                "phase": "main-menu",
-                "detected": True,
-                "timingMethod": "automatic-starsector-log-phase-detection",
-                "gameStartLine": game_start_line,
-                "gameStartLogMillis": game_start_log_ms,
-                "mainMenuReadyLogMillis": state.last_log_ms,
-                "gameLogStartToMainMenuMs": monotonic_delta_ms,
-                "gameLogMillisDelta": log_delta_ms,
-                "saveDescriptorSeen": descriptor_seen,
-                "saveDescriptorLine": descriptor_line,
-                "graphicsPreloadSeen": preload_seen,
-                "graphicsPreloadLine": preload_line,
-                "quietConfirmationMillis": round(quiet_seconds * 1000, 3),
-                "observedLines": state.observed_lines,
-            })
-            return True
+        if candidate_inode is not None:
+            start = starts[candidate_inode]
+            descriptor = descriptor_lines[candidate_inode]
+            preload = preload_lines[candidate_inode]
+            last_activity_ns = state.last_activity_ns.get(candidate_inode)
+            if last_activity_ns is not None and now_ns - last_activity_ns >= quiet_ns:
+                observed_delta_ms = round((last_activity_ns - start.observed_ns) / 1_000_000, 3)
+                end_log_ms = state.last_log_ms.get(candidate_inode)
+                log_delta_ms = None
+                if start.log_ms is not None and end_log_ms is not None:
+                    log_delta_ms = end_log_ms - start.log_ms
+                _write_result(output, {
+                    "phase": "main-menu",
+                    "detected": True,
+                    "timingMethod": "automatic-starsector-log-phase-detection",
+                    "gameLogFile": start.file_name,
+                    "gameLogInode": candidate_inode,
+                    "gameStartLine": start.text[:1000],
+                    "gameStartLogMillis": start.log_ms,
+                    "mainMenuReadyLogMillis": end_log_ms,
+                    "gameLogStartToMainMenuMs": observed_delta_ms,
+                    "gameLogMillisDelta": log_delta_ms,
+                    "saveDescriptorSeen": True,
+                    "saveDescriptorLine": descriptor.text[:1000],
+                    "graphicsPreloadSeen": True,
+                    "graphicsPreloadLine": preload.text[:1000],
+                    "quietConfirmationMillis": round(quiet_seconds * 1000, 3),
+                    "observedLines": state.observed_lines,
+                })
+                return True
         if not _pid_alive(pid):
             break
         time.sleep(sleep_seconds)
@@ -227,9 +238,10 @@ def watch_main_menu(
     _write_result(output, {
         "phase": "main-menu",
         "detected": False,
-        "gameStartSeen": game_start_ns is not None,
-        "saveDescriptorSeen": descriptor_seen,
-        "graphicsPreloadSeen": preload_seen,
+        "candidateLogStreamSeen": candidate_inode is not None,
+        "timestampedLogStreams": len(starts),
+        "saveDescriptorStreams": len(descriptor_lines),
+        "graphicsPreloadStreams": len(preload_lines),
         "observedLines": state.observed_lines,
         "timeoutSeconds": timeout_seconds,
         "processAlive": _pid_alive(pid),
