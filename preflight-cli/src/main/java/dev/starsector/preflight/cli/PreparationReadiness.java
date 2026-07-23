@@ -18,11 +18,12 @@ final class PreparationReadiness {
         readiness.put("vanillaAdapter", "compatibility-v2-behaviorally-accepted");
         readiness.put("compatibilityBehavioralAcceptance", "accepted-2026-07-19-starsector-0.98a-rc8");
         readiness.put("repeatTimingCampaignRequired", true);
-        readiness.put("preparedPixelsAdapter", "pot-bypass-enabled-npot-coherent-direct-gameplay-smoke-diagnostic");
-        readiness.put("preparedPixelsBehavioralAcceptance", "launcher-accepted-2026-07-23-gameplay-smoke-required");
+        readiness.put("preparedPixelsAdapter", "pot-bypass-enabled-npot-coherent-direct-gameplay-accepted-opt-in");
+        readiness.put("preparedPixelsBehavioralAcceptance", "accepted-2026-07-23-exact-profile");
+        readiness.put("preparedPixelsDefaultEnablement", "blocked-pending-log-baseline-and-timing");
         readiness.put("textureAdapterModes", List.of("compatibility", "prepared-pixels"));
-        readiness.put("realInstallPilotRequired", true);
-        readiness.put("preparedPixelsNextOperatorAction", "single-coherent-direct-gameplay-smoke");
+        readiness.put("realInstallPilotRequired", false);
+        readiness.put("preparedPixelsNextOperatorAction", "none-engineering-review-required");
         readiness.put("fastRenderingAdapter", "requires-exact-compatible-method-evidence");
         readiness.put("launchAccelerationClaimed", false);
         return Collections.unmodifiableMap(readiness);
