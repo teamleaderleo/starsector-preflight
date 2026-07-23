@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Review and merge the final dimension-axis repair, then perform exactly one installed **launcher-only coherent-direct axis probe** using the repository runner.
+Perform exactly one installed **launcher-only coherent-direct axis probe** from current `main` using the repository runner.
 
 Do not click Play, enter gameplay, repeat the probe, benchmark, or make an acceleration claim.
 
@@ -41,6 +41,9 @@ PR #139 coherent carrier plus direct cached NPOT diagnostic:
 
 PR #141 backing-dimension replay using the incorrect call-order axis assumption:
 1b4194977c0fac9a5717d05bec6e858cb2fec419
+
+PR #145 corrected height-first/width-second dimension axes:
+d2333deca1697214231b6392b944ea2992150cae
 ```
 
 ## Established facts
@@ -62,11 +65,11 @@ Replaying both dimension setters made textures visible, proving those writes are
 clean launcher exit
 ```
 
-## Corrected axis conclusion
+## Corrected axis implementation
 
 The installed converter computes width and height, then invokes two obfuscated texture-object `(I)V` setters. PR #141 assigned axis meaning from setter call order and produced distorted UV/backing behavior.
 
-The reviewed installed flow and live visual result establish the mapping used by the final repair:
+Merged PR #145 uses the reviewed mapping:
 
 ```text
 first obfuscated setter  <- power-of-two upload height
@@ -77,11 +80,24 @@ The transformer maps the second reviewed setter to `PreparedPixel.width()` and t
 
 The safe default remains unchanged: without the explicit diagnostic property, NPOT textures use Starsector's original decode/conversion path.
 
-## Validation state
+## Final validation
 
-The core axis change has passed full Maven verification, vanilla adapter gates, and texture cache tests on its earlier clean code head. The final branch must pass all four required suites after readiness, runner, and documentation alignment.
+Validated PR head:
 
-## Authorized operator action after merge
+```text
+03829ef2950201ff91182e0b1aa9879fc0d618b8
+```
+
+Successful workflows:
+
+```text
+CI run 579 — full Maven verification
+Vanilla adapter gate tests run 422
+Texture cache tests run 411
+Prepare command tests run 118
+```
+
+## Authorized operator action
 
 ```bash
 git switch main
