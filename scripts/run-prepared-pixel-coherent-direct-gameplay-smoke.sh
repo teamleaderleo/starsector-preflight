@@ -9,6 +9,7 @@ EXPECTED_ARCHIVE_SHA="10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710
 EXPECTED_CLASS_SHA="d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50"
 ACCEPTED_LAUNCHER_ARCHIVE_SHA="898f99beb8940900a34634d53affc9a97705366fd42faf57a7d2b033bb8bb555"
 AXIS_CONTRACT='return new DimensionSetters(setters.get(1), setters.get(0));'
+MIN_RUNTIME_SECONDS=120
 
 for command in git java mvn jq shasum unzip tar grep; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -161,6 +162,7 @@ echo "  6. Finish or exit combat normally, then save the campaign."
 echo "  7. Return to the main menu and exit Starsector cleanly."
 echo "  8. If the launcher reappears, close it with its X."
 echo
+echo "The wrapper must remain attached for at least $MIN_RUNTIME_SECONDS seconds."
 echo "Stop and exit cleanly if you see black, sliced, repeated, stretched,"
 echo "missing, flipped, or progressively corrupt textures."
 echo
@@ -181,6 +183,7 @@ mkdir -p "$RUN_DIR"
     printf 'validationScope=%s\n' 'gameplay-smoke'
     printf 'prerequisiteLauncherArchiveSha256=%s\n' "$ACCEPTED_LAUNCHER_ARCHIVE_SHA"
     printf 'requiredRoute=%s\n' 'launcher-main-menu-campaign-combat-save-clean-exit'
+    printf 'minimumObservedRuntimeSeconds=%s\n' "$MIN_RUNTIME_SECONDS"
     printf 'command=JAVA_TOOL_OPTIONS=%q ' "$DIAGNOSTIC_JAVA_TOOL_OPTIONS"
     printf '%q ' java -jar "$JAR" "${RUN_ARGS[@]}"
     printf '\n'
@@ -236,7 +239,9 @@ jq -e '
     and .exitCode == 0
     and .launcherExitCode == 0
     and .lifecycleEvidence.fatalDetected == false
-' "$RUN_DIR/run.json" >/dev/null
+    and ((.ended | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)
+        - (.started | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) >= $minRuntime
+' --argjson minRuntime "$MIN_RUNTIME_SECONDS" "$RUN_DIR/run.json" >/dev/null
 lifecycle_check=$?
 
 jq -e '
