@@ -63,10 +63,11 @@ class PrepareCommandTest {
                 "\"preparedPixelsBehavioralAcceptance\":\"accepted-2026-07-23-exact-profile\""),
                 first);
         assertTrue(first.contains(
-                "\"preparedPixelsDefaultEnablement\":\"blocked-pending-log-baseline-and-timing\""),
+                "\"preparedPixelsDefaultEnablement\":\"blocked-pending-main-menu-comparison-and-repeat-timing\""),
                 first);
+        assertTrue(first.contains("\"preparedPixelsComparisonPilotRequired\":true"), first);
         assertTrue(first.contains(
-                "\"preparedPixelsNextOperatorAction\":\"none-engineering-review-required\""),
+                "\"preparedPixelsNextOperatorAction\":\"single-main-menu-comparison-pilot\""),
                 first);
         assertTrue(first.contains("\"launchAccelerationClaimed\":false"), first);
 
