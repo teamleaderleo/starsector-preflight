@@ -134,6 +134,10 @@ CACHE_DIRECTORY="$(jq -er '.cacheDirectory' "$PREP_REPORT")"
 RESOURCE_INDEX="$(jq -er '.resourceIndex' "$PREP_REPORT")"
 TEXTURE_MANIFEST="$(jq -er '.stages.textures.details.manifest' "$PREP_REPORT")"
 LOG_DIR="$INSTALL_ROOT/logs"
+if [[ ! -d "$LOG_DIR" ]]; then
+    echo "Starsector log directory not found: $LOG_DIR" >&2
+    exit 1
+fi
 
 for file in "$RESOURCE_INDEX" "$TEXTURE_MANIFEST"; do
     if [[ ! -f "$file" ]]; then
@@ -202,9 +206,9 @@ with out.open("wb") as stream:
             if not path.is_file():
                 continue
             stat = path.stat()
-            prior = before.get(path.name)
+            prior = next((value for value in before.values() if value.get("inode") == stat.st_ino), None)
             offset = 0
-            if prior and prior.get("inode") == stat.st_ino and stat.st_size >= prior.get("size", 0):
+            if prior and stat.st_size >= prior.get("size", 0):
                 offset = int(prior["size"])
             stream.write(f"\n===== {path.name} offset={offset} size={stat.st_size} =====\n".encode())
             with path.open("rb") as source:
@@ -357,7 +361,13 @@ PY
     clean_exit_ok="$(ask_yes_no "Did Starsector exit cleanly without a crash dialog?")"
     corruption_seen="$(ask_yes_no "Did you see black, sliced, repeated, stretched, missing, flipped, or worsening textures?")"
 
-    local lifecycle_check=1 telemetry_check=0
+    local lifecycle_check=1 telemetry_check=0 log_check=1
+    local expected_texture_mode
+    if [[ "$mode" == compatibility ]]; then
+        expected_texture_mode="COMPATIBILITY"
+    else
+        expected_texture_mode="PREPARED_PIXELS"
+    fi
     if [[ -f "$run_dir/run.json" ]]; then
         set +e
         jq -e '
@@ -365,12 +375,18 @@ PY
             and .exitCode == 0
             and .launcherExitCode == 0
             and .lifecycleEvidence.fatalDetected == false
+            and .textureAdapterMode == $expectedTextureMode
             and ((.ended | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)
                 - (.started | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)) >= $minRuntime
-        ' --argjson minRuntime "$MIN_RUNTIME_SECONDS" "$run_dir/run.json" >/dev/null
+        ' --arg expectedTextureMode "$expected_texture_mode" --argjson minRuntime "$MIN_RUNTIME_SECONDS" "$run_dir/run.json" >/dev/null
         lifecycle_check=$?
         set -e
     fi
+
+    set +e
+    jq -e '.bytes > 0' "$log_classification" >/dev/null
+    log_check=$?
+    set -e
 
     if [[ "$mode" == prepared ]]; then
         telemetry_check=1
@@ -398,7 +414,7 @@ PY
             && "$clean_exit_ok" == true && "$corruption_seen" == false ]]; then
         operator_accepted=true
     fi
-    if [[ "$preflight_exit" -eq 0 && "$lifecycle_check" -eq 0 && "$telemetry_check" -eq 0 ]]; then
+    if [[ "$preflight_exit" -eq 0 && "$lifecycle_check" -eq 0 && "$telemetry_check" -eq 0 && "$log_check" -eq 0 ]]; then
         automated_accepted=true
     fi
 
