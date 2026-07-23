@@ -5,12 +5,17 @@ GAME="${GAME:-/Applications/Starsector.app}"
 CACHE="${CACHE:-$HOME/.starsector-preflight/cache}"
 ORDER="${ORDER:-}"
 JAR="$PWD/preflight-cli/target/preflight.jar"
+DETECTOR="$PWD/scripts/starsector_log_ready_detector.py"
 DIAGNOSTIC_PROPERTY="-Dpreflight.preparedPixels.coherentDirect=true"
 EXPECTED_ARCHIVE_SHA="10d89e113f6d1627cc7bc90b692e8a7f450fdd820c5a4ac5edaecd6710afe708"
 EXPECTED_CLASS_SHA="d8fcb4cb90d457fc3075e711b6293940774dcf990ea66a7584c231bd96898b50"
 ACCEPTED_GAMEPLAY_ARCHIVE_SHA="cbc9f5884d89f69e93f6b0ca882c911fdb0cb43397932b77b191920ded0a11bf"
 AXIS_CONTRACT='return new DimensionSetters(setters.get(1), setters.get(0));'
 MIN_RUNTIME_SECONDS=30
+LAUNCHER_TIMEOUT_SECONDS=60
+LAUNCHER_QUIET_SECONDS=1.5
+MAIN_MENU_TIMEOUT_SECONDS=300
+MAIN_MENU_QUIET_SECONDS=6
 
 for command in git java mvn jq shasum unzip tar grep python3; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -21,6 +26,10 @@ done
 
 if [[ ! -f pom.xml ]]; then
     echo "Run this script from the starsector-preflight repository root." >&2
+    exit 1
+fi
+if [[ ! -f "$DETECTOR" ]]; then
+    echo "Automatic log detector not found: $DETECTOR" >&2
     exit 1
 fi
 if [[ ! -d "$GAME" ]]; then
@@ -158,6 +167,7 @@ dimensionReplay=reviewed-converter-height-first-width-second
 scope=main-menu-comparison-pilot
 order=$ORDER
 samplesPerMode=1
+timingMethod=automatic-starsector-log-phase-detection
 benchmarkAccepted=false
 IDENTITY
 
@@ -169,88 +179,21 @@ PY
 }
 
 snapshot_logs() {
-    local output="$1"
-    python3 - "$LOG_DIR" "$output" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-log_dir = Path(sys.argv[1])
-out = Path(sys.argv[2])
-values = {}
-if log_dir.is_dir():
-    for path in sorted(log_dir.glob("starsector.log*")):
-        if path.is_file():
-            stat = path.stat()
-            values[path.name] = {"inode": stat.st_ino, "size": stat.st_size}
-out.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
+    python3 "$DETECTOR" snapshot --log-dir "$LOG_DIR" --output "$1"
 }
 
 extract_log_delta() {
-    local before="$1"
-    local output="$2"
-    python3 - "$LOG_DIR" "$before" "$output" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-log_dir = Path(sys.argv[1])
-before = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-out = Path(sys.argv[3])
-with out.open("wb") as stream:
-    if not log_dir.is_dir():
-        stream.write(b"log directory unavailable\n")
-    else:
-        for path in sorted(log_dir.glob("starsector.log*")):
-            if not path.is_file():
-                continue
-            stat = path.stat()
-            prior = next((value for value in before.values() if value.get("inode") == stat.st_ino), None)
-            offset = 0
-            if prior and stat.st_size >= prior.get("size", 0):
-                offset = int(prior["size"])
-            stream.write(f"\n===== {path.name} offset={offset} size={stat.st_size} =====\n".encode())
-            with path.open("rb") as source:
-                source.seek(offset)
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    stream.write(chunk)
-PY
+    python3 "$DETECTOR" extract --log-dir "$LOG_DIR" --snapshot "$1" --output "$2"
 }
 
 classify_log_delta() {
-    local input="$1"
-    local output="$2"
-    python3 - "$input" "$output" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-lines = text.splitlines()
-patterns = {
-    "normalMapBufferFailures": lambda line: (
-        "Failed to load texture when generating normal map" in line
-        and "Number of remaining buffer elements is 4, must be at least 16" in line
-    ),
-    "shaderCreationErrors": lambda line: "ERROR org.dark.shaders.util.ShaderLib  - Error creating shader:" in line,
-    "musicSourceWarnings": lambda line: "WARN  com.fs.starfarer.D.K  - Error initializing music source" in line,
-    "graphicsLibErrors": lambda line: "ERROR org.dark.shaders" in line,
-    "graphicsLibWarnings": lambda line: "WARN  org.dark.shaders" in line,
+    python3 "$DETECTOR" classify --input "$1" --output "$2"
 }
-counts = {name: sum(1 for line in lines if predicate(line)) for name, predicate in patterns.items()}
-matched = []
-for line in lines:
-    if any(predicate(line) for predicate in patterns.values()):
-        matched.append(line[:1000])
-        if len(matched) == 64:
-            break
-result = {"counts": counts, "firstMatchedLines": matched, "bytes": Path(sys.argv[1]).stat().st_size}
-Path(sys.argv[2]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
+
+terminate_wrapper() {
+    local pid="$1"
+    kill "$pid" >/dev/null 2>&1 || true
+    wait "$pid" >/dev/null 2>&1 || true
 }
 
 ask_yes_no() {
@@ -270,49 +213,42 @@ run_mode() {
     local mode="$1"
     local run_dir="$ROOT_DIR/$mode"
     local before_logs="$run_dir/log-snapshot-before.json"
+    local game_snapshot="$run_dir/log-snapshot-before-play.json"
+    local launcher_detection="$run_dir/launcher-ready-detection.json"
+    local main_menu_detection="$run_dir/main-menu-ready-detection.json"
     local log_delta="$run_dir/starsector-log-delta.txt"
     local log_classification="$run_dir/log-classification.json"
     local wrapper_output="$run_dir/operator-wrapper-output.txt"
     local result="$run_dir/operator-main-menu-result.json"
     local -a run_args
     local java_tool_options="${JAVA_TOOL_OPTIONS:-}"
+    local texture_mode="compatibility"
 
     mkdir -p "$run_dir"
     snapshot_logs "$before_logs"
 
-    if [[ "$mode" == compatibility ]]; then
-        run_args=(
-            run
-            --game "$INSTALL_ROOT"
-            --launcher "$LAUNCHER"
-            --trace-dir "$run_dir"
-            --adapter
-            --texture-mode compatibility
-            --texture-cache-dir "$CACHE_DIRECTORY"
-            --texture-manifest "$TEXTURE_MANIFEST"
-            --texture-index "$RESOURCE_INDEX"
-        )
-    else
-        run_args=(
-            run
-            --game "$INSTALL_ROOT"
-            --launcher "$LAUNCHER"
-            --trace-dir "$run_dir"
-            --adapter
-            --texture-mode prepared-pixels
-            --texture-cache-dir "$CACHE_DIRECTORY"
-            --texture-manifest "$TEXTURE_MANIFEST"
-            --texture-index "$RESOURCE_INDEX"
-        )
+    if [[ "$mode" == prepared ]]; then
+        texture_mode="prepared-pixels"
         java_tool_options="${java_tool_options:+$java_tool_options }$DIAGNOSTIC_PROPERTY"
     fi
+    run_args=(
+        run
+        --game "$INSTALL_ROOT"
+        --launcher "$LAUNCHER"
+        --trace-dir "$run_dir"
+        --adapter
+        --texture-mode "$texture_mode"
+        --texture-cache-dir "$CACHE_DIRECTORY"
+        --texture-manifest "$TEXTURE_MANIFEST"
+        --texture-index "$RESOURCE_INDEX"
+    )
 
     echo
     echo "== $mode dry-run plan =="
     JAVA_TOOL_OPTIONS="$java_tool_options" java -jar "$JAR" "${run_args[@]}" --dry-run
     echo
     echo "This is the $mode half of a two-run comparison pilot."
-    echo "It is one timing sample, not a benchmark."
+    echo "The script will detect launcher readiness and main-menu readiness from starsector.log."
     echo "Do not load a campaign. Stop at the main menu, then exit cleanly."
     read -r -p "Press Enter to launch the $mode run."
 
@@ -323,20 +259,52 @@ run_mode() {
     local wrapper_pid=$!
     set -e
 
-    read -r -p "When the launcher is fully visible and stable, press Enter."
-    local launcher_ready_ns
-    launcher_ready_ns="$(now_ns)"
+    echo "Waiting for the launcher readiness marker..."
+    if ! python3 "$DETECTOR" watch-launcher \
+            --log-dir "$LOG_DIR" \
+            --snapshot "$before_logs" \
+            --output "$launcher_detection" \
+            --pid "$wrapper_pid" \
+            --process-start-ns "$process_start_ns" \
+            --timeout-seconds "$LAUNCHER_TIMEOUT_SECONDS" \
+            --quiet-seconds "$LAUNCHER_QUIET_SECONDS"; then
+        echo "Automatic launcher readiness detection failed." >&2
+        terminate_wrapper "$wrapper_pid"
+        extract_log_delta "$before_logs" "$log_delta"
+        classify_log_delta "$log_delta" "$log_classification"
+        return 1
+    fi
 
-    echo "Return focus to this terminal. Press Enter immediately before clicking Play Starsector."
-    read -r
-    local play_start_ns
-    play_start_ns="$(now_ns)"
+    echo
+    printf '\a'
+    echo "Launcher readiness detected automatically."
+    jq '{launcherReadyMs, launcherReadyLogMillis, launcherMarker, quietConfirmationMillis}' "$launcher_detection"
+    snapshot_logs "$game_snapshot"
+    echo
+    echo "Click Play Starsector now. Do not press Enter; timing starts on the first new game log line."
 
-    read -r -p "When the Starsector main menu is fully visible and responsive, press Enter."
-    local main_menu_ns
-    main_menu_ns="$(now_ns)"
+    if ! python3 "$DETECTOR" watch-main-menu \
+            --log-dir "$LOG_DIR" \
+            --snapshot "$game_snapshot" \
+            --output "$main_menu_detection" \
+            --pid "$wrapper_pid" \
+            --timeout-seconds "$MAIN_MENU_TIMEOUT_SECONDS" \
+            --quiet-seconds "$MAIN_MENU_QUIET_SECONDS"; then
+        echo "Automatic main-menu readiness detection failed." >&2
+        terminate_wrapper "$wrapper_pid"
+        extract_log_delta "$before_logs" "$log_delta"
+        classify_log_delta "$log_delta" "$log_classification"
+        return 1
+    fi
 
-    echo "Now exit Starsector from the main menu and close the launcher if it reappears."
+    echo
+    printf '\a'
+    echo "Main-menu readiness detected automatically."
+    jq '{gameLogStartToMainMenuMs, gameLogMillisDelta, saveDescriptorSeen, graphicsPreloadSeen, quietConfirmationMillis}' \
+        "$main_menu_detection"
+    echo "Confirm the main menu is fully visible and responsive, then exit Starsector from the main menu."
+    echo "Close the launcher if it reappears."
+
     set +e
     wait "$wrapper_pid"
     local preflight_exit=$?
@@ -345,26 +313,15 @@ run_mode() {
     extract_log_delta "$before_logs" "$log_delta"
     classify_log_delta "$log_delta" "$log_classification"
 
-    local launcher_ms play_to_menu_ms
-    launcher_ms="$(python3 - "$process_start_ns" "$launcher_ready_ns" <<'PY'
-import sys
-print(round((int(sys.argv[2]) - int(sys.argv[1])) / 1_000_000, 3))
-PY
-)"
-    play_to_menu_ms="$(python3 - "$play_start_ns" "$main_menu_ns" <<'PY'
-import sys
-print(round((int(sys.argv[2]) - int(sys.argv[1])) / 1_000_000, 3))
-PY
-)"
-
-    local launcher_ok main_menu_ok attached_ok clean_exit_ok corruption_seen
+    local launcher_ok main_menu_ok detector_ok attached_ok clean_exit_ok corruption_seen
     launcher_ok="$(ask_yes_no "Did the $mode launcher look normal?")"
     main_menu_ok="$(ask_yes_no "Did the $mode main menu look normal?")"
+    detector_ok="$(ask_yes_no "Did the automatic main-menu notification occur only after the menu was fully visible and responsive?")"
     attached_ok="$(ask_yes_no "Did the terminal command remain running until Starsector exited?")"
     clean_exit_ok="$(ask_yes_no "Did Starsector exit cleanly without a crash dialog?")"
     corruption_seen="$(ask_yes_no "Did you see black, sliced, repeated, stretched, missing, flipped, or worsening textures?")"
 
-    local lifecycle_check=1 telemetry_check=0 log_check=1
+    local lifecycle_check=1 telemetry_check=0 log_check=1 launcher_detector_check=1 menu_detector_check=1
     local expected_texture_mode
     if [[ "$mode" == compatibility ]]; then
         expected_texture_mode="COMPATIBILITY"
@@ -389,6 +346,16 @@ PY
     set +e
     jq -e '.bytes > 0' "$log_classification" >/dev/null
     log_check=$?
+    jq -e '.detected == true and .launcherReadyMs > 0 and .observedLines > 0' "$launcher_detection" >/dev/null
+    launcher_detector_check=$?
+    jq -e '
+        .detected == true
+        and .gameLogStartToMainMenuMs > 0
+        and .saveDescriptorSeen == true
+        and .graphicsPreloadSeen == true
+        and .observedLines > 0
+    ' "$main_menu_detection" >/dev/null
+    menu_detector_check=$?
     set -e
 
     if [[ "$mode" == prepared ]]; then
@@ -413,40 +380,46 @@ PY
     fi
 
     local operator_accepted=false automated_accepted=false
-    if [[ "$launcher_ok" == true && "$main_menu_ok" == true && "$attached_ok" == true \
-            && "$clean_exit_ok" == true && "$corruption_seen" == false ]]; then
+    if [[ "$launcher_ok" == true && "$main_menu_ok" == true && "$detector_ok" == true \
+            && "$attached_ok" == true && "$clean_exit_ok" == true && "$corruption_seen" == false ]]; then
         operator_accepted=true
     fi
-    if [[ "$preflight_exit" -eq 0 && "$lifecycle_check" -eq 0 && "$telemetry_check" -eq 0 && "$log_check" -eq 0 ]]; then
+    if [[ "$preflight_exit" -eq 0 && "$lifecycle_check" -eq 0 && "$telemetry_check" -eq 0 \
+            && "$log_check" -eq 0 && "$launcher_detector_check" -eq 0 && "$menu_detector_check" -eq 0 ]]; then
         automated_accepted=true
     fi
 
     jq -n \
         --arg mode "$mode" \
-        --argjson launcherReadyMs "$launcher_ms" \
-        --argjson playToMainMenuMs "$play_to_menu_ms" \
         --argjson preflightExit "$preflight_exit" \
         --argjson launcherVisualsNormal "$launcher_ok" \
         --argjson mainMenuNormal "$main_menu_ok" \
+        --argjson automaticDetectionVisuallyAccurate "$detector_ok" \
         --argjson commandAttachedUntilExit "$attached_ok" \
         --argjson cleanExitObserved "$clean_exit_ok" \
         --argjson visualCorruptionObserved "$corruption_seen" \
         --argjson operatorAccepted "$operator_accepted" \
         --argjson automatedAccepted "$automated_accepted" \
+        --slurpfile launcherDetection "$launcher_detection" \
+        --slurpfile mainMenuDetection "$main_menu_detection" \
         --slurpfile logClassification "$log_classification" \
         '{
             mode: $mode,
-            launcherReadyMs: $launcherReadyMs,
-            playToMainMenuMs: $playToMainMenuMs,
-            timingMethod: "operator-marked-monotonic-clock",
+            launcherReadyMs: $launcherDetection[0].launcherReadyMs,
+            gameLogStartToMainMenuMs: $mainMenuDetection[0].gameLogStartToMainMenuMs,
+            gameLogMillisDelta: $mainMenuDetection[0].gameLogMillisDelta,
+            timingMethod: "automatic-starsector-log-phase-detection",
             preflightExit: $preflightExit,
             launcherVisualsNormal: $launcherVisualsNormal,
             mainMenuNormal: $mainMenuNormal,
+            automaticDetectionVisuallyAccurate: $automaticDetectionVisuallyAccurate,
             commandAttachedUntilExit: $commandAttachedUntilExit,
             cleanExitObserved: $cleanExitObserved,
             visualCorruptionObserved: $visualCorruptionObserved,
             operatorAccepted: $operatorAccepted,
             automatedAccepted: $automatedAccepted,
+            launcherDetection: $launcherDetection[0],
+            mainMenuDetection: $mainMenuDetection[0],
             logClassification: $logClassification[0]
         }' > "$result"
 
@@ -462,9 +435,10 @@ This pilot runs the same exact profile twice:
   compatibility decoded-image path
   accepted coherent-direct prepared path
 
-For each half you will mark launcher readiness and main-menu readiness in the terminal.
+The runner automatically detects launcher readiness and main-menu readiness from starsector.log.
+You only need to click Play when instructed, visually confirm the result, and exit from the main menu.
 A single pair is preliminary evidence only. It cannot support an acceleration claim.
-Do not enter a campaign or combat. Exit from the main menu after each half.
+Do not enter a campaign or combat.
 NOTICE
 read -r -p "Type COMPARE to authorize this two-run main-menu pilot: " confirmation
 if [[ "$confirmation" != COMPARE ]]; then
@@ -500,16 +474,23 @@ result = {
     "samplesPerMode": 1,
     "preliminaryOnly": True,
     "benchmarkAccepted": False,
+    "timingMethod": "automatic-starsector-log-phase-detection",
     "compatibility": compatibility,
     "prepared": prepared,
     "preparedMinusCompatibilityMs": {
         "launcherReady": round(prepared["launcherReadyMs"] - compatibility["launcherReadyMs"], 3),
-        "playToMainMenu": round(prepared["playToMainMenuMs"] - compatibility["playToMainMenuMs"], 3),
+        "gameLogStartToMainMenu": round(
+            prepared["gameLogStartToMainMenuMs"] - compatibility["gameLogStartToMainMenuMs"], 3
+        ),
     },
     "preparedMinusCompatibilityLogCounts": {
         key: counts_b.get(key, 0) - counts_a.get(key, 0) for key in keys
     },
     "logPatternCountsEqual": all(counts_a.get(key, 0) == counts_b.get(key, 0) for key in keys),
+    "automaticDetectionVisuallyAccepted": (
+        compatibility["automaticDetectionVisuallyAccurate"]
+        and prepared["automaticDetectionVisuallyAccurate"]
+    ),
     "nextDecision": "review-log-deltas-before-repeat-timing-campaign",
 }
 Path(sys.argv[3]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -530,9 +511,11 @@ jq '{
     samplesPerMode,
     preliminaryOnly,
     benchmarkAccepted,
+    timingMethod,
     preparedMinusCompatibilityMs,
     preparedMinusCompatibilityLogCounts,
     logPatternCountsEqual,
+    automaticDetectionVisuallyAccepted,
     nextDecision
 }' "$ROOT_DIR/comparison-result.json"
 echo

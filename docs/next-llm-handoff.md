@@ -4,7 +4,7 @@ This is the single living implementation handoff. Update it at the end of every 
 
 ## Mission
 
-Perform exactly one two-run prepared-pixel main-menu comparison from current `main` using the merged repository runner.
+Review and merge the automatic Starsector-log readiness detector, then perform exactly one two-run prepared-pixel main-menu comparison from current `main`.
 
 The two halves are:
 
@@ -15,7 +15,7 @@ accepted coherent-direct prepared path
 
 Compatibility uses the same verified texture cache context while retaining Starsector's original converter/upload path. This isolates the prepared-pixel seam; it is not raw uninstrumented vanilla.
 
-The pilot captures full appended Starsector log deltas and one operator-marked launcher/main-menu timing sample per mode. It is preliminary evidence, not a benchmark.
+The pilot captures complete appended Starsector log deltas and one automatically detected launcher/main-menu timing sample per mode. It is preliminary evidence, not a benchmark.
 
 Do not repeat the accepted launcher/gameplay smokes, enter campaign/combat during this pilot, enable coherent-direct by default, or claim acceleration.
 
@@ -25,13 +25,13 @@ Do not repeat the accepted launcher/gameplay smokes, enter campaign/combat durin
 PR #101 repository hygiene and Locale.ROOT fixes:
 dc5bcdc024027ccf1f19f5cc3a53ae4f98a3722c
 
-PR #152 main-menu comparison contract and runner:
+PR #152 original main-menu comparison contract and runner:
 2312bfd265c087e0ddf6ec39d6398b322e9bfc7f
 ```
 
 PR #101 SHA-pinned CI actions, added the opt-in `-Panalysis` Error Prone profile, and fixed default-locale lowercase calls with `Locale.ROOT`. No further action on PR #101 is required.
 
-PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge.
+PR #152 passed CI 591, texture tests 420, and preparation tests 124 before merge. Its operator-enter timing markers are being replaced before the authorized pilot runs.
 
 ## Evidence chain
 
@@ -96,27 +96,39 @@ launchAccelerationClaimed=false
 
 The safe default remains unchanged: without `-Dpreflight.preparedPixels.coherentDirect=true`, NPOT textures use Starsector's original decode/conversion path. Compatibility mode remains the accepted rollback.
 
-## Comparison runner contract
+## Automatic detector contract
 
-The merged runner:
+The follow-up replaces all readiness Enter markers with an inode-aware `starsector.log*` watcher.
 
-- rebuilds and runs full Maven verification once;
-- verifies exact archive and TextureLoader identities;
-- runs the installed prepared-pixel contract check;
-- prepares the exact current profile;
-- supplies the same complete texture cache context to both modes;
-- randomizes the two-mode order unless `ORDER` is explicitly supplied;
-- stops at the main menu for each half;
-- uses a monotonic clock and operator Enter markers for launcher readiness and Play-to-main-menu readiness;
-- snapshots log inode/size before each run and matches file identity across rotation/renaming;
-- retains only appended or newly created log bytes;
-- classifies known GraphicsLib/ShaderLib and music diagnostics;
-- verifies the intended texture mode in each `run.json`;
-- checks clean lifecycle, nonempty log capture, and prepared-buffer cleanup;
-- writes `comparison-result.json` with `samplesPerMode=1`, `preliminaryOnly=true`, and `benchmarkAccepted=false`;
-- packages both complete run directories on the Desktop.
+Launcher readiness:
 
-## Authorized operator action
+```text
+graphics/fonts/orbitron12_0.png
+→ 1.5-second quiet confirmation
+```
+
+Game/main-menu readiness:
+
+```text
+first newly appended timestamped line after the Play instruction
+→ CampaignGameManager save-descriptor scan
+→ GraphicsLib VRAM after unload/preload
+→ 6-second quiet confirmation
+```
+
+The detector records the final log activity before each quiet confirmation, so the confirmation wait is not added to the timing. It writes:
+
+```text
+launcher-ready-detection.json
+main-menu-ready-detection.json
+gameLogStartToMainMenuMs
+```
+
+The operator only clicks Play, visually confirms that the automatic notification did not fire early, exits from the main menu, and answers the pass/fail questions.
+
+The helper unit tests cover launcher readiness, deferred-line quiet reset, and inode-based log rotation/rename handling. CI must run those tests plus shell parsing and full Maven verification.
+
+## Authorized operator action after merge
 
 Run exactly once from the repository root:
 
@@ -126,12 +138,14 @@ git pull --ff-only
 bash scripts/run-prepared-pixel-main-menu-comparison-pilot.sh
 ```
 
-Type `COMPARE` when prompted. For each half:
+Type `COMPARE`. For each randomized half:
 
 ```text
-mark launcher ready
-→ mark immediately before clicking Play
-→ mark main menu ready
+press Enter to launch
+→ wait for automatic launcher-ready notification
+→ click Play when instructed
+→ wait for automatic main-menu-ready notification
+→ confirm the menu is actually visible/responsive
 → exit from main menu
 → close launcher if it reappears
 ```
@@ -140,12 +154,13 @@ Do not load a campaign or enter combat. Upload the generated Desktop archive aft
 
 ## Decision after the pilot
 
-- Equivalent log diagnostics: classify the messages as exact-profile compatibility baseline and build a repeated alternating timing campaign.
+- Equivalent log diagnostics plus visually accurate automatic detection: classify the messages as exact-profile compatibility baseline and build a repeated alternating timing campaign.
 - Prepared-only or increased diagnostics: investigate the prepared carrier path before timing or default enablement.
+- Early/failed readiness detection: adjust the reviewed marker contract before collecting timing samples.
 - Visual or lifecycle failure: stop and retain compatibility mode as rollback.
 
 Do not repeat the pilot or treat one timing pair as a benchmark.
 
 ## Definition of a good handback
 
-Retain exact repository/JAR/install identities, randomized order, both run directories, full log deltas, classifications, operator timing markers, comparison result, and visual/lifecycle status. Update issue #149 and readiness. Preserve identity gates, cleanup behavior, compatibility rollback, and memory limits.
+Retain exact repository/JAR/install identities, randomized order, both run directories, detector JSON, full log deltas, classifications, comparison result, visual detector validation, and lifecycle status. Update issue #149 and readiness. Preserve identity gates, cleanup behavior, compatibility rollback, and memory limits.

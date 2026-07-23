@@ -19,7 +19,7 @@ Compatibility mode uses the same verified texture cache context while retaining 
 The pilot has two goals:
 
 1. capture full appended Starsector log deltas for both modes and compare known diagnostic counts;
-2. collect one preliminary launcher-readiness and Play-to-main-menu timing sample per mode.
+2. collect one preliminary automatically detected launcher-readiness and game-start-to-main-menu timing sample per mode.
 
 A single pair is not a benchmark and cannot support an acceleration claim.
 
@@ -31,9 +31,11 @@ Required route:
 
 ```text
 launch wrapper
-→ mark launcher fully visible and stable
-→ mark immediately before clicking Play Starsector
-→ mark main menu fully visible and responsive
+→ automatic launcher-ready detection
+→ operator clicks Play Starsector
+→ automatic first post-click log detection
+→ automatic main-menu-ready detection
+→ operator visually confirms the detector fired at the correct time
 → exit from main menu
 → close launcher if it reappears
 → clean wrapper exit
@@ -50,18 +52,40 @@ prepared,compatibility
 
 The selected order is retained in the archive. `ORDER` may be set explicitly only for troubleshooting before the run; do not repeat the pilot in the opposite order.
 
-## Timing method
+## Automatic timing method
 
-The runner uses Python's monotonic nanosecond clock. The operator supplies visual readiness markers by pressing Enter.
+The runner tails `logs/starsector.log*` and tracks files by inode so rotation or renaming does not lose or duplicate events.
 
-Recorded intervals:
+Launcher readiness requires:
 
 ```text
-wrapper process start → launcher visually ready
-operator mark immediately before Play click → main menu visually ready
+graphics/fonts/orbitron12_0.png
+→ at least 1.5 seconds without another appended log line
 ```
 
-These measurements include operator reaction/focus-switch noise. They are useful for validating the comparison harness and estimating effect size, but not for final statistics.
+The recorded launcher time is wrapper process start to the timestamp of the final log activity before the quiet confirmation. The 1.5-second confirmation wait is not added to the result.
+
+After the launcher detector fires, the runner snapshots the logs again and tells the operator to click **Play Starsector**. The first newly appended timestamped Starsector log line becomes the automatic game-start boundary.
+
+Main-menu readiness requires all of:
+
+```text
+CampaignGameManager reading a save descriptor
+GraphicsLib TextureData reporting VRAM after unload/preload
+at least 6 seconds without another appended log line
+```
+
+The recorded end boundary is the final appended log activity before the six-second quiet confirmation. The confirmation wait is not added to the result. The longer quiet period prevents a known deferred texture-load burst from being mistaken for main-menu completion.
+
+The result is named:
+
+```text
+gameLogStartToMainMenuMs
+```
+
+It deliberately does not claim to measure the physical mouse click. It removes operator reaction and focus-switch timing noise while retaining the exact profile's observable game-start and main-menu phases.
+
+The operator still answers whether the automatic notification occurred only after the menu was fully visible and responsive. A negative answer rejects that half of the pilot.
 
 A later repeat-timing campaign must use multiple alternating or randomized samples and report median plus variability.
 
@@ -73,6 +97,9 @@ The archive retains:
 
 ```text
 log-snapshot-before.json
+log-snapshot-before-play.json
+launcher-ready-detection.json
+main-menu-ready-detection.json
 starsector-log-delta.txt
 log-classification.json
 ```
@@ -98,11 +125,15 @@ cbc9f5884d89f69e93f6b0ca882c911fdb0cb43397932b77b191920ded0a11bf
 Both halves must record:
 
 - the intended texture mode in `run.json`;
+- successful launcher and main-menu automatic detector results;
+- launcher marker, save-descriptor marker, and GraphicsLib preload marker evidence;
+- positive automatically measured intervals;
 - clean wrapper and launcher exit;
 - no fatal lifecycle evidence;
 - at least 30 seconds of attached runtime;
 - a nonempty captured Starsector log delta;
 - normal launcher and main-menu operator classification;
+- operator confirmation that the detector timing matched visible readiness;
 - attached wrapper lifetime through exit;
 - no visible corruption.
 
@@ -112,6 +143,12 @@ The prepared half additionally requires:
 - coherent-direct enabled with prepared hits and coherent-direct hits above zero;
 - zero prepared fallbacks and internal errors;
 - zero active direct bytes, active buffers, and pending buffers at shutdown.
+
+The helper's unit tests cover:
+
+- launcher marker plus quiet detection;
+- both main-menu markers plus a deferred line that resets the quiet timer;
+- inode-based extraction after log rotation/rename.
 
 ## Output
 
@@ -130,17 +167,21 @@ comparison-result.json
 samplesPerMode: 1
 preliminaryOnly: true
 benchmarkAccepted: false
-preparedMinusCompatibilityMs
+timingMethod: automatic-starsector-log-phase-detection
+preparedMinusCompatibilityMs.launcherReady
+preparedMinusCompatibilityMs.gameLogStartToMainMenu
 preparedMinusCompatibilityLogCounts
 logPatternCountsEqual
+automaticDetectionVisuallyAccepted
 ```
 
 ## Decision after the pilot
 
-Review the retained logs before authorizing more runs.
+Review the retained logs and detector evidence before authorizing more runs.
 
-- If the nonfatal diagnostics are equivalent, classify them as compatibility-profile baseline for this scope and design the repeated timing campaign.
-- If they appear only or more often in prepared mode, investigate the prepared carrier path before timing or default enablement.
+- If the nonfatal diagnostics are equivalent and both automatic detections are visually accepted, classify the messages as compatibility-profile baseline for this scope and design the repeated timing campaign.
+- If the diagnostics appear only or more often in prepared mode, investigate the prepared carrier path before timing or default enablement.
+- If the detector fires early or cannot establish the exact phase, adjust the reviewed marker contract before collecting timing samples.
 - If either half fails visually or technically, stop and retain compatibility mode as rollback.
 
 Do not repeat the pilot, enable coherent-direct by default, or claim acceleration from one pair.
