@@ -21,6 +21,8 @@ Portable identity, format, validation, and report code. Current persisted format
 
 A Java 17 agent injected into the selected child launcher through process-local `JAVA_TOOL_OPTIONS`. It starts JFR in `premain`, records bounded evidence, applies exact source-bound adapter targets, and leaves unknown or changed installations untouched.
 
+The startup recording is dumped by the JVM's own JFR shutdown hook (`dumpOnExit`), never by the agent's shutdown hook. Both hooks run concurrently, and the JVM's hook wipes the JFR chunk repository as its last step, so an agent-side `Recording.stop()` can be caught between stopping the recording and transferring its chunks and dump a zero-byte file over the destination. The agent's own hook is therefore limited to best-effort evidence and adapter-report finalization.
+
 The current live texture plans are:
 
 - `texture-compatibility-v2`: reconstructs a decoded image from a verified prepared blob while preserving Starsector's asynchronous preloader and the rest of the original texture path. It passed bounded behavioral acceptance on Starsector 0.98a-RC8 on 2026-07-19. Repeated timing remains pending.

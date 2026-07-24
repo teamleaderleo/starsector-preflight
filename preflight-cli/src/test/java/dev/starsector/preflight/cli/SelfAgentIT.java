@@ -44,7 +44,18 @@ class SelfAgentIT {
         assertTrue(Files.isRegularFile(recording), output);
         assertTrue(Files.size(recording) > 0, output);
         try (RecordingFile file = new RecordingFile(recording)) {
-            assertTrue(file.hasMoreEvents());
+            assertTrue(file.hasMoreEvents(), output);
+            assertTrue(startedTheAgent(file), output);
         }
+    }
+
+    /** Reports whether the dump preserved the event the agent commits as it starts recording. */
+    private static boolean startedTheAgent(RecordingFile file) throws Exception {
+        while (file.hasMoreEvents()) {
+            if ("preflight.AgentStarted".equals(file.readEvent().getEventType().getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 }
