@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -59,5 +61,39 @@ class ProfileCensusTest {
 
         assertNotEquals(values.get("profileFingerprint"), reordered.values().get("profileFingerprint"));
         assertEquals("alpha", reorderedDuplicates.get(0).get("probableWinner"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void breaksDownDecodedVramPerModFromExactImageDimensions() throws Exception {
+        Path mods = temporaryDirectory.resolve("mods");
+        Path big = mods.resolve("Big");
+        Path small = mods.resolve("Small");
+        Files.createDirectories(big.resolve("graphics"));
+        Files.createDirectories(small.resolve("graphics"));
+        Files.writeString(big.resolve("mod_info.json"), "{\"id\":\"big\"}");
+        Files.writeString(small.resolve("mod_info.json"), "{\"id\":\"small\"}");
+        // Big ships a 100x100 RGBA image (100*100*4 = 40000 decoded bytes).
+        ImageIO.write(new BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB), "png",
+                big.resolve("graphics/hull.png").toFile());
+        // Small ships a 10x10 RGB image (10*10*3 = 300 decoded bytes) plus one unmeasurable "image".
+        ImageIO.write(new BufferedImage(10, 10, BufferedImage.TYPE_INT_RGB), "png",
+                small.resolve("graphics/icon.png").toFile());
+        Files.writeString(small.resolve("graphics/broken.png"), "not really a png");
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[\"big\",\"small\"]}");
+
+        Map<String, Object> values = ProfileCensus.scan(temporaryDirectory).values();
+        Map<String, Object> totals = (Map<String, Object>) values.get("totals");
+        assertEquals(40000L + 300L, totals.get("decodedImageBytes"));
+        assertEquals(2L, totals.get("measuredImageFiles"));
+        assertEquals(1L, totals.get("unmeasuredImageFiles"), "the fake PNG is counted, not guessed");
+
+        // Decoded ranking puts Big first even though both are tiny on disk.
+        List<Map<String, Object>> largestDecoded = (List<Map<String, Object>>) values.get("largestDecodedMods");
+        assertEquals("big", largestDecoded.get(0).get("id"));
+        assertEquals(40000L, largestDecoded.get(0).get("decodedImageBytes"));
+
+        Map<String, Object> workingSet = (Map<String, Object>) values.get("decodedWorkingSet");
+        assertEquals(40000L + 300L, workingSet.get("decodedImageBytes"));
     }
 }
