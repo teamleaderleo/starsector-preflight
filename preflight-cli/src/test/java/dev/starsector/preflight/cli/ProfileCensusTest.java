@@ -128,6 +128,39 @@ class ProfileCensusTest {
         assertEquals(60_000L - 40_000L, under.get("headroomBytes"));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void resolvesOverrideCollisionsToTheWinningProviderForTheDecodedFloor() throws Exception {
+        Path mods = temporaryDirectory.resolve("mods");
+        Path low = mods.resolve("Low");
+        Path high = mods.resolve("High");
+        Files.createDirectories(low.resolve("graphics"));
+        Files.createDirectories(high.resolve("graphics"));
+        Files.writeString(low.resolve("mod_info.json"), "{\"id\":\"low\"}");
+        Files.writeString(high.resolve("mod_info.json"), "{\"id\":\"high\"}");
+        // Both ship the SAME logical path graphics/shared.png; only the override winner loads.
+        // "low" is enabled first (order 0) with a big 100x100 RGBA image (40000 decoded bytes);
+        // "high" is enabled later (order 1, the winner) with a tiny 10x10 RGBA image (400 bytes).
+        ImageIO.write(new BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB), "png",
+                low.resolve("graphics/shared.png").toFile());
+        ImageIO.write(new BufferedImage(10, 10, BufferedImage.TYPE_INT_ARGB), "png",
+                high.resolve("graphics/shared.png").toFile());
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[\"low\",\"high\"]}");
+
+        Map<String, Object> values = ProfileCensus.scan(temporaryDirectory, OptionalLong.of(1_000)).values();
+        Map<String, Object> workingSet = (Map<String, Object>) values.get("decodedWorkingSet");
+
+        // All-providers counts both copies; winner-only counts just the loaded (high-order) one.
+        assertEquals(40_000L + 400L, workingSet.get("decodedImageBytes"));
+        assertEquals(400L, workingSet.get("winnerDecodedImageBytes"));
+        assertEquals(1L, workingSet.get("winnerMeasuredImageFiles"));
+
+        // The verdict grades the winner floor: 400 fits a 1000 budget even though all-providers is over.
+        Map<String, Object> budgetVerdict = (Map<String, Object>) workingSet.get("budgetVerdict");
+        assertEquals("under", budgetVerdict.get("verdict"));
+        assertEquals(400L, budgetVerdict.get("floorBytes"));
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> verdict(ProfileCensus.Result result) {
         Map<String, Object> workingSet = (Map<String, Object>) result.values().get("decodedWorkingSet");
