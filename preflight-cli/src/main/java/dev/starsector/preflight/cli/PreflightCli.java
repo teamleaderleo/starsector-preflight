@@ -159,7 +159,9 @@ public final class PreflightCli {
                 "preflight prepare [--game <path>] [--launcher <path>] [--cache-dir <path>] [--report <path>] [--workers <count>] [--memory-mb <MiB>] [--deep] [--verify-lookups] [--lookup-queries <count>] [--seed <long>] [--no-resource-index] [--no-classpath] [--no-textures]"));
         usage.put("doctor", List.of("preflight doctor [--game <path>] [--launcher <path>]"));
         usage.put("install", List.of("preflight install [--game <path>] [--launcher <path>]"));
-        usage.put("scan", List.of("preflight scan [--game <path>] [--launcher <path>] [--json <profile.json>]"));
+        usage.put("scan", List.of(
+                "preflight scan [--game <path>] [--launcher <path>] [--json <profile.json>] [--vram-budget <size>]",
+                "  --vram-budget accepts bytes or a K/M/G suffix (e.g. 4G); adds a decoded-VRAM budget verdict"));
         usage.put("index", List.of(
                 "preflight index build [--game <path>] [--launcher <path>] [--output <index.spfi>]",
                 "preflight index inspect <index.spfi>",

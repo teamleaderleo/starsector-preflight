@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -95,5 +96,41 @@ class ProfileCensusTest {
 
         Map<String, Object> workingSet = (Map<String, Object>) values.get("decodedWorkingSet");
         assertEquals(40000L + 300L, workingSet.get("decodedImageBytes"));
+        // No budget requested -> no verdict emitted.
+        assertTrue(!workingSet.containsKey("budgetVerdict"), "verdict is opt-in via a budget");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void gradesTheDecodedWorkingSetAgainstAVramBudget() throws Exception {
+        Path mods = temporaryDirectory.resolve("mods");
+        Path only = mods.resolve("Only");
+        Files.createDirectories(only.resolve("graphics"));
+        Files.writeString(only.resolve("mod_info.json"), "{\"id\":\"only\"}");
+        // One 100x100 RGBA image: floor = 40000 bytes; full-mip upper bound = 40000 + ceil(40000/3) = 53334.
+        ImageIO.write(new BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB), "png",
+                only.resolve("graphics/hull.png").toFile());
+        Files.writeString(mods.resolve("enabled_mods.json"), "{\"enabledMods\":[\"only\"]}");
+
+        // Budget below the floor -> the base levels alone already exceed it.
+        Map<String, Object> over = verdict(ProfileCensus.scan(temporaryDirectory, OptionalLong.of(30_000)));
+        assertEquals("over", over.get("verdict"));
+        assertEquals(30_000L - 40_000L, over.get("headroomBytes"));
+
+        // Budget above the floor but below the full-mip upper bound -> at risk.
+        Map<String, Object> atRisk = verdict(ProfileCensus.scan(temporaryDirectory, OptionalLong.of(50_000)));
+        assertEquals("at-risk", atRisk.get("verdict"));
+        assertEquals(53_334L, atRisk.get("fullMipChainUpperBoundBytes"));
+
+        // Budget above even the upper bound -> comfortably under.
+        Map<String, Object> under = verdict(ProfileCensus.scan(temporaryDirectory, OptionalLong.of(60_000)));
+        assertEquals("under", under.get("verdict"));
+        assertEquals(60_000L - 40_000L, under.get("headroomBytes"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> verdict(ProfileCensus.Result result) {
+        Map<String, Object> workingSet = (Map<String, Object>) result.values().get("decodedWorkingSet");
+        return (Map<String, Object>) workingSet.get("budgetVerdict");
     }
 }
