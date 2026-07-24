@@ -98,8 +98,11 @@ Separate from the speed-first milestone program above:
    surfaced a 4.7 GB decoded floor from 1.1 GB on disk, and a decoded ranking that inverts
    the on-disk one (e.g. a 47 MB mod = 986 MB VRAM). `scan --vram-budget <size>` now grades
    that floor with a three-way advisory verdict (`over` / `at-risk` / `under`), where `at-risk`
-   means the base levels fit but a full mip chain (floor + floor/3) would not — on the real
-   profile, a 4G budget reads `over` by 428 MB. That closes roadmap #4.)*
+   means the base levels fit but a full mip chain (floor + floor/3) would not. The verdict is
+   graded against the override-resolved `winnerDecodedImageBytes` (only the loaded provider at
+   each logical path), not the all-providers total, so texture-replacer overlap can't inflate it
+   into a false `over` — on the real profile a 4G budget reads `over` by 388 MB. That closes
+   roadmap #4.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
 6. Font quality: **mechanism confirmed in-game** — mod override of core fonts works, and the
    core UI renders at declared `.fnt` metrics (so an `N×` pack is *bigger* text, not

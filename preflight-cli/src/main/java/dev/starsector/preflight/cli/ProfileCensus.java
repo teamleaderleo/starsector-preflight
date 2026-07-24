@@ -117,6 +117,10 @@ final class ProfileCensus {
     private record Provider(String modId, int order) {
     }
 
+    /** The override-winning image at one logical path: its enabled order and decoded footprint. */
+    private record WinnerImage(int order, long decodedBytes, boolean measured) {
+    }
+
     private static final class ModStats {
         final String id;
         final Path directory;
@@ -170,6 +174,7 @@ final class ProfileCensus {
         private final List<String> diagnostics;
         private final Map<String, long[]> extensionTotals = new HashMap<>();
         private final Map<String, List<Provider>> providersByLogicalPath = new HashMap<>();
+        private final Map<String, WinnerImage> winnerByPath = new HashMap<>();
         private final List<ModStats> modStats = new ArrayList<>();
         private final PriorityQueue<Asset> largest = new PriorityQueue<>(
                 Comparator.comparingLong(Asset::bytes)
@@ -271,7 +276,7 @@ final class ProfileCensus {
             String extension = extension(logicalPath);
             classify(stats, extension, bytes);
             if (IMAGE_EXTENSIONS.contains(extension)) {
-                recordDecodedImage(stats, file);
+                recordDecodedImage(stats, file, logicalPath, mod.order());
             }
         }
 
@@ -280,14 +285,20 @@ final class ProfileCensus {
          * dimensions from the header only. Unreadable or unsupported formats are counted as
          * unmeasured rather than guessed, so the decoded total stays an exact floor. This does not
          * feed the profile fingerprint — it is pure read-only accounting.
+         *
+         * <p>The all-providers totals ({@code decodedImageBytes}) count every enabled image, which
+         * over-counts overridden paths. In parallel this records the winning provider per logical
+         * path (highest enabled order) so {@link #finish} can also report the tighter
+         * override-resolved working set — closer to what actually loads at each path.
          */
-        private void recordDecodedImage(ModStats stats, Path file) {
+        private void recordDecodedImage(ModStats stats, Path file, String logicalPath, int order) {
             Optional<ImageHeaderReader.ImageDimensions> dimensions;
             try {
                 dimensions = ImageHeaderReader.read(file);
             } catch (IOException error) {
                 dimensions = Optional.empty();
             }
+            recordWinner(logicalPath, order, dimensions);
             if (dimensions.isPresent()) {
                 long decoded = dimensions.get().decodedBytes();
                 stats.decodedImageBytes += decoded;
@@ -297,6 +308,20 @@ final class ProfileCensus {
             } else {
                 stats.unmeasuredImageFiles++;
                 unmeasuredImageFiles++;
+            }
+        }
+
+        /**
+         * Keeps only the highest-enabled-order provider for each logical path — the override winner,
+         * the one the game actually loads. Mods are scanned in ascending enabled order, but this
+         * guards on {@code order} explicitly so it does not depend on that.
+         */
+        private void recordWinner(String logicalPath, int order, Optional<ImageHeaderReader.ImageDimensions> dims) {
+            String key = logicalPath.toLowerCase(Locale.ROOT);
+            WinnerImage existing = winnerByPath.get(key);
+            if (existing == null || order >= existing.order()) {
+                long decoded = dims.map(ImageHeaderReader.ImageDimensions::decodedBytes).orElse(0L);
+                winnerByPath.put(key, new WinnerImage(order, decoded, dims.isPresent()));
             }
         }
 
@@ -385,13 +410,34 @@ final class ProfileCensus {
             values.put("mods", modsByOrder);
             values.put("largestMods", largestMods);
             values.put("largestDecodedMods", largestDecodedMods);
+            long winnerDecodedImageBytes = 0;
+            long winnerMeasuredImageFiles = 0;
+            long winnerUnmeasuredImageFiles = 0;
+            for (WinnerImage winner : winnerByPath.values()) {
+                if (winner.measured()) {
+                    winnerDecodedImageBytes += winner.decodedBytes();
+                    winnerMeasuredImageFiles++;
+                } else {
+                    winnerUnmeasuredImageFiles++;
+                }
+            }
+
             Map<String, Object> decodedWorkingSet = new LinkedHashMap<>();
             decodedWorkingSet.put("decodedImageBytes", decodedImageBytes);
             decodedWorkingSet.put("measuredImageFiles", measuredImageFiles);
             decodedWorkingSet.put("unmeasuredImageFiles", unmeasuredImageFiles);
-            decodedWorkingSet.put("basis", "exact width*height*channels from image headers; unmeasured formats excluded");
+            // Override-resolved: only the winning provider at each logical path, i.e. what the game
+            // actually loads there. Equals the all-providers total when no paths collide.
+            decodedWorkingSet.put("winnerDecodedImageBytes", winnerDecodedImageBytes);
+            decodedWorkingSet.put("winnerMeasuredImageFiles", winnerMeasuredImageFiles);
+            decodedWorkingSet.put("winnerUnmeasuredImageFiles", winnerUnmeasuredImageFiles);
+            decodedWorkingSet.put("basis",
+                    "exact width*height*channels from image headers; unmeasured formats excluded; "
+                            + "winner* fields resolve override collisions to the loaded provider");
+            // Grade against the override-resolved floor — the truthful "what loads" figure.
+            long winnerFloor = winnerDecodedImageBytes;
             vramBudgetBytes.ifPresent(budget ->
-                    decodedWorkingSet.put("budgetVerdict", budgetVerdict(decodedImageBytes, budget)));
+                    decodedWorkingSet.put("budgetVerdict", budgetVerdict(winnerFloor, budget)));
             values.put("decodedWorkingSet", decodedWorkingSet);
             values.put("largestAssets", largestAssets);
             values.put("overrideSemantics", "probable-enabled-order-only");
@@ -455,10 +501,11 @@ final class ProfileCensus {
      * Advisory capacity check of the decoded working set against a user-supplied VRAM budget.
      *
      * <p>The verdict is deliberately three-way and honest about what the floor is. {@code floorBytes}
-     * is the exact sum of base-level {@code width*height*channels} over every measured enabled image.
-     * It ignores mip chains and NPOT padding (which raise real residency) and counts overridden
-     * duplicates more than once (which lowers it relative to what actually loads) — so it is a coarse
-     * order-of-magnitude signal, not a precise prediction. Against that:
+     * is the override-resolved sum of base-level {@code width*height*channels} over the winning image
+     * at each logical path. It ignores mip chains and NPOT padding and counts RGB at 3 bytes/px where
+     * the GPU may pad to 4 (both raise real residency), and counts every winner image whether or not
+     * it loads this session — so it is a coarse order-of-magnitude signal, not a precise prediction.
+     * Against that:
      * <ul>
      *   <li>{@code over} — the floor alone already exceeds the budget; residency is certainly over.
      *   <li>{@code at-risk} — the base levels fit, but a full mip chain (an upper bound of
@@ -482,7 +529,8 @@ final class ProfileCensus {
         values.put("floorBytes", floorBytes);
         values.put("fullMipChainUpperBoundBytes", fullMipUpperBound);
         values.put("headroomBytes", budgetBytes - floorBytes);
-        values.put("note", "advisory: floor excludes mips/NPOT padding and counts overridden duplicates");
+        values.put("note", "advisory: override-resolved floor; excludes mips/NPOT padding, "
+                + "counts RGB as 3B/px (GPU may pad to 4), and counts every winner image whether or not loaded this session");
         return values;
     }
 
