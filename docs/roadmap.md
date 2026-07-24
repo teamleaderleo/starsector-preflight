@@ -101,8 +101,10 @@ Separate from the speed-first milestone program above:
    means the base levels fit but a full mip chain (floor + floor/3) would not. The verdict is
    graded against the override-resolved `winnerDecodedImageBytes` (only the loaded provider at
    each logical path), not the all-providers total, so texture-replacer overlap can't inflate it
-   into a false `over` — on the real profile a 4G budget reads `over` by 388 MB. That closes
-   roadmap #4.)*
+   into a false `over` — on the real profile a 4G budget reads `over` by 388 MB. `doctor` now
+   prints a compact decoded-working-set summary (override-resolved floor, loudest decoded mods,
+   pointer to the budget verdict) so the estimate is visible from the command users actually run,
+   not just `scan --json`. That closes roadmap #4.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
 6. Font quality: **mechanism confirmed in-game** — mod override of core fonts works, and the
    core UI renders at declared `.fnt` metrics (so an `N×` pack is *bigger* text, not

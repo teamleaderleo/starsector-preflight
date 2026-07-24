@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -184,7 +185,69 @@ final class RunCommand {
                 options.game(),
                 options.launcher());
         printDiscovery(discovery);
+        if (discovery.selected() != null) {
+            printProfileVramSummary(discovery.selected());
+        }
         return discovery.selected() == null ? 3 : 0;
+    }
+
+    /**
+     * Prints a compact decoded-texture (VRAM) working-set summary for the selected install. This is
+     * a health-check view of {@link ProfileCensus}: the override-resolved decoded floor, the loudest
+     * mods, and a pointer to the budget verdict. Fail-soft — a scan problem must never fail doctor.
+     */
+    private static void printProfileVramSummary(LaunchTarget target) {
+        try {
+            System.out.println();
+            System.out.println("Preflight is scanning the enabled mod profile for decoded-texture (VRAM) cost...");
+            Map<String, Object> values = ProfileCensus.scan(target.installRoot()).values();
+            Map<String, Object> totals = asMap(values.get("totals"));
+            Map<String, Object> workingSet = asMap(values.get("decodedWorkingSet"));
+            List<?> enabled = values.get("enabledModIds") instanceof List<?> list ? list : List.of();
+            long winnerFloor = asLong(workingSet.get("winnerDecodedImageBytes"));
+            long allFloor = asLong(workingSet.get("decodedImageBytes"));
+            long unmeasured = asLong(workingSet.get("unmeasuredImageFiles"));
+
+            System.out.println("Decoded working set (enabled profile):");
+            System.out.println("  enabled mods:   " + enabled.size());
+            System.out.println("  image files:    " + asLong(totals.get("imageFiles"))
+                    + (unmeasured > 0 ? " (" + unmeasured + " unmeasured)" : ""));
+            System.out.println("  decoded floor:  " + humanBytes(winnerFloor) + " override-resolved"
+                    + "  (" + humanBytes(allFloor) + " counting all providers)");
+            List<?> largestDecoded = values.get("largestDecodedMods") instanceof List<?> list ? list : List.of();
+            if (!largestDecoded.isEmpty()) {
+                System.out.println("  largest decoded mods:");
+                largestDecoded.stream().limit(3).forEach(entry -> {
+                    Map<String, Object> mod = asMap(entry);
+                    System.out.println("    " + humanBytes(asLong(mod.get("decodedImageBytes"))) + "  " + mod.get("id"));
+                });
+            }
+            System.out.println("  budget verdict: run `preflight scan --vram-budget <size>` (e.g. 4G) to grade it");
+        } catch (IOException | RuntimeException error) {
+            System.err.println("Preflight profile scan skipped: " + message(error));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private static long asLong(Object value) {
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private static String humanBytes(long bytes) {
+        if (bytes >= (1L << 30)) {
+            return String.format(Locale.ROOT, "%.2f GB", bytes / (double) (1L << 30));
+        }
+        if (bytes >= (1L << 20)) {
+            return String.format(Locale.ROOT, "%.1f MB", bytes / (double) (1L << 20));
+        }
+        if (bytes >= (1L << 10)) {
+            return String.format(Locale.ROOT, "%.1f KB", bytes / (double) (1L << 10));
+        }
+        return bytes + " B";
     }
 
     private static void printPlan(
