@@ -3,6 +3,7 @@ package dev.starsector.preflight.cli;
 import dev.starsector.preflight.core.Json;
 import java.awt.Font;
 import java.awt.FontFormatException;
+import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import javax.imageio.ImageIO;
 
@@ -18,7 +20,11 @@ import javax.imageio.ImageIO;
  * AngelCode BMFont pair ({@code <name>.fnt} + {@code <name>_0.png}). Generating at N&times; a
  * font's on-screen size and drawing it at that size yields supersampled, crisp same-size text
  * (see {@code docs/asset-quality-track.md}). Ships no fonts: the vector source is supplied by
- * the operator (a TTF they hold, or a bundled logical font), keeping licensing with the user.
+ * the operator &mdash; a TTF they hold, a bundled logical font, or any font already installed on
+ * the machine (by family name) &mdash; keeping licensing with the user. Reading an installed font
+ * this way is a local, read-only operation (the same access Font Book uses); the generated pack is
+ * for the user's own install and should not be redistributed unless the source font's license
+ * permits it.
  */
 final class FontCommand {
     private FontCommand() {
@@ -26,13 +32,23 @@ final class FontCommand {
 
     static int execute(String[] args, int offset) throws IOException {
         if (offset >= args.length) {
-            throw new IllegalArgumentException("Expected: font <generate|generate-pack> ...");
+            throw new IllegalArgumentException("Expected: font <generate|generate-pack|list-families> ...");
         }
         return switch (args[offset]) {
             case "generate" -> generateOne(args, offset + 1);
             case "generate-pack" -> generatePack(args, offset + 1);
+            case "list-families" -> listFamilies();
             default -> throw new IllegalArgumentException("Unknown font command: " + args[offset]);
         };
+    }
+
+    /** Prints the font families installed on this machine, one per line (for {@code --family}). */
+    private static int listFamilies() {
+        for (String family : GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getAvailableFontFamilyNames(Locale.ROOT)) {
+            System.out.println(family);
+        }
+        return 0;
     }
 
     private static int generateOne(String[] args, int offset) throws IOException {
@@ -51,7 +67,7 @@ final class FontCommand {
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("descriptor", written.descriptor.toAbsolutePath().normalize());
         report.put("atlas", written.atlas.toAbsolutePath().normalize());
-        report.put("source", options.ttf != null ? options.ttf.toAbsolutePath().normalize() : options.logical);
+        report.put("source", sourceLabel(options.ttf, options.logical, options.family));
         report.put("family", baseFont.getFontName());
         report.put("size", options.size);
         report.put("glyphCount", result.glyphCount());
@@ -69,7 +85,7 @@ final class FontCommand {
      */
     private static int generatePack(String[] args, int offset) throws IOException {
         PackOptions options = parsePack(args, offset);
-        Font ttf = loadBaseFont(options.ttf, options.logical);
+        Font ttf = loadBaseFont(options.ttf, options.logical, options.family);
 
         Path outFonts = options.outDir.resolve("graphics").resolve("fonts");
         Files.createDirectories(outFonts);
@@ -113,7 +129,7 @@ final class FontCommand {
 
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("modDirectory", options.outDir.toAbsolutePath().normalize());
-        report.put("source", options.ttf != null ? options.ttf.toAbsolutePath().normalize() : options.logical);
+        report.put("source", sourceLabel(options.ttf, options.logical, options.family));
         report.put("family", ttf.getFontName());
         report.put("scale", options.scale);
         report.put("fontsGenerated", generated.size());
@@ -152,10 +168,10 @@ final class FontCommand {
     }
 
     private static Font loadFont(Options options) throws IOException {
-        return loadBaseFont(options.ttf, options.logical);
+        return loadBaseFont(options.ttf, options.logical, options.family);
     }
 
-    private static Font loadBaseFont(Path ttf, String logical) throws IOException {
+    private static Font loadBaseFont(Path ttf, String logical, String family) throws IOException {
         if (ttf != null) {
             try {
                 return Font.createFont(Font.TRUETYPE_FONT, ttf.toFile());
@@ -163,7 +179,33 @@ final class FontCommand {
                 throw new IOException("Not a usable TrueType/OpenType font: " + ttf, error);
             }
         }
+        if (family != null) {
+            return resolveInstalledFamily(family);
+        }
         return new Font(logicalAwtName(logical), Font.PLAIN, 12);
+    }
+
+    /**
+     * Resolves a font already installed on this machine by family name. AWT silently substitutes a
+     * fallback face ("Dialog") for an unknown family, which would rasterize the wrong font without
+     * warning, so this only returns when the name genuinely matches an installed family.
+     */
+    private static Font resolveInstalledFamily(String family) {
+        for (String installed : GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getAvailableFontFamilyNames(Locale.ROOT)) {
+            if (installed.equalsIgnoreCase(family)) {
+                return new Font(installed, Font.PLAIN, 12);
+            }
+        }
+        throw new IllegalArgumentException("Font family not installed: \"" + family
+                + "\". Run `preflight font list-families` to see available names.");
+    }
+
+    private static Object sourceLabel(Path ttf, String logical, String family) {
+        if (ttf != null) {
+            return ttf.toAbsolutePath().normalize();
+        }
+        return family != null ? family : logical;
     }
 
     private static String logicalAwtName(String logical) {
@@ -197,6 +239,7 @@ final class FontCommand {
             switch (args[i]) {
                 case "--ttf" -> options.ttf = Path.of(requireValue(args, ++i, "--ttf"));
                 case "--logical" -> options.logical = requireValue(args, ++i, "--logical");
+                case "--family" -> options.family = requireValue(args, ++i, "--family");
                 case "--size" -> options.size = Integer.parseInt(requireValue(args, ++i, "--size"));
                 case "--name" -> options.name = requireValue(args, ++i, "--name");
                 case "--out-dir" -> options.outDir = Path.of(requireValue(args, ++i, "--out-dir"));
@@ -226,6 +269,7 @@ final class FontCommand {
             switch (args[i]) {
                 case "--ttf" -> options.ttf = Path.of(requireValue(args, ++i, "--ttf"));
                 case "--logical" -> options.logical = requireValue(args, ++i, "--logical");
+                case "--family" -> options.family = requireValue(args, ++i, "--family");
                 case "--fonts-dir" -> options.fontsDir = Path.of(requireValue(args, ++i, "--fonts-dir"));
                 case "--out-dir" -> options.outDir = Path.of(requireValue(args, ++i, "--out-dir"));
                 case "--scale" -> options.scale = Integer.parseInt(requireValue(args, ++i, "--scale"));
@@ -245,6 +289,7 @@ final class FontCommand {
     private static final class PackOptions {
         private Path ttf;
         private String logical;
+        private String family;
         private Path fontsDir;
         private Path outDir;
         private int scale = 1;
@@ -255,9 +300,7 @@ final class FontCommand {
         private String gameVersion = "0.98a-RC8";
 
         private void validate() {
-            if ((ttf == null) == (logical == null)) {
-                throw new IllegalArgumentException("Provide exactly one of --ttf or --logical");
-            }
+            requireExactlyOneSource(ttf, logical, family);
             if (fontsDir == null) {
                 throw new IllegalArgumentException("--fonts-dir is required (the game's graphics/fonts directory)");
             }
@@ -270,9 +313,17 @@ final class FontCommand {
         }
     }
 
+    private static void requireExactlyOneSource(Path ttf, String logical, String family) {
+        int provided = (ttf != null ? 1 : 0) + (logical != null ? 1 : 0) + (family != null ? 1 : 0);
+        if (provided != 1) {
+            throw new IllegalArgumentException("Provide exactly one of --ttf, --logical, or --family");
+        }
+    }
+
     private static final class Options {
         private Path ttf;
         private String logical;
+        private String family;
         private int size = -1;
         private String name;
         private Path outDir;
@@ -282,9 +333,7 @@ final class FontCommand {
         private boolean latin1;
 
         private void validate() {
-            if ((ttf == null) == (logical == null)) {
-                throw new IllegalArgumentException("Provide exactly one of --ttf or --logical");
-            }
+            requireExactlyOneSource(ttf, logical, family);
             if (size <= 0) {
                 throw new IllegalArgumentException("--size must be a positive pixel size");
             }
