@@ -1,5 +1,6 @@
 package dev.starsector.preflight.cli;
 
+import dev.starsector.preflight.core.ImageHeaderReader;
 import dev.starsector.preflight.core.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
 
@@ -117,6 +119,9 @@ final class ProfileCensus {
         long bytes;
         long imageFiles;
         long imageBytes;
+        long decodedImageBytes;
+        long measuredImageFiles;
+        long unmeasuredImageFiles;
         long soundFiles;
         long soundBytes;
         long looseJavaFiles;
@@ -139,6 +144,9 @@ final class ProfileCensus {
             values.put("bytes", bytes);
             values.put("imageFiles", imageFiles);
             values.put("imageBytes", imageBytes);
+            values.put("decodedImageBytes", decodedImageBytes);
+            values.put("measuredImageFiles", measuredImageFiles);
+            values.put("unmeasuredImageFiles", unmeasuredImageFiles);
             values.put("soundFiles", soundFiles);
             values.put("soundBytes", soundBytes);
             values.put("looseJavaFiles", looseJavaFiles);
@@ -167,6 +175,9 @@ final class ProfileCensus {
         private long totalBytes;
         private long imageFiles;
         private long imageBytes;
+        private long decodedImageBytes;
+        private long measuredImageFiles;
+        private long unmeasuredImageFiles;
         private long soundFiles;
         private long soundBytes;
         private long looseJavaFiles;
@@ -252,7 +263,36 @@ final class ProfileCensus {
                         .add(new Provider(mod.id(), mod.order()));
             }
             addLargest(new Asset(mod.id(), logicalPath, bytes));
-            classify(stats, extension(logicalPath), bytes);
+            String extension = extension(logicalPath);
+            classify(stats, extension, bytes);
+            if (IMAGE_EXTENSIONS.contains(extension)) {
+                recordDecodedImage(stats, file);
+            }
+        }
+
+        /**
+         * Adds an image's exact decoded (VRAM) footprint to the per-mod and profile totals. Reads
+         * dimensions from the header only. Unreadable or unsupported formats are counted as
+         * unmeasured rather than guessed, so the decoded total stays an exact floor. This does not
+         * feed the profile fingerprint — it is pure read-only accounting.
+         */
+        private void recordDecodedImage(ModStats stats, Path file) {
+            Optional<ImageHeaderReader.ImageDimensions> dimensions;
+            try {
+                dimensions = ImageHeaderReader.read(file);
+            } catch (IOException error) {
+                dimensions = Optional.empty();
+            }
+            if (dimensions.isPresent()) {
+                long decoded = dimensions.get().decodedBytes();
+                stats.decodedImageBytes += decoded;
+                stats.measuredImageFiles++;
+                decodedImageBytes += decoded;
+                measuredImageFiles++;
+            } else {
+                stats.unmeasuredImageFiles++;
+                unmeasuredImageFiles++;
+            }
         }
 
         Result finish(List<ResolvedMod> mods, List<String> missing, long scanNanos) {
@@ -284,6 +324,14 @@ final class ProfileCensus {
                             .thenComparing(stats -> stats.id))
                     .map(ModStats::toMap)
                     .toList();
+            // Which mods actually cost the most VRAM once decoded — distinct from on-disk size,
+            // since compression ratios vary wildly between mods.
+            List<Map<String, Object>> largestDecodedMods = modStats.stream()
+                    .filter(stats -> stats.decodedImageBytes > 0)
+                    .sorted(Comparator.comparingLong((ModStats stats) -> stats.decodedImageBytes).reversed()
+                            .thenComparing(stats -> stats.id))
+                    .map(ModStats::toMap)
+                    .toList();
             List<Map<String, Object>> largestAssets = largest.stream()
                     .sorted(Comparator.comparingLong(Asset::bytes).reversed()
                             .thenComparing(Asset::modId)
@@ -296,6 +344,9 @@ final class ProfileCensus {
             totals.put("bytes", totalBytes);
             totals.put("imageFiles", imageFiles);
             totals.put("imageBytes", imageBytes);
+            totals.put("decodedImageBytes", decodedImageBytes);
+            totals.put("measuredImageFiles", measuredImageFiles);
+            totals.put("unmeasuredImageFiles", unmeasuredImageFiles);
             totals.put("soundFiles", soundFiles);
             totals.put("soundBytes", soundBytes);
             totals.put("looseJavaFiles", looseJavaFiles);
@@ -328,6 +379,13 @@ final class ProfileCensus {
             values.put("extensions", extensionReport);
             values.put("mods", modsByOrder);
             values.put("largestMods", largestMods);
+            values.put("largestDecodedMods", largestDecodedMods);
+            Map<String, Object> decodedWorkingSet = new LinkedHashMap<>();
+            decodedWorkingSet.put("decodedImageBytes", decodedImageBytes);
+            decodedWorkingSet.put("measuredImageFiles", measuredImageFiles);
+            decodedWorkingSet.put("unmeasuredImageFiles", unmeasuredImageFiles);
+            decodedWorkingSet.put("basis", "exact width*height*channels from image headers; unmeasured formats excluded");
+            values.put("decodedWorkingSet", decodedWorkingSet);
             values.put("largestAssets", largestAssets);
             values.put("overrideSemantics", "probable-enabled-order-only");
             values.put("duplicateLogicalPaths", duplicateLogicalPaths);
