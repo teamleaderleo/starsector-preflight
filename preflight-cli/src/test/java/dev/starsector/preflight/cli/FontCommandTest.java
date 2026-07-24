@@ -149,5 +149,43 @@ class FontCommandTest {
                 "font", "generate", "--logical", "sans-serif",
                 "--name", "x", "--out-dir", temporaryDirectory.toString()
         }));
+        // Two sources at once is also ambiguous.
+        assertThrows(IllegalArgumentException.class, () -> PreflightCli.run(new String[] {
+                "font", "generate", "--logical", "sans-serif", "--family", "Dialog",
+                "--size", "24", "--name", "x", "--out-dir", temporaryDirectory.toString()
+        }));
+    }
+
+    @Test
+    void generatesFromAnInstalledFontFamily() throws Exception {
+        // "Dialog" is one of AWT's always-present logical families, so it is guaranteed installed.
+        String family = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getAvailableFontFamilyNames(java.util.Locale.ROOT)[0];
+        int exit = PreflightCli.run(new String[] {
+                "font", "generate",
+                "--family", family,
+                "--size", "22",
+                "--name", "installed",
+                "--out-dir", temporaryDirectory.toString(),
+                "--ascii"
+        });
+        assertEquals(0, exit);
+        BitmapFont font = BitmapFont.parse(Files.readString(temporaryDirectory.resolve("installed.fnt")));
+        assertTrue(font.charIds().contains((int) 'A'), "expected ASCII coverage from installed family");
+        assertNotNull(ImageIO.read(temporaryDirectory.resolve("installed_0.png").toFile()), "atlas readable");
+    }
+
+    @Test
+    void rejectsAFamilyThatIsNotInstalled() {
+        assertThrows(IllegalArgumentException.class, () -> PreflightCli.run(new String[] {
+                "font", "generate",
+                "--family", "No Such Font Family 12345",
+                "--size", "22", "--name", "x", "--out-dir", temporaryDirectory.toString()
+        }));
+    }
+
+    @Test
+    void listFamiliesSucceeds() throws Exception {
+        assertEquals(0, PreflightCli.run(new String[] {"font", "list-families"}));
     }
 }
