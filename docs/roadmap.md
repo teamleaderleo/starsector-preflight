@@ -96,7 +96,10 @@ Separate from the speed-first milestone program above:
    header-only) feeds a per-mod decoded-VRAM breakdown in `scan` — `decodedWorkingSet`,
    per-mod `decodedImageBytes`, and `largestDecodedMods`. On a real ~70-mod profile this
    surfaced a 4.7 GB decoded floor from 1.1 GB on disk, and a decoded ranking that inverts
-   the on-disk one (e.g. a 47 MB mod = 986 MB VRAM). Remaining: Asset Lab budget verdict.)*
+   the on-disk one (e.g. a 47 MB mod = 986 MB VRAM). `scan --vram-budget <size>` now grades
+   that floor with a three-way advisory verdict (`over` / `at-risk` / `under`), where `at-risk`
+   means the base levels fit but a full mip chain (floor + floor/3) would not — on the real
+   profile, a 4G budget reads `over` by 428 MB. That closes roadmap #4.)*
 5. Add save/load and clean-exit outcomes to launcher-compatibility campaigns.
 6. Font quality: **mechanism confirmed in-game** — mod override of core fonts works, and the
    core UI renders at declared `.fnt` metrics (so an `N×` pack is *bigger* text, not

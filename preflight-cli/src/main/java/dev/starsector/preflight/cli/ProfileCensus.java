@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.PriorityQueue;
 import java.util.Set;
 
@@ -35,6 +36,10 @@ final class ProfileCensus {
     }
 
     static Result scan(Path installRoot) throws IOException {
+        return scan(installRoot, OptionalLong.empty());
+    }
+
+    static Result scan(Path installRoot, OptionalLong vramBudgetBytes) throws IOException {
         long scanStarted = System.nanoTime();
         GameLayout layout = GameLayout.locate(installRoot);
         List<String> diagnostics = new ArrayList<>(layout.diagnostics());
@@ -62,7 +67,7 @@ final class ProfileCensus {
         for (ResolvedMod mod : mods) {
             accumulator.scanMod(mod);
         }
-        return accumulator.finish(mods, missing, System.nanoTime() - scanStarted);
+        return accumulator.finish(mods, missing, System.nanoTime() - scanStarted, vramBudgetBytes);
     }
 
     private static Map<String, Path> discoverModDirectories(Path modsDirectory, List<String> diagnostics) throws IOException {
@@ -295,7 +300,7 @@ final class ProfileCensus {
             }
         }
 
-        Result finish(List<ResolvedMod> mods, List<String> missing, long scanNanos) {
+        Result finish(List<ResolvedMod> mods, List<String> missing, long scanNanos, OptionalLong vramBudgetBytes) {
             List<Map.Entry<String, List<Provider>>> duplicateEntries = providersByLogicalPath.entrySet().stream()
                     .filter(entry -> entry.getValue().size() > 1)
                     .sorted(Map.Entry.comparingByKey())
@@ -385,6 +390,8 @@ final class ProfileCensus {
             decodedWorkingSet.put("measuredImageFiles", measuredImageFiles);
             decodedWorkingSet.put("unmeasuredImageFiles", unmeasuredImageFiles);
             decodedWorkingSet.put("basis", "exact width*height*channels from image headers; unmeasured formats excluded");
+            vramBudgetBytes.ifPresent(budget ->
+                    decodedWorkingSet.put("budgetVerdict", budgetVerdict(decodedImageBytes, budget)));
             values.put("decodedWorkingSet", decodedWorkingSet);
             values.put("largestAssets", largestAssets);
             values.put("overrideSemantics", "probable-enabled-order-only");
@@ -442,6 +449,53 @@ final class ProfileCensus {
             profileDigest.update(value.getBytes(StandardCharsets.UTF_8));
             profileDigest.update((byte) 0);
         }
+    }
+
+    /**
+     * Advisory capacity check of the decoded working set against a user-supplied VRAM budget.
+     *
+     * <p>The verdict is deliberately three-way and honest about what the floor is. {@code floorBytes}
+     * is the exact sum of base-level {@code width*height*channels} over every measured enabled image.
+     * It ignores mip chains and NPOT padding (which raise real residency) and counts overridden
+     * duplicates more than once (which lowers it relative to what actually loads) — so it is a coarse
+     * order-of-magnitude signal, not a precise prediction. Against that:
+     * <ul>
+     *   <li>{@code over} — the floor alone already exceeds the budget; residency is certainly over.
+     *   <li>{@code at-risk} — the base levels fit, but a full mip chain (an upper bound of
+     *       {@code floor + floor/3}) would not; real cost lands somewhere in between.
+     *   <li>{@code under} — even the full-mip upper bound fits the budget.
+     * </ul>
+     */
+    private static Map<String, Object> budgetVerdict(long floorBytes, long budgetBytes) {
+        long fullMipUpperBound = saturatedAdd(floorBytes, ceilDiv(floorBytes, 3));
+        String verdict;
+        if (floorBytes > budgetBytes) {
+            verdict = "over";
+        } else if (fullMipUpperBound > budgetBytes) {
+            verdict = "at-risk";
+        } else {
+            verdict = "under";
+        }
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("verdict", verdict);
+        values.put("budgetBytes", budgetBytes);
+        values.put("floorBytes", floorBytes);
+        values.put("fullMipChainUpperBoundBytes", fullMipUpperBound);
+        values.put("headroomBytes", budgetBytes - floorBytes);
+        values.put("note", "advisory: floor excludes mips/NPOT padding and counts overridden duplicates");
+        return values;
+    }
+
+    private static long ceilDiv(long value, long divisor) {
+        return (value + divisor - 1) / divisor;
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        long sum = left + right;
+        if (((left ^ sum) & (right ^ sum)) < 0) {
+            return Long.MAX_VALUE;
+        }
+        return sum;
     }
 
     private static String normalize(Path path) {
