@@ -135,6 +135,12 @@ The prepared launcher emitted its final reviewed texture marker and then remaine
 
 The compatibility half began game loading roughly three to four seconds after its final launcher marker. The merged detector used only a 1.5-second launcher quiet confirmation. This does not prove that early clicking caused the resource-resolution failure, but it is an order-sensitive difference that the replacement harness must remove.
 
+## Operator note: reproduces on the base launcher (2026-07-24)
+
+The same `Error loading [...] resource, not found in [...]` fatal was reproduced by hand on the plain vanilla launcher with the full mod set and **no preflight involved**, by quitting mid-load and relaunching within a couple of seconds. On the reproduced run the printed resource-search path was complete (all enabled mods present, ending `../starfarer.res/res,CLASSPATH`) and the "missing" file was present and unmodified on disk; a second later victim was a mod mission (`data/missions/armaa_test/mission_text.txt`), not the core one. This looks like a Starsector-side startup ordering artifact on fast relaunch, not a preflight or texture-adapter defect, and is treated as unavoidable and not worth chasing into obfuscated code. It is noted only so the "causality unproven" statement above is not later misread as suspicion of the adapter.
+
+Corollary for repair item 5 below: because the file is present and byte-identical in these failures, a disk-state guard (`.is_file()` + hashing, as in `scripts/starsector_core_resource_guard.py`) cannot detect this class of failure. It is a runtime-resolution failure, not a missing/changed file.
+
 ## Required repair
 
 Before one replacement comparison is authorized, the runner must:
