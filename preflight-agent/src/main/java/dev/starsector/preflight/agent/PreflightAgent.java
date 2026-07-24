@@ -38,7 +38,7 @@ public final class PreflightAgent {
         try {
             Runtime.getRuntime().addShutdownHook(new Thread(
                     () -> {
-                        stopRecording(recording, options.destination());
+                        markStopping(recording);
                         closeAdapter(adapterSession);
                     },
                     "Preflight-Shutdown"));
@@ -84,7 +84,11 @@ public final class PreflightAgent {
             Recording recording = new Recording(configuration);
             recording.setName("Starsector Preflight startup");
             recording.setToDisk(true);
-            recording.setDumpOnExit(false);
+            // The JVM must dump this recording from its own shutdown hook. That hook writes the
+            // destination before it wipes the chunk repository; a competing hook of ours that
+            // stopped the recording could be caught between those two steps and dump a recording
+            // whose chunks had already been deleted, leaving an empty file behind.
+            recording.setDumpOnExit(true);
             recording.setDestination(destination);
             configureStartupEvents(recording);
             recording.start();
@@ -123,6 +127,23 @@ public final class PreflightAgent {
         recording.enable("jdk.ExecutionSample").withPeriod(Duration.ofMillis(10)).withStackTrace();
     }
 
+    /**
+     * Marks the end of startup while the JVM shuts down. The recording itself is dumped by the
+     * JVM's own shutdown hook, which runs alongside this one, so the event is best effort: it lands
+     * in the recording only when this hook reaches it before that dump.
+     */
+    private static void markStopping(Recording recording) {
+        if (recording == null || recording.getState() != RecordingState.RUNNING) {
+            return;
+        }
+        try {
+            AgentStopping stopping = new AgentStopping();
+            stopping.commit();
+        } catch (Throwable error) {
+            log("Could not record shutdown: " + message(error));
+        }
+    }
+
     private static void stopRecording(Recording recording, Path destination) {
         if (recording == null) {
             return;
@@ -140,10 +161,12 @@ public final class PreflightAgent {
             if (recording.getState() != RecordingState.CLOSED) {
                 recording.close();
             }
-            if (Files.isRegularFile(destination)) {
-                log("Wrote startup recording to " + destination);
-            } else {
+            if (!Files.isRegularFile(destination)) {
                 log("Recording ended without creating " + destination);
+            } else if (Files.size(destination) == 0L) {
+                log("Recording ended with an empty " + destination);
+            } else {
+                log("Wrote startup recording to " + destination);
             }
         } catch (Throwable error) {
             log("Failed to finish recording: " + message(error));
